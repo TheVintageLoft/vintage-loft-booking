@@ -308,8 +308,11 @@ app.post('/api/bookings', async (req, res) => {
     db.exec('COMMIT');
   } catch (e) { try { db.exec('ROLLBACK'); } catch (_) {} return res.status(500).json({ error: e.message }); }
 
-  // 2) Charge once for the whole order (awaits Square in real mode)
-  const pay = await payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: paymentToken });
+  // 2) Charge once for the whole order — unless it's free (owner code / full credit).
+  //    Square cannot process a $0.00 amount, so skip the processor entirely when nothing is owed.
+  const pay = grandTotal <= 0
+    ? { ok: true, ref: 'FREE-' + Date.now().toString(36).toUpperCase(), mode: 'free' }
+    : await payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: paymentToken });
 
   // 3) Confirm the reservations, or release them if the charge failed
   if (!pay.ok) {
