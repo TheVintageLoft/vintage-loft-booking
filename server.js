@@ -48,6 +48,7 @@ db.exec(`
 try { db.exec("ALTER TABLE bookings ADD COLUMN confirmation TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE bookings ADD COLUMN code TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE bookings ADD COLUMN discount REAL NOT NULL DEFAULT 0"); } catch (_) {}
+try { db.exec("ALTER TABLE bookings ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
 
 /* ---------- payments: Square Web Payments (test mode) with a stand-in fallback ----------
    Set these environment variables on the host to switch from stand-in to real Square:
@@ -86,6 +87,106 @@ const payments = {
   }
 };
 
+/* ---------- email (Resend HTTP API — no npm dependency) ----------
+   Set RESEND_API_KEY on the host to turn real sending on. Without it, we log and skip,
+   so a booking never fails because of an email problem. From/reply default to info@thevintageloft.ca. */
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const EMAIL_FROM = process.env.EMAIL_FROM || 'The Vintage Loft <info@thevintageloft.ca>';
+const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || 'info@thevintageloft.ca';
+const emailEnabled = !!RESEND_API_KEY;
+
+async function sendEmail({ to, subject, html }) {
+  if (!emailEnabled) { console.log('[email] skipped (no RESEND_API_KEY):', subject, '->', to); return { ok: false, skipped: true }; }
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + RESEND_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: EMAIL_FROM, to: [to], reply_to: EMAIL_REPLY_TO, subject, html })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) return { ok: true, id: d.id };
+    console.error('[email] send failed:', d && (d.message || JSON.stringify(d)));
+    return { ok: false, error: (d && d.message) || 'send failed' };
+  } catch (e) { console.error('[email] error:', e.message); return { ok: false, error: e.message }; }
+}
+
+const _months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const _weekdays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+function emFirst(name) { return ((name || '').trim().split(/\s+/)[0]) || 'there'; }
+function emTime(t) { const h = Math.floor(t); const m = Math.round((t - h) * 60); const ap = h < 12 ? 'AM' : 'PM'; let hh = h % 12; if (hh === 0) hh = 12; return hh + ':' + String(m).padStart(2, '0') + ' ' + ap; }
+function emDate(iso) { const p = (iso || '').split('-').map(Number); if (!p[0]) return iso || ''; const dt = new Date(Date.UTC(p[0], p[1] - 1, p[2])); return _weekdays[dt.getUTCDay()] + ', ' + _months[p[1] - 1] + ' ' + p[2] + ', ' + p[0]; }
+function emMoney(n) { return '$' + Number(n || 0).toFixed(2); }
+
+function emailShell(inner) {
+  return `<!doctype html><html><body style="margin:0;padding:0;background:#f4f1ea">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1ea"><tr><td align="center" style="padding:24px 12px">
+    <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:14px;overflow:hidden;font-family:Georgia,'Times New Roman',serif;color:#2b2b2b">
+      <tr><td style="background:#2b2622;padding:26px 30px;text-align:center">
+        <div style="color:#f4f1ea;font-size:24px;letter-spacing:1px">The Vintage Loft</div>
+        <div style="color:#c9b48a;font-size:12px;letter-spacing:3px;text-transform:uppercase;margin-top:6px">Studio Rentals &middot; Whitby</div>
+      </td></tr>
+      <tr><td style="padding:30px">${inner}</td></tr>
+      <tr><td style="background:#f4f1ea;padding:18px 30px;text-align:center;color:#8a8375;font-size:12px;font-family:Arial,sans-serif">
+        The Vintage Loft &middot; 207 Dundas St West, Whitby &middot; 905-767-2099
+      </td></tr>
+    </table>
+  </td></tr></table></body></html>`;
+}
+
+function bookingRowsHtml(bookings) {
+  return bookings.map(b => `
+    <tr>
+      <td style="padding:8px 0;border-bottom:1px solid #eee">
+        <b>${b.roomName}</b><br>
+        <span style="color:#8a8375;font-size:13px;font-family:Arial,sans-serif">${emDate(b.date)} &middot; ${emTime(b.start)}&ndash;${emTime(b.end)}</span>
+      </td>
+      <td align="right" style="padding:8px 0;border-bottom:1px solid #eee;white-space:nowrap">${emMoney(b.total)}</td>
+    </tr>`).join('');
+}
+
+function confirmationEmail({ name, confirmation, bookings, grandTotal, discountTotal }) {
+  const savings = discountTotal > 0 ? `<tr><td style="padding:6px 0;color:#2e7d32">Savings</td><td align="right" style="padding:6px 0;color:#2e7d32">&minus;${emMoney(discountTotal)}</td></tr>` : '';
+  const inner = `
+    <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(name)},</p>
+    <p style="margin:0 0 14px;line-height:1.6">Thanks for booking at The Vintage Loft Studios! We look forward to having you come in. You'll receive a reminder email the day before your booking.</p>
+    <div style="background:#f4f1ea;border-radius:10px;padding:16px 18px;margin:0 0 18px">
+      <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#8a8375;font-family:Arial,sans-serif;margin-bottom:10px">Your reservation &middot; ${confirmation}</div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="font-size:15px">
+        ${bookingRowsHtml(bookings)}
+        ${savings}
+        <tr><td style="padding:10px 0 0"><b>Total</b></td><td align="right" style="padding:10px 0 0"><b>${emMoney(grandTotal)}</b></td></tr>
+      </table>
+    </div>
+    <p style="margin:0 0 8px;font-weight:bold">Arrival information</p>
+    <div style="font-size:14px;line-height:1.6;font-family:Arial,sans-serif;margin:0 0 18px;color:#3a352f">
+      <p style="margin:0 0 6px"><b>Address:</b> 207 Dundas St West, Whitby &mdash; 2nd floor of the Pizza Nova Building.</p>
+      <p style="margin:0 0 6px"><b>Parking:</b> Free parking anywhere in our lot.</p>
+      <p style="margin:0 0 6px"><b>Studio:</b> 905-767-2099 &nbsp;&middot;&nbsp; <b>Kelly's cell:</b> 905-767-8099</p>
+    </div>
+    <p style="margin:0 0 18px;line-height:1.6">If you have any questions before you arrive, give us a call or text. See you soon!<br>Kelly &amp; The Vintage Loft Team</p>
+    <div style="background:#faf8f3;border:1px solid #eee;border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.6;color:#6b6459;font-family:Arial,sans-serif">
+      <b>Cancellation policy:</b> We do not give refunds for bookings, however we give full studio credit if cancelled or rescheduled with 48 hours or more notice. (Special holiday sets have a different cancellation policy.)
+    </div>`;
+  return emailShell(inner);
+}
+
+function reminderEmail({ name }) {
+  const inner = `
+    <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(name)},</p>
+    <p style="margin:0 0 14px;line-height:1.6">Just a friendly reminder that you're scheduled here at The Vintage Loft <b>tomorrow</b>.</p>
+    <p style="margin:0 0 14px;line-height:1.6"><b>Inside shoes:</b> Shoes are welcome in your photos! We simply ask that you bring a clean pair of indoor shoes, or the shoes you plan to wear for your session, rather than wearing outdoor shoes into the studio. Please remind everyone joining you to bring their photo shoes as well. If anyone forgets, we have slides available in the entryway.</p>
+    <p style="margin:0 0 14px;line-height:1.6">The door will be unlocked, so please come in and head upstairs. A member of our team will be there to greet you when you arrive. If you or anyone in your group requires assistance with the stairs, please call or text us when you arrive so we can help you use the chair lift.</p>
+    <p style="margin:0 0 14px;line-height:1.6">If you have questions prior to your visit, please give us a call or text (our studio line can also accept text messages).<br><b>Studio:</b> 905-767-2099 &nbsp;&middot;&nbsp; <b>Kelly's cell:</b> 905-767-8099</p>
+    <p style="margin:0;line-height:1.6">See you soon!<br>:) Kelly + Team</p>`;
+  return emailShell(inner);
+}
+
+async function sendConfirmationEmail({ email, name, confirmation, bookings, grandTotal, discountTotal }) {
+  if (!email) return;
+  const r = await sendEmail({ to: email, subject: "You're booked at The Vintage Loft!", html: confirmationEmail({ name, confirmation, bookings, grandTotal, discountTotal }) });
+  if (r.ok) console.log('[email] confirmation sent for', confirmation, '->', email);
+}
+
 /* ---------- helpers ---------- */
 const nowISO = () => new Date().toISOString();
 // Confirmation date code in the studio's local time zone (Eastern), as YYMMDD.
@@ -95,6 +196,14 @@ function torontoDateCode(d = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', year: '2-digit', month: '2-digit', day: '2-digit' }).formatToParts(d);
   const g = t => (parts.find(p => p.type === t) || {}).value || '';
   return g('year') + g('month') + g('day');
+}
+// Today's date (or an offset) in Toronto as YYYY-MM-DD. Host runs in UTC, so format explicitly.
+function torontoISO(offsetDays = 0) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const g = t => +((parts.find(p => p.type === t) || {}).value);
+  const base = new Date(Date.UTC(g('year'), g('month') - 1, g('day')));
+  base.setUTCDate(base.getUTCDate() + offsetDays);
+  return base.toISOString().slice(0, 10);
 }
 function isoOffset(days) { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); }
 function validTimes(start, end) {
@@ -332,6 +441,8 @@ app.post('/api/bookings', async (req, res) => {
   }
   const discountTotal = VL.round2(finals.reduce((s, f) => s + f.discount, 0));
   const created = reservedIds.map((id, i) => ({ id, room: items[i].room, roomName: quotes[i].roomName, date: items[i].date, start: +items[i].start, end: +items[i].end, total: finals[i].total, paid: finals[i].paid }));
+  // Send the confirmation email in the background — never block or fail the booking on an email problem.
+  sendConfirmationEmail({ email: customerEmail, name: customerName, confirmation, bookings: created, grandTotal, discountTotal }).catch(e => console.error('[email] confirmation error:', e.message));
   res.json({ ok: true, confirmation, bookings: created, grandTotal, discountTotal, code: codeInfo ? codeInfo.code : null, paymentMode: pay.mode, paymentRef: pay.ref });
 });
 
@@ -363,6 +474,25 @@ app.post('/api/admin/cancel', admin, (req, res) => {
   res.json({ ok: info.changes > 0 });
 });
 
+// Daily reminder job — call this once a day (external cron) to email everyone whose booking
+// starts TOMORROW (Toronto time). Grouped by reservation so a multi-studio order gets one email.
+// reminder_sent guards against duplicates if it's called more than once.
+app.get('/api/tasks/send-reminders', admin, async (req, res) => {
+  const target = torontoISO(1); // tomorrow in Toronto
+  const rows = db.prepare(`SELECT * FROM bookings WHERE date=? AND status='confirmed' AND reminder_sent=0`).all(target);
+  const groups = {};
+  for (const r of rows) { const k = r.confirmation || ('e:' + r.customer_email); (groups[k] = groups[k] || []).push(r); }
+  let sent = 0, failed = 0;
+  for (const k of Object.keys(groups)) {
+    const g = groups[k]; const first = g[0];
+    if (!first.customer_email) continue;
+    const r = await sendEmail({ to: first.customer_email, subject: 'See you tomorrow at The Vintage Loft!', html: reminderEmail({ name: first.customer_name }) });
+    if (r.ok) { const mark = db.prepare(`UPDATE bookings SET reminder_sent=1 WHERE id=?`); g.forEach(b => mark.run(b.id)); sent++; }
+    else if (!r.skipped) failed++;
+  }
+  res.json({ ok: true, date: target, reservations: Object.keys(groups).length, sent, failed, emailEnabled });
+});
+
 const PORT = process.env.PORT || 3000;
-if (require.main === module) app.listen(PORT, () => console.log(`Vintage Loft booking server on :${PORT} (payments: ${payments.mode})`));
+if (require.main === module) app.listen(PORT, () => console.log(`Vintage Loft booking server on :${PORT} (payments: ${payments.mode}, email: ${emailEnabled ? 'resend' : 'off'})`));
 module.exports = { app, db };
