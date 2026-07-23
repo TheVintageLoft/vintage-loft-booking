@@ -251,6 +251,7 @@
           <div id="codeMsg" style="font-size:13px;margin-top:8px"></div>
         </div>
 
+        <div id="paymentSection">
         <h3 style="font-size:15px;margin:20px 0 10px">Payment</h3>
         <div class="square-box">
           <div class="sqhead">🔒 Secured checkout powered by <b>Square</b></div>
@@ -270,6 +271,7 @@
               <input style="padding:11px 12px;border:1px solid var(--line);border-radius:10px" placeholder="CVV">
             </div>
           </div>
+        </div>
         </div>
         <div style="display:flex;gap:10px;margin-top:18px">
           <button class="btn btn-ghost" onclick="addAnotherStudio()">+ Add another space</button>
@@ -875,7 +877,10 @@ function renderReviewSummary(){
     + `<div class="sum-row"><span>HST (13%)</span><span>${money(hstSum)}</span></div>`
     + fixedLine
     + `<div class="sum-row total"><span>Total due now</span><span>${money(totalSum)}</span></div>`;
-  const pb=document.getElementById('payBtn'); if(pb) pb.textContent = 'Pay ' + money(totalSum) + ' & confirm';
+  orderTotalDue = totalSum;
+  const free = totalSum <= 0;
+  const ps=document.getElementById('paymentSection'); if(ps) ps.style.display = free ? 'none' : '';
+  const pb=document.getElementById('payBtn'); if(pb) pb.textContent = free ? 'Confirm booking' : ('Pay ' + money(totalSum) + ' & confirm');
 }
 
 /* charge once for the whole order; the server books every studio atomically */
@@ -886,7 +891,7 @@ async function payNow(){
   if(!order.length){ toast('Add a studio first'); return; }
   const btn = document.getElementById('payBtn'); btn.disabled = true; const l0 = btn.textContent; btn.textContent = 'Processing…';
   let paymentToken;
-  if(sqPayments){
+  if(sqPayments && orderTotalDue > 0){
     if(!sqCard){ toast('Card form is still loading — one moment.'); btn.disabled=false; btn.textContent=l0; return; }
     let result; try{ result = await sqCard.tokenize(); }catch(e){ toast('Card error, please retry.'); btn.disabled=false; btn.textContent=l0; return; }
     if(result.status!=='OK'){ document.getElementById('sq-errors').textContent=(result.errors&&result.errors[0]&&(result.errors[0].message||result.errors[0].detail))||'Please check your card details.'; btn.disabled=false; btn.textContent=l0; return; }
@@ -903,7 +908,7 @@ async function payNow(){
     document.getElementById('confirmDetail').innerHTML =
       d.bookings.map(b=>`<div class="bk"><div><b>${b.roomName}</b><div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)}</div></div><div style="text-align:right"><b>${money(b.total)}</b></div></div>`).join('')
       + savedLine
-      + `<div class="bk" style="border-color:transparent"><div><b>Total paid in full</b></div><div style="text-align:right"><b>${money(d.grandTotal)}</b></div></div>`;
+      + `<div class="bk" style="border-color:transparent"><div><b>${d.grandTotal>0?'Total paid in full':'Total'}</b></div><div style="text-align:right"><b>${money(d.grandTotal)}</b></div></div>`;
     order = []; cart = null; appliedCode = null; const ci=document.getElementById('codeInput'); if(ci)ci.value=''; const cm=document.getElementById('codeMsg'); if(cm)cm.textContent=''; go('confirm'); toast('Payment complete — booking saved');
   } catch(err){
     btn.disabled = false; btn.textContent = l0;
@@ -1031,7 +1036,7 @@ function renderSlotPanel(){
 }
 
 /* ---- Square Web Payments: loads the real card form only when the host has Square keys ---- */
-var sqConfig=null, sqPayments=null, sqCard=null;
+var sqConfig=null, sqPayments=null, sqCard=null, orderTotalDue=0;
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('sdk')); document.head.appendChild(s); }); }
 async function initSquare(){
   try{ sqConfig = await fetchJSON('/api/square-config'); }catch(e){ return; }
