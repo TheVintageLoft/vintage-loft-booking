@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: vintage-loft-booking
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: node --experimental-sqlite server.js
+    healthCheckPath: /api/rooms
+    autoDeploy: true
+    envVars:
+      - key: DB_PATH
+        value: /data/data.db
+      - key: ADMIN_KEY
+        generateValue: true
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
