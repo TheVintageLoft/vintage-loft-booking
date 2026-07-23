@@ -1,0 +1,25 @@
+<!-- The Vintage Loft — booking widget. Paste this whole block into a Squarespace Code block. -->
+<div id="vl-booking-wrap" style="max-width:1100px;margin:0 auto;">
+  <iframe id="vl-booking-frame"
+          src="https://vintage-loft-booking.onrender.com"
+          title="Book The Vintage Loft"
+          allow="payment; clipboard-write"
+          scrolling="no"
+          style="width:100%;border:0;overflow:hidden;min-height:900px;background:#fff;display:block;"></iframe>
+</div>
+<script>
+(function(){
+  var f = document.getElementById('vl-booking-frame');
+  var wrap = document.getElementById('vl-booking-wrap');
+  window.addEventListener('message', function(e){
+    var d = e && e.data;
+    if(!d || typeof d !== 'object') return;
+    if(typeof d.vlBookingHeight === 'number' && d.vlBookingHeight > 300){
+      f.style.height = (d.vlBookingHeight + 24) + 'px';
+    }
+    if(d.vlBookingScrollTop && wrap && wrap.getBoundingClientRect().top < 0){
+      wrap.scrollIntoView({behavior:'smooth', block:'start'});
+    }
+  });
+})();
+</script>

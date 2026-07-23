@@ -1062,5 +1062,26 @@ async function ensureSquareCard(){
   initSquare();
 })();
 </script>
+<script>
+/* When embedded in an iframe (e.g. on the Squarespace site), auto-report height so the
+   parent page can resize the frame to fit — no inner scrollbars or cut-off content. */
+(function(){
+  if (window.parent === window) return; // only when embedded
+  function postHeight(){
+    try {
+      var h = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight);
+      parent.postMessage({ vlBookingHeight: h }, '*');
+    } catch(e){}
+  }
+  window.addEventListener('load', postHeight);
+  window.addEventListener('resize', postHeight);
+  if (window.ResizeObserver){ try { new ResizeObserver(postHeight).observe(document.body); } catch(e){} }
+  setInterval(postHeight, 800);
+  if (typeof window.go === 'function'){
+    var _go = window.go;
+    window.go = function(){ var r = _go.apply(this, arguments); postHeight(); try { parent.postMessage({ vlBookingScrollTop: true }, '*'); } catch(e){} return r; };
+  }
+})();
+</script>
 </body>
 </html>

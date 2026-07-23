@@ -165,7 +165,7 @@ function confirmationEmail({ name, confirmation, bookings, grandTotal, discountT
     <div style="font-size:14px;line-height:1.6;font-family:Arial,sans-serif;margin:0 0 18px;color:#3a352f">
       <p style="margin:0 0 6px"><b>Address:</b> 207 Dundas St West, Whitby &mdash; 2nd floor of the Pizza Nova Building.</p>
       <p style="margin:0 0 6px"><b>Parking:</b> Free parking anywhere in our lot.</p>
-      <p style="margin:0 0 6px"><b>Studio:</b> 905-767-2099 &nbsp;&middot;&nbsp; <b>Kelly's cell:</b> 905-767-8099</p>
+      <p style="margin:0 0 6px"><b>Studio:</b> 905-767-2099<br><b>Kelly's cell:</b> 905-767-8099</p>
     </div>
     <p style="margin:0 0 18px;line-height:1.6">If you have any questions before you arrive, give us a call or text. See you soon!<br>Kelly &amp; The Vintage Loft Team</p>
     <div style="background:#f6f5f3;border:1px solid #eae8e4;border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.6;color:#6b6459;font-family:Arial,sans-serif">
@@ -174,14 +174,22 @@ function confirmationEmail({ name, confirmation, bookings, grandTotal, discountT
   return emailShell(inner);
 }
 
-function reminderEmail({ name }) {
+function reminderEmail({ name, confirmation, bookings }) {
+  const resBox = (bookings && bookings.length) ? `
+    <div style="background:#f6f5f3;border-radius:10px;padding:16px 18px;margin:0 0 18px">
+      <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#9a938a;font-family:Arial,sans-serif;margin-bottom:10px">Your reservation${confirmation ? ' &middot; ' + confirmation : ''}</div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="font-size:15px">
+        ${bookings.map(b => `<tr><td style="padding:6px 0"><b>${b.roomName}</b><br><span style="color:#8a8375;font-size:13px;font-family:Arial,sans-serif">${emDate(b.date)} &middot; ${emTime(b.start)}&ndash;${emTime(b.end)}</span></td></tr>`).join('')}
+      </table>
+    </div>` : '';
   const inner = `
     <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(name)},</p>
-    <p style="margin:0 0 14px;line-height:1.6">Just a friendly reminder that you're scheduled here at The Vintage Loft <b>tomorrow</b>.</p>
+    <p style="margin:0 0 16px;line-height:1.6">Just a friendly reminder that you're scheduled here at The Vintage Loft <b>tomorrow</b>.</p>
+    ${resBox}
     <p style="margin:0 0 14px;line-height:1.6"><b>Inside shoes:</b> Shoes are welcome in your photos! We simply ask that you bring a clean pair of indoor shoes, or the shoes you plan to wear for your session, rather than wearing outdoor shoes into the studio. Please remind everyone joining you to bring their photo shoes as well. If anyone forgets, we have slides available in the entryway.</p>
-    <p style="margin:0 0 14px;line-height:1.6">The door will be unlocked, so please come in and head upstairs. A member of our team will be there to greet you when you arrive. If you or anyone in your group requires assistance with the stairs, please call or text us when you arrive so we can help you use the chair lift.</p>
+    <p style="margin:0 0 14px;line-height:1.6"><b>Arrival info:</b> The door will be unlocked, so please come in and head upstairs. A member of our team will be there to greet you when you arrive. If you or anyone in your group requires assistance with the stairs, please call or text us when you arrive so we can help you use the chair lift.</p>
     <img src="${ARRIVAL_URL}" alt="How to find The Vintage Loft entrance — 207 Dundas St West, Whitby" width="540" style="width:100%;max-width:540px;height:auto;border:1px solid #eae8e4;border-radius:10px;display:block;margin:4px 0 16px">
-    <p style="margin:0 0 14px;line-height:1.6">If you have questions prior to your visit, please give us a call or text (our studio line can also accept text messages).<br><b>Studio:</b> 905-767-2099 &nbsp;&middot;&nbsp; <b>Kelly's cell:</b> 905-767-8099</p>
+    <p style="margin:0 0 14px;line-height:1.6">If you have questions prior to your visit, please give us a call or text (our studio line can also accept text messages).<br><b>Studio:</b> 905-767-2099<br><b>Kelly's cell:</b> 905-767-8099</p>
     <p style="margin:0;line-height:1.6">See you soon!<br>:) Kelly + Team</p>`;
   return emailShell(inner);
 }
@@ -491,7 +499,8 @@ async function sendRemindersForTomorrow() {
   for (const k of Object.keys(groups)) {
     const g = groups[k]; const first = g[0];
     if (!first.customer_email) continue;
-    const r = await sendEmail({ to: first.customer_email, subject: 'See you tomorrow at The Vintage Loft!', html: reminderEmail({ name: first.customer_name }) });
+    const bookingsForEmail = g.map(b => ({ roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end }));
+    const r = await sendEmail({ to: first.customer_email, subject: 'See you tomorrow at The Vintage Loft!', html: reminderEmail({ name: first.customer_name, confirmation: first.confirmation, bookings: bookingsForEmail }) });
     if (r.ok) { const mark = db.prepare(`UPDATE bookings SET reminder_sent=1 WHERE id=?`); g.forEach(b => mark.run(b.id)); sent++; }
     else if (!r.skipped) failed++;
   }
