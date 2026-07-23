@@ -1063,23 +1063,28 @@ async function ensureSquareCard(){
 })();
 </script>
 <script>
-/* When embedded in an iframe (e.g. on the Squarespace site), auto-report height so the
-   parent page can resize the frame to fit — no inner scrollbars or cut-off content. */
+/* When embedded in an iframe (e.g. the Squarespace site), report the TRUE content height so the
+   parent can size the frame to fit. We measure the lowest actual content element rather than the
+   document/viewport height — measuring the viewport would feed back on itself and grow forever. */
 (function(){
   if (window.parent === window) return; // only when embedded
+  var last = 0;
+  function contentHeight(){
+    var max = 0, kids = document.body.children;
+    for (var i = 0; i < kids.length; i++){ var r = kids[i].getBoundingClientRect(); if (r.bottom > max) max = r.bottom; }
+    return Math.ceil(max);
+  }
   function postHeight(){
-    try {
-      var h = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight);
-      parent.postMessage({ vlBookingHeight: h }, '*');
-    } catch(e){}
+    var h = contentHeight();
+    if (h > 0 && Math.abs(h - last) > 2){ last = h; try { parent.postMessage({ vlBookingHeight: h }, '*'); } catch(e){} }
   }
   window.addEventListener('load', postHeight);
   window.addEventListener('resize', postHeight);
   if (window.ResizeObserver){ try { new ResizeObserver(postHeight).observe(document.body); } catch(e){} }
-  setInterval(postHeight, 800);
+  setInterval(postHeight, 500);
   if (typeof window.go === 'function'){
     var _go = window.go;
-    window.go = function(){ var r = _go.apply(this, arguments); postHeight(); try { parent.postMessage({ vlBookingScrollTop: true }, '*'); } catch(e){} return r; };
+    window.go = function(){ var r = _go.apply(this, arguments); setTimeout(postHeight, 40); try { parent.postMessage({ vlBookingScrollTop: true }, '*'); } catch(e){} return r; };
   }
 })();
 </script>
