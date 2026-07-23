@@ -38,19 +38,40 @@ db.exec(`
   );
 `);
 
-/* ---------- payments: Square-ready stand-in ----------
-   Real Square (sandbox then live) drops in here: use the `square` SDK's
-   PaymentsApi.createPayment({ sourceId, amountMoney, idempotencyKey }) with
-   process.env.SQUARE_ACCESS_TOKEN. Until keys are provided we run in stand-in
-   mode, which accepts the Square test nonce and always succeeds. */
+/* ---------- payments: Square Web Payments (test mode) with a stand-in fallback ----------
+   Set these environment variables on the host to switch from stand-in to real Square:
+     SQUARE_ACCESS_TOKEN  (sandbox access token; keep secret — host env only)
+     SQUARE_APP_ID        (sandbox application id — safe, used in the browser)
+     SQUARE_LOCATION_ID   (sandbox location id)
+     SQUARE_ENV           ("sandbox" (default) or "production")
+   The front-end reads app id + location id from /api/square-config (never the token).
+   When keys are absent we run in stand-in mode so the flow still works. */
+const SQ = {
+  token: process.env.SQUARE_ACCESS_TOKEN || '',
+  appId: process.env.SQUARE_APP_ID || '',
+  locationId: process.env.SQUARE_LOCATION_ID || '',
+  env: (process.env.SQUARE_ENV || 'sandbox').toLowerCase(),
+  version: process.env.SQUARE_VERSION || ''    // optional; blank = app default version
+};
+SQ.apiBase = SQ.env === 'production' ? 'https://connect.squareup.com' : 'https://connect.squareupsandbox.com';
+SQ.enabled = !!(SQ.token && SQ.appId && SQ.locationId);
+
 const payments = {
-  mode: process.env.SQUARE_ACCESS_TOKEN ? 'square-sandbox' : 'standin',
-  charge({ amountCents, sourceId }) {
-    if (this.mode === 'standin') {
-      return { ok: true, ref: 'TEST-' + Date.now().toString(36).toUpperCase(), mode: 'standin' };
-    }
-    // TODO: real Square sandbox call here once SQUARE_ACCESS_TOKEN is set.
-    throw new Error('Square sandbox not wired yet');
+  get mode() { return SQ.enabled ? 'square-' + SQ.env : 'standin'; },
+  async charge({ amountCents, sourceId }) {
+    if (!SQ.enabled) return { ok: true, ref: 'TEST-' + Date.now().toString(36).toUpperCase(), mode: 'standin' };
+    if (!sourceId) return { ok: false, mode: this.mode, error: 'Missing card token' };
+    const headers = { 'Authorization': 'Bearer ' + SQ.token, 'Content-Type': 'application/json', 'Accept': 'application/json' };
+    if (SQ.version) headers['Square-Version'] = SQ.version;
+    const body = { source_id: sourceId, idempotency_key: 'vl-' + Date.now() + '-' + Math.round(Math.random() * 1e9),
+      amount_money: { amount: amountCents, currency: 'CAD' }, location_id: SQ.locationId };
+    try {
+      const r = await fetch(SQ.apiBase + '/v2/payments', { method: 'POST', headers, body: JSON.stringify(body) });
+      const d = await r.json().catch(() => ({}));
+      const st = d.payment && d.payment.status;
+      if (r.ok && (st === 'COMPLETED' || st === 'APPROVED')) return { ok: true, ref: d.payment.id, mode: this.mode };
+      return { ok: false, mode: this.mode, error: (d.errors && d.errors[0] && d.errors[0].detail) || 'Payment failed' };
+    } catch (e) { return { ok: false, mode: this.mode, error: e.message }; }
   }
 };
 
@@ -71,6 +92,9 @@ function busyIntervals(roomId, date) {
 function isFree(roomId, date, start, end) {
   return !busyIntervals(roomId, date).some(iv => VL.overlaps(start, end, iv.start, iv.end));
 }
+
+// clear any reservations left "pending" by an interrupted checkout on a prior run
+db.exec(`DELETE FROM bookings WHERE status='pending'`);
 
 /* ---------- seed a little demo data (only if empty) ---------- */
 if (db.prepare('SELECT COUNT(*) c FROM bookings').get().c === 0 &&
@@ -97,6 +121,9 @@ app.get('/pricing.js', (_req, res) => res.sendFile(path.join(__dirname, 'pricing
 
 app.get('/api/rooms', (_req, res) => res.json({ rooms: VL.ROOMS, addons: VL.ADDONS, config: {
   minHours: VL.CONFIG.minHours, incrementMin: VL.CONFIG.incrementMin, hstRate: VL.CONFIG.hstRate } }));
+
+// Non-secret Square settings for the browser card form (token is NEVER sent here)
+app.get('/api/square-config', (_req, res) => res.json({ enabled: SQ.enabled, appId: SQ.appId || null, locationId: SQ.locationId || null, env: SQ.env }));
 
 // Which rooms are open for a date + time window
 app.get('/api/search', (req, res) => {
@@ -129,10 +156,9 @@ app.post('/api/quote', (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-// Create a booking — server is authoritative: re-checks availability + price, then charges + saves
-// Create a reservation of ONE OR MORE studios. All items validated + priced, charged once,
-// and booked atomically (if any studio's time was taken, the whole order is rolled back).
-app.post('/api/bookings', (req, res) => {
+// Create a reservation of ONE OR MORE studios/rooms. Reserve the slots atomically,
+// charge once (real Square or stand-in), then confirm — or release the slots if the charge fails.
+app.post('/api/bookings', async (req, res) => {
   let { items, customerName, customerEmail, paymentToken } = req.body;
   if (!Array.isArray(items)) {   // backward-compatible with a single-room body
     items = req.body.room ? [{ room: req.body.room, date: req.body.date, start: req.body.start, end: req.body.end, addons: req.body.addons, addonOptions: req.body.addonOptions }] : [];
@@ -146,9 +172,12 @@ app.post('/api/bookings', (req, res) => {
     const terr = validTimes(s, e); if (terr) return res.status(400).json({ error: terr });
     if (!VL.validDuration(it.room, e - s)) return res.status(400).json({ error: 'That duration is not available for ' + room.name + '.' });
   }
+
+  // 1) Reserve the slots atomically (no await inside the transaction)
+  let reservedIds = [], quotes = [], grandTotal;
   try {
     db.exec('BEGIN IMMEDIATE');
-    const claimed = {}, quotes = [];
+    const claimed = {};
     for (const it of items) {
       const s = +it.start, e = +it.end, room = VL.roomById(it.room);
       if (!isFree(it.room, it.date, s, e)) { db.exec('ROLLBACK'); return res.status(409).json({ error: room.name + ' was just taken for that time. Please adjust.' }); }
@@ -157,20 +186,30 @@ app.post('/api/bookings', (req, res) => {
       claimed[key].push([s, e]);
       quotes.push(VL.priceQuote(it.room, it.date, e - s, it.addons || {}, it.addonOptions || {}));
     }
-    const grandTotal = VL.round2(quotes.reduce((sum, q) => sum + q.total, 0));
-    const pay = payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: paymentToken || 'cnon:card-nonce-ok' });
-    if (!pay.ok) { db.exec('ROLLBACK'); return res.status(402).json({ error: 'Payment declined' }); }
+    grandTotal = VL.round2(quotes.reduce((sum, q) => sum + q.total, 0));
     const ins = db.prepare(`INSERT INTO bookings (room_id,date,start,end,hours,addons_json,pre,hst,total,paid,payment_ref,payment_mode,customer_name,customer_email,status,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'confirmed', ?)`);
-    const created = [];
+      VALUES (?,?,?,?,?,?,?,?,?,0,'PENDING','pending',?,?, 'pending', ?)`);
     items.forEach((it, i) => {
       const s = +it.start, e = +it.end, q = quotes[i];
-      const info = ins.run(it.room, it.date, s, e, e - s, JSON.stringify({ items: it.addons || {}, options: it.addonOptions || {} }), q.pre, q.hst, q.total, q.total, pay.ref, pay.mode, customerName, customerEmail, nowISO());
-      created.push({ id: info.lastInsertRowid, room: it.room, roomName: q.roomName, date: it.date, start: s, end: e, total: q.total });
+      const info = ins.run(it.room, it.date, s, e, e - s, JSON.stringify({ items: it.addons || {}, options: it.addonOptions || {} }), q.pre, q.hst, q.total, customerName, customerEmail, nowISO());
+      reservedIds.push(info.lastInsertRowid);
     });
     db.exec('COMMIT');
-    res.json({ ok: true, confirmation: 'VL' + created[0].id, bookings: created, grandTotal, paymentMode: pay.mode, paymentRef: pay.ref });
-  } catch (e) { try { db.exec('ROLLBACK'); } catch (_) {} res.status(500).json({ error: e.message }); }
+  } catch (e) { try { db.exec('ROLLBACK'); } catch (_) {} return res.status(500).json({ error: e.message }); }
+
+  // 2) Charge once for the whole order (awaits Square in real mode)
+  const pay = await payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: paymentToken });
+
+  // 3) Confirm the reservations, or release them if the charge failed
+  if (!pay.ok) {
+    const del = db.prepare(`DELETE FROM bookings WHERE id=? AND status='pending'`);
+    reservedIds.forEach(id => del.run(id));
+    return res.status(402).json({ error: pay.error || 'Payment failed' });
+  }
+  const upd = db.prepare(`UPDATE bookings SET status='confirmed', paid=total, payment_ref=?, payment_mode=? WHERE id=?`);
+  reservedIds.forEach(id => upd.run(pay.ref, pay.mode, id));
+  const created = reservedIds.map((id, i) => ({ id, room: items[i].room, roomName: quotes[i].roomName, date: items[i].date, start: +items[i].start, end: +items[i].end, total: quotes[i].total }));
+  res.json({ ok: true, confirmation: 'VL' + created[0].id, bookings: created, grandTotal, paymentMode: pay.mode, paymentRef: pay.ref });
 });
 
 // Customer's own bookings (simple email lookup; real accounts in Phase 2)

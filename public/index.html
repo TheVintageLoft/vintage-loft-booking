@@ -243,13 +243,21 @@
         <h3 style="font-size:15px;margin:20px 0 10px">Payment</h3>
         <div class="square-box">
           <div class="sqhead">🔒 Secured checkout powered by <b>Square</b></div>
-          <div class="cardrow" style="margin-bottom:10px">
-            <input class="field" style="padding:11px 12px;border:1px solid var(--line);border-radius:10px" placeholder="Card number  4111 1111 1111 1111" id="ccNum">
+          <!-- real Square card form (used when Square keys are set on the host) -->
+          <div id="sqCardWrap" style="display:none">
+            <div id="sq-card"></div>
+            <div id="sq-errors" style="color:var(--red);font-size:12px;margin-top:8px"></div>
           </div>
-          <div class="cardrow">
-            <input style="padding:11px 12px;border:1px solid var(--line);border-radius:10px" placeholder="Name on card">
-            <input style="padding:11px 12px;border:1px solid var(--line);border-radius:10px" placeholder="MM/YY">
-            <input style="padding:11px 12px;border:1px solid var(--line);border-radius:10px" placeholder="CVV">
+          <!-- stand-in fields (shown until Square keys are added) -->
+          <div id="fakeCard">
+            <div class="cardrow" style="margin-bottom:10px">
+              <input class="field" style="padding:11px 12px;border:1px solid var(--line);border-radius:10px" placeholder="Card number  4111 1111 1111 1111" id="ccNum">
+            </div>
+            <div class="cardrow">
+              <input style="padding:11px 12px;border:1px solid var(--line);border-radius:10px" placeholder="Name on card">
+              <input style="padding:11px 12px;border:1px solid var(--line);border-radius:10px" placeholder="MM/YY">
+              <input style="padding:11px 12px;border:1px solid var(--line);border-radius:10px" placeholder="CVV">
+            </div>
           </div>
         </div>
         <div style="display:flex;gap:10px;margin-top:18px">
@@ -803,6 +811,7 @@ function renderReview(){
   const cr = document.getElementById('creditRedeem'); if(cr) cr.style.display='none';
   const cx = document.getElementById('cxPolicy'); if(cx) cx.innerHTML = `Paid in full today. Free cancellation up to <b>${CONFIG.cancelWindowHours} hrs</b> before each start time.`;
   renderReviewSummary();
+  if(sqPayments) ensureSquareCard();
 }
 function renderReviewSummary(){
   let preSum=0, totalSum=0;
@@ -822,9 +831,16 @@ async function payNow(){
   if(!name || !email){ toast('Please add your name and email'); return; }
   if(!order.length){ toast('Add a studio first'); return; }
   const btn = document.getElementById('payBtn'); btn.disabled = true; const l0 = btn.textContent; btn.textContent = 'Processing…';
+  let paymentToken;
+  if(sqPayments){
+    if(!sqCard){ toast('Card form is still loading — one moment.'); btn.disabled=false; btn.textContent=l0; return; }
+    let result; try{ result = await sqCard.tokenize(); }catch(e){ toast('Card error, please retry.'); btn.disabled=false; btn.textContent=l0; return; }
+    if(result.status!=='OK'){ document.getElementById('sq-errors').textContent=(result.errors&&result.errors[0]&&(result.errors[0].message||result.errors[0].detail))||'Please check your card details.'; btn.disabled=false; btn.textContent=l0; return; }
+    document.getElementById('sq-errors').textContent=''; paymentToken=result.token;
+  }
   const items = order.map(it=>({ room:it.roomId, date:it.date, start:it.start, end:it.end, addons:it.addons, addonOptions:it.addonOpts||{} }));
   try {
-    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email }) });
+    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken }) });
     LAST_EMAIL = email;
     const n = d.bookings.length;
     document.getElementById('confirmSub').textContent = `Confirmation ${d.confirmation} — ${n} studio${n>1?'s':''} booked. A receipt would be emailed via Square (${d.paymentMode} mode).`;
@@ -957,11 +973,31 @@ function renderSlotPanel(){
   panel.scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 
+/* ---- Square Web Payments: loads the real card form only when the host has Square keys ---- */
+var sqConfig=null, sqPayments=null, sqCard=null;
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('sdk')); document.head.appendChild(s); }); }
+async function initSquare(){
+  try{ sqConfig = await fetchJSON('/api/square-config'); }catch(e){ return; }
+  if(!sqConfig || !sqConfig.enabled) return;   // no keys yet -> keep the stand-in fields
+  const url = sqConfig.env==='production' ? 'https://web.squarecdn.com/v1/square.js' : 'https://sandbox.web.squarecdn.com/v1/square.js';
+  try{
+    await loadScript(url);
+    sqPayments = await window.Square.payments(sqConfig.appId, sqConfig.locationId);
+    const f=document.getElementById('fakeCard'); if(f) f.style.display='none';
+    const w=document.getElementById('sqCardWrap'); if(w) w.style.display='block';
+  }catch(e){ sqPayments=null; }   // fall back to stand-in on any load error
+}
+async function ensureSquareCard(){
+  if(!sqPayments || sqCard) return;
+  try{ sqCard = await sqPayments.card(); await sqCard.attach('#sq-card'); }catch(e){ sqCard=null; }
+}
+
 /* Phase 1 has guest checkout + email lookup; hide the client-only login/credit chrome */
 (async function apiInit(){
   const ab = document.getElementById('authBtn'); if(ab) ab.style.display = 'none';
   const cc = document.getElementById('creditChip'); if(cc) cc.style.display = 'none';
   try { const d = await fetchJSON('/api/rooms'); ADDONS = d.addons || []; } catch(e) {}
+  initSquare();
 })();
 </script>
 </body>
