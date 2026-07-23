@@ -116,6 +116,22 @@
   function overlaps(aS, aE, bS, bE) { return aS < bE && bS < aE; }
   function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 
+  // Apply a percentage discount code to a single room's quote.
+  // scope 'room'  -> percent comes off the studio rental only (add-ons stay full price)
+  // scope 'all'   -> percent comes off room + add-ons (used by the 100% owner codes)
+  // The code stacks ON TOP of any multi-hour tier discount, because roomTotal is already
+  // the tier-discounted room price. HST is then recomputed on the reduced subtotal.
+  // Fixed-amount codes (e.g. a reschedule credit) are handled at the ORDER level, not here.
+  function applyDiscountToQuote(q, disc) {
+    if (!disc || disc.type !== 'percent') return Object.assign({}, q, { discount: 0 });
+    const base = disc.scope === 'all' ? q.pre : q.roomTotal;
+    const discount = round2(base * disc.off);
+    const pre = round2(q.pre - discount);
+    const hst = round2(pre * CONFIG.hstRate);
+    const total = round2(pre + hst);
+    return Object.assign({}, q, { discount, pre, hst, total });
+  }
+
   return { CONFIG, ROOMS, ADDONS, roomById, tierFor, isWeekend, isChristmas, rateFor,
-    roomBaseFor, roomTotalFor, priceQuote, validDuration, overlaps, round2 };
+    roomBaseFor, roomTotalFor, priceQuote, validDuration, overlaps, round2, applyDiscountToQuote };
 });

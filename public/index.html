@@ -240,6 +240,17 @@
           </div>
         </div>
 
+        <div style="margin-top:18px">
+          <h3 style="font-size:15px;margin:0 0 10px">Discount or gift code</h3>
+          <div style="display:flex;gap:10px;align-items:stretch">
+            <input id="codeInput" placeholder="Enter a code" autocomplete="off"
+              style="flex:1;padding:11px 12px;border:1px solid var(--line);border-radius:10px;text-transform:uppercase"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();applyCode();}">
+            <button type="button" class="btn btn-ghost" id="codeBtn" style="white-space:nowrap" onclick="applyCode()">Apply</button>
+          </div>
+          <div id="codeMsg" style="font-size:13px;margin-top:8px"></div>
+        </div>
+
         <h3 style="font-size:15px;margin:20px 0 10px">Payment</h3>
         <div class="square-box">
           <div class="sqhead">🔒 Secured checkout powered by <b>Square</b></div>
@@ -780,7 +791,35 @@ async function shiftWeek(n){ const w = new Date(rcWeekStart); w.setDate(w.getDat
 
 /* ===== multi-room orders: one reservation can hold several studios ===== */
 var order = [];   // finalized studios in the current reservation
+var appliedCode = null;   // discount descriptor returned by /api/apply-code
 function r2(n){ return Math.round((n+Number.EPSILON)*100)/100; }
+// Client-side mirror of the server's percent-discount math (server stays authoritative).
+function discountItem(p, disc){
+  if(!disc || disc.type!=='percent') return { discount:0, pre:p.pre, hst:p.hst, total:p.total };
+  const base = disc.scope==='all' ? p.pre : p.roomTotal;
+  const discount = r2(base*disc.off);
+  const pre = r2(p.pre - discount);
+  const hst = r2(pre*CONFIG.hstRate);
+  return { discount, pre, hst, total:r2(pre+hst) };
+}
+async function applyCode(){
+  const inp = document.getElementById('codeInput'); const msg = document.getElementById('codeMsg');
+  const raw = (inp.value||'').trim();
+  if(!raw){ appliedCode=null; msg.textContent=''; renderReviewSummary(); return; }
+  const items = order.map(it=>({ room:it.roomId, date:it.date, start:it.start, end:it.end, addons:it.addons, addonOptions:it.addonOpts||{} }));
+  const btn=document.getElementById('codeBtn'); btn.disabled=true; const b0=btn.textContent; btn.textContent='…';
+  try{
+    const d = await fetchJSON('/api/apply-code', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code:raw, items }) });
+    appliedCode = d.discount;
+    msg.style.color='var(--green,#2e7d32)';
+    msg.innerHTML = `✓ Code <b>${appliedCode.code}</b> applied — ${appliedCode.label}. <a href="#" onclick="removeCode();return false" style="color:var(--muted)">remove</a>`;
+  }catch(err){
+    appliedCode = null; msg.style.color='var(--red)';
+    msg.textContent = (err.body && err.body.error) ? err.body.error : 'That code could not be applied.';
+  }
+  btn.disabled=false; btn.textContent=b0; renderReviewSummary();
+}
+function removeCode(){ appliedCode=null; const i=document.getElementById('codeInput'); if(i)i.value=''; const m=document.getElementById('codeMsg'); if(m)m.textContent=''; renderReviewSummary(); }
 function priceItem(it){
   const room = ROOMS.find(r=>r.id===it.roomId);
   const xmas = isChristmas(it.date);
@@ -814,12 +853,27 @@ function renderReview(){
   if(sqPayments) ensureSquareCard();
 }
 function renderReviewSummary(){
-  let preSum=0, totalSum=0;
-  const rows = order.map(it=>{ const p=priceItem(it); preSum+=p.pre; totalSum+=p.total; return `<div class="sum-row"><span>${it.roomName} · ${hrTxt(it.hours)}</span><span>${money(p.pre)}</span></div>`; }).join('');
-  preSum=r2(preSum); totalSum=r2(totalSum); const hstSum=r2(totalSum-preSum);
+  let subSum=0, hstSum=0, totalSum=0, discSum=0;
+  const rows = order.map(it=>{
+    const p=priceItem(it); subSum+=p.pre;
+    if(appliedCode && appliedCode.type==='percent'){ const d=discountItem(p,appliedCode); discSum+=d.discount; hstSum+=d.hst; totalSum+=d.total; }
+    else { hstSum+=p.hst; totalSum+=p.total; }
+    return `<div class="sum-row"><span>${it.roomName} · ${hrTxt(it.hours)}</span><span>${money(p.pre)}</span></div>`;
+  }).join('');
+  subSum=r2(subSum); hstSum=r2(hstSum); totalSum=r2(totalSum); discSum=r2(discSum);
+  // Fixed-amount codes (reschedule credits, gift cards) come off the tax-inclusive total.
+  let fixedLine='';
+  if(appliedCode && appliedCode.type==='fixed'){
+    const credit=r2(Math.min(appliedCode.amount, totalSum)); totalSum=r2(totalSum-credit); discSum=credit;
+    fixedLine=`<div class="sum-row" style="color:var(--green,#2e7d32)"><span>${appliedCode.code} credit</span><span>−${money(credit)}</span></div>`;
+  }
+  let percentLine = (appliedCode && appliedCode.type==='percent' && discSum>0)
+    ? `<div class="sum-row" style="color:var(--green,#2e7d32)"><span>Discount (${appliedCode.code})</span><span>−${money(discSum)}</span></div>` : '';
   document.getElementById('reviewSummary').innerHTML =
     `<h3 style="font-size:16px;margin-bottom:10px">Order · ${order.length} studio${order.length>1?'s':''}</h3>` + rows
+    + percentLine
     + `<div class="sum-row"><span>HST (13%)</span><span>${money(hstSum)}</span></div>`
+    + fixedLine
     + `<div class="sum-row total"><span>Total due now</span><span>${money(totalSum)}</span></div>`;
   const pb=document.getElementById('payBtn'); if(pb) pb.textContent = 'Pay ' + money(totalSum) + ' & confirm';
 }
@@ -839,15 +893,18 @@ async function payNow(){
     document.getElementById('sq-errors').textContent=''; paymentToken=result.token;
   }
   const items = order.map(it=>({ room:it.roomId, date:it.date, start:it.start, end:it.end, addons:it.addons, addonOptions:it.addonOpts||{} }));
+  const codeToSend = appliedCode ? appliedCode.code : undefined;
   try {
-    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken }) });
+    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken, code:codeToSend }) });
     LAST_EMAIL = email;
     const n = d.bookings.length;
-    document.getElementById('confirmSub').textContent = `Confirmation ${d.confirmation} — ${n} studio${n>1?'s':''} booked. A receipt would be emailed via Square (${d.paymentMode} mode).`;
+    document.getElementById('confirmSub').textContent = `Confirmation ${d.confirmation} — ${n} studio${n>1?'s':''} booked. A receipt has been sent to your email.`;
+    const savedLine = (d.discountTotal>0) ? `<div class="bk" style="border-color:transparent;color:var(--green,#2e7d32)"><div><b>Savings${d.code?` (${d.code})`:''}</b></div><div style="text-align:right"><b>−${money(d.discountTotal)}</b></div></div>` : '';
     document.getElementById('confirmDetail').innerHTML =
       d.bookings.map(b=>`<div class="bk"><div><b>${b.roomName}</b><div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)}</div></div><div style="text-align:right"><b>${money(b.total)}</b></div></div>`).join('')
+      + savedLine
       + `<div class="bk" style="border-color:transparent"><div><b>Total paid in full</b></div><div style="text-align:right"><b>${money(d.grandTotal)}</b></div></div>`;
-    order = []; cart = null; go('confirm'); toast('Payment complete — booking saved');
+    order = []; cart = null; appliedCode = null; const ci=document.getElementById('codeInput'); if(ci)ci.value=''; const cm=document.getElementById('codeMsg'); if(cm)cm.textContent=''; go('confirm'); toast('Payment complete — booking saved');
   } catch(err){
     btn.disabled = false; btn.textContent = l0;
     toast(err.status===409 ? (err.body && err.body.error ? err.body.error : 'A time was just taken — please adjust.') : (err.message||'Could not complete booking'));
