@@ -1,0 +1,63 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Import existing bookings</title>
+<style>
+  body{font-family:Georgia,serif;color:#3a352f;background:#eeedec;margin:0;padding:24px}
+  .card{max-width:820px;margin:0 auto;background:#fff;border:1px solid #e7e5e2;border-radius:14px;overflow:hidden}
+  .hd{background:#f6f5f3;border-bottom:2px solid #7c7268;padding:22px 26px}
+  .hd h1{margin:0;font-size:22px;font-weight:normal}.hd p{margin:6px 0 0;font-family:Arial,sans-serif;font-size:13px;color:#8a8375}
+  .body{padding:22px 26px}
+  .sum{font-family:Arial,sans-serif;font-size:14px;background:#f6f5f3;border-radius:10px;padding:12px 16px;margin-bottom:16px}
+  .row{display:flex;gap:10px;align-items:center;margin:14px 0}
+  input{font-family:Arial,sans-serif;font-size:15px;padding:10px 12px;border:1px solid #ddd;border-radius:8px;flex:1}
+  button{font-family:Arial,sans-serif;font-size:15px;font-weight:bold;background:#7c7268;color:#fff;border:0;border-radius:8px;padding:11px 22px;cursor:pointer}
+  button:disabled{opacity:.5;cursor:default}
+  #msg{font-family:Arial,sans-serif;font-size:14px;margin-top:14px;padding:12px 14px;border-radius:8px;display:none}
+  table{width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px;margin-top:12px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #f0eeeb}th{color:#8a8375;font-weight:normal;text-transform:uppercase;font-size:11px;letter-spacing:1px}
+  .rm{text-transform:capitalize;font-weight:bold}
+  details{margin-top:8px}summary{font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer}
+</style></head><body>
+<div class="card">
+  <div class="hd"><h1>Import existing bookings</h1><p>The Vintage Loft — one-time load of your current Acuity schedule into the new system</p></div>
+  <div class="body">
+    <div class="sum" id="sum"></div>
+    <div class="row">
+      <input id="key" type="password" placeholder="Admin key (the ADMIN_KEY from your Render settings)">
+      <button id="go">Import all</button>
+    </div>
+    <div id="msg"></div>
+    <details><summary>Review the 69 blocks before importing</summary>
+      <table id="tbl"><thead><tr><th>Date</th><th>Studio</th><th>Time</th><th>For</th></tr></thead><tbody></tbody></table>
+    </details>
+  </div>
+</div>
+<script>
+var BLOCKS = [{"room":"dream","date":"2026-07-23","start":15.5,"end":16.5,"reason":"Julie Shelemba"},{"room":"gatsby","date":"2026-07-25","start":10,"end":11,"reason":"Michelle Lavender"},{"room":"grand","date":"2026-07-29","start":10.5,"end":12.5,"reason":"Trudy Raymond"},{"room":"grand","date":"2026-08-01","start":10,"end":12,"reason":"Rosalind Anthony"},{"room":"grand","date":"2026-08-05","start":11.75,"end":12.75,"reason":"Rubinsha Vijayaratnam"},{"room":"grand","date":"2026-08-05","start":13,"end":14.5,"reason":"Ashley Rozycki"},{"room":"gatsby","date":"2026-08-06","start":10,"end":12,"reason":"Kelsie Grundy-Bozinis"},{"room":"grand","date":"2026-08-07","start":12,"end":13,"reason":"Emmanuel Makanjuola"},{"room":"marilyn","date":"2026-08-08","start":10.75,"end":14.75,"reason":"Emmy Cipollone"},{"room":"grand","date":"2026-08-09","start":10,"end":11,"reason":"Katrina Janeiro"},{"room":"marilyn","date":"2026-08-11","start":10.5,"end":11.5,"reason":"Steve Nicholls"},{"room":"gatsby","date":"2026-08-11","start":11.5,"end":13.5,"reason":"Steve Nicholls"},{"room":"marilyn","date":"2026-08-12","start":9.5,"end":10.5,"reason":"Steve Nicholls"},{"room":"grand","date":"2026-08-12","start":9.5,"end":15,"reason":"Fatima branding (full studio)"},{"room":"gatsby","date":"2026-08-12","start":9.5,"end":15,"reason":"Fatima branding (full studio)"},{"room":"carnegie","date":"2026-08-12","start":9.5,"end":15,"reason":"Fatima branding (full studio)"},{"room":"dream","date":"2026-08-12","start":9.5,"end":15,"reason":"Fatima branding (full studio)"},{"room":"marilyn","date":"2026-08-12","start":9.5,"end":15,"reason":"Fatima branding (full studio)"},{"room":"gatsby","date":"2026-08-12","start":10.5,"end":11.5,"reason":"Steve Nicholls"},{"room":"grand","date":"2026-08-22","start":9,"end":11,"reason":"Kimmel North Wing"},{"room":"dream","date":"2026-08-22","start":9,"end":11,"reason":"Kimmel North Wing"},{"room":"gatsby","date":"2026-08-22","start":10.5,"end":12.5,"reason":"Steve Nicholls"},{"room":"grand","date":"2026-08-22","start":17,"end":18,"reason":"Bria Burden"},{"room":"grand","date":"2026-08-30","start":15,"end":16,"reason":"Erin Romanchuk"},{"room":"gatsby","date":"2026-09-08","start":11,"end":12,"reason":"Erin Romanchuk"},{"room":"dream","date":"2026-09-13","start":9,"end":9.333333333333334,"reason":"Mikhela Belanger"},{"room":"grand","date":"2026-09-13","start":10,"end":10.333333333333334,"reason":"Carly Krebs"},{"room":"carnegie","date":"2026-09-13","start":10,"end":10.333333333333334,"reason":"Mikhela Belanger"},{"room":"dream","date":"2026-09-13","start":10.5,"end":10.833333333333334,"reason":"Maria Parent"},{"room":"grand","date":"2026-09-13","start":10.5,"end":10.833333333333334,"reason":"Michael Sage"},{"room":"grand","date":"2026-09-13","start":11,"end":11.333333333333334,"reason":"Maria Parent"},{"room":"carnegie","date":"2026-09-13","start":11,"end":11.333333333333334,"reason":"Shanna Sheridan"},{"room":"dream","date":"2026-09-13","start":11,"end":11.333333333333334,"reason":"Jamie Carpenter"},{"room":"grand","date":"2026-09-13","start":11.5,"end":11.833333333333334,"reason":"Jamie Carpenter"},{"room":"grand","date":"2026-09-13","start":13,"end":13.333333333333334,"reason":"Erin Romanchuk"},{"room":"carnegie","date":"2026-09-13","start":15,"end":15.333333333333334,"reason":"Lauren Goldsmith"},{"room":"marilyn","date":"2026-09-24","start":13.5,"end":15.5,"reason":"Kim Cain branding + setup"},{"room":"dream","date":"2026-10-04","start":12,"end":13,"reason":"Justyne Edgell"},{"room":"grand","date":"2026-11-07","start":9,"end":15.5,"reason":"Maria Parent"},{"room":"carnegie","date":"2026-11-07","start":10,"end":12,"reason":"Shanna Sheridan"},{"room":"grand","date":"2026-11-08","start":10,"end":11,"reason":"Michelle Lavender"},{"room":"dream","date":"2026-11-08","start":11,"end":13,"reason":"Maria Parent"},{"room":"carnegie","date":"2026-11-08","start":11,"end":13,"reason":"Simina Ardeleanu"},{"room":"grand","date":"2026-11-10","start":11,"end":12.5,"reason":"Samantha Brooks"},{"room":"grand","date":"2026-11-14","start":10,"end":13,"reason":"Jamie Carpenter"},{"room":"gatsby","date":"2026-11-14","start":10,"end":11,"reason":"April-lee Melhuish"},{"room":"carnegie","date":"2026-11-14","start":11,"end":12.5,"reason":"Mikhela Belanger"},{"room":"grand","date":"2026-11-14","start":14,"end":15,"reason":"Nikita Khan-Harry"},{"room":"grand","date":"2026-11-15","start":10,"end":13,"reason":"Erin Romanchuk"},{"room":"dream","date":"2026-11-15","start":10,"end":11,"reason":"Nikita Khan-Harry"},{"room":"carnegie","date":"2026-11-15","start":11,"end":12,"reason":"Nikita Khan-Harry"},{"room":"dream","date":"2026-11-15","start":14,"end":15,"reason":"Shelley-Ann Skinner"},{"room":"grand","date":"2026-11-21","start":8.5,"end":15,"reason":"Joshua Sherland"},{"room":"dream","date":"2026-11-21","start":11,"end":13,"reason":"Mikhela Belanger"},{"room":"grand","date":"2026-11-22","start":10.5,"end":12.5,"reason":"Jamie Carpenter"},{"room":"carnegie","date":"2026-11-22","start":10.5,"end":11.5,"reason":"April-lee Melhuish"},{"room":"grand","date":"2026-11-22","start":13,"end":14,"reason":"Caitlin Ruzsa"},{"room":"dream","date":"2026-11-22","start":14.5,"end":15.5,"reason":"Caitlin Ruzsa"},{"room":"gatsby","date":"2026-11-27","start":16,"end":20,"reason":"Carly Krebs"},{"room":"gatsby","date":"2026-11-28","start":10,"end":14,"reason":"Carly Krebs"},{"room":"gatsby","date":"2026-11-29","start":10,"end":14,"reason":"Carly Krebs"},{"room":"carnegie","date":"2026-11-29","start":10.5,"end":11.75,"reason":"Lauren Goldsmith"},{"room":"carnegie","date":"2026-11-29","start":12,"end":13.25,"reason":"Lauren Goldsmith"},{"room":"grand","date":"2026-12-05","start":11,"end":14,"reason":"Erin Romanchuk"},{"room":"carnegie","date":"2026-12-05","start":11,"end":13,"reason":"Simina Ardeleanu"},{"room":"dream","date":"2026-12-05","start":13.5,"end":15.5,"reason":"Simina Ardeleanu"},{"room":"grand","date":"2026-12-05","start":14.5,"end":16,"reason":"Michael Sage"},{"room":"grand","date":"2026-12-06","start":9.5,"end":12.5,"reason":"Susan Glaspell"},{"room":"dream","date":"2026-12-06","start":11,"end":13.5,"reason":"iOANA aRDELEANU"}];
+function t(d){var h=Math.floor(d),m=Math.round((d-h)*60),ap=h<12?'AM':'PM',hh=h%12||12;return hh+':'+String(m).padStart(2,'0')+' '+ap;}
+function fdate(iso){var p=iso.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return M[+p[1]-1]+' '+(+p[2])+', '+p[0];}
+(function(){
+  var by={}; BLOCKS.forEach(function(b){by[b.room]=(by[b.room]||0)+1;});
+  document.getElementById('sum').innerHTML='<b>'+BLOCKS.length+' time blocks</b> ready to import &nbsp;·&nbsp; '+Object.keys(by).sort().map(function(r){return r.charAt(0).toUpperCase()+r.slice(1)+': '+by[r];}).join(' &nbsp; ');
+  var tb=document.querySelector('#tbl tbody');
+  BLOCKS.slice().sort(function(a,b){return (a.date+a.start)<(b.date+b.start)?-1:1;}).forEach(function(b){
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td>'+fdate(b.date)+'</td><td class="rm">'+b.room+'</td><td>'+t(b.start)+' – '+t(b.end)+'</td><td>'+(b.reason||'')+'</td>';
+    tb.appendChild(tr);
+  });
+})();
+document.getElementById('go').onclick=function(){
+  var key=document.getElementById('key').value.trim();
+  var msg=document.getElementById('msg'); msg.style.display='block';
+  if(!key){msg.style.background='#fdecea';msg.style.color='#a33';msg.textContent='Please enter your admin key first.';return;}
+  var btn=this; btn.disabled=true; btn.textContent='Importing…';
+  msg.style.background='#f6f5f3';msg.style.color='#3a352f';msg.textContent='Importing '+BLOCKS.length+' blocks…';
+  fetch('/api/admin/import-blocks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,blocks:BLOCKS})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(x){
+      btn.disabled=false;btn.textContent='Import all';
+      if(!x.ok){msg.style.background='#fdecea';msg.style.color='#a33';msg.textContent=(x.d&&x.d.error)||'Import failed — check your admin key.';return;}
+      msg.style.background='#eaf5ec';msg.style.color='#2e6b34';
+      msg.innerHTML='<b>Done!</b> Added '+x.d.inserted+' new blocks. '+(x.d.skipped?('Skipped '+x.d.skipped+' already-imported. '):'')+(x.d.bad?('('+x.d.bad+' could not be read.) '):'')+'Your calendar now reflects these bookings — you can close this page.';
+    })
+    .catch(function(e){btn.disabled=false;btn.textContent='Import all';msg.style.background='#fdecea';msg.style.color='#a33';msg.textContent='Network error: '+e.message;});
+};
+</script></body></html>

@@ -487,6 +487,23 @@ app.post('/api/admin/cancel', admin, (req, res) => {
   res.json({ ok: info.changes > 0 });
 });
 
+// Bulk-import blocks (e.g. existing Acuity bookings). Idempotent: identical blocks are skipped,
+// so it's safe to run more than once. Bypasses the booking-time rules since these are real holds.
+app.post('/api/admin/import-blocks', admin, (req, res) => {
+  const items = Array.isArray(req.body.blocks) ? req.body.blocks : [];
+  const exists = db.prepare(`SELECT 1 FROM blocks WHERE room_id=? AND date=? AND start=? AND end=?`);
+  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,created_at) VALUES (?,?,?,?,?,?)`);
+  let inserted = 0, skipped = 0, bad = 0;
+  for (const b of items) {
+    const room = (b.room || '').toString(), date = (b.date || '').toString(), s = +b.start, e = +b.end;
+    if (!VL.roomById(room) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !(e > s)) { bad++; continue; }
+    if (exists.get(room, date, s, e)) { skipped++; continue; }
+    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), nowISO());
+    inserted++;
+  }
+  res.json({ ok: true, total: items.length, inserted, skipped, bad });
+});
+
 // Send day-before reminders for TOMORROW's bookings (Toronto). Grouped by reservation so a
 // multi-studio order gets one email. reminder_sent guards against duplicates, so this is safe
 // to call repeatedly (the built-in scheduler and the manual endpoint both use it).
