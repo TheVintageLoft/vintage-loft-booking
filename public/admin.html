@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Vintage Loft — Staff</title>
+<style>
+  :root{--ink:#4a423b;--muted:#9a9086;--line:#e8e2da;--paper:#F0EEEE;--gold:#786C66;--gold-d:#5f5550;--green:#5f8361;--red:#a95f51}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',-apple-system,Helvetica,Arial,sans-serif;background:var(--paper);color:var(--ink);line-height:1.5}
+  header{background:var(--gold);color:#fff;padding:14px 22px;font-weight:600;letter-spacing:.5px}
+  .wrap{max-width:920px;margin:0 auto;padding:22px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:18px}
+  h2{font-size:17px;margin:0 0 12px}
+  label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:0 0 5px}
+  input,select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff;color:var(--ink)}
+  .row{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:end}
+  .btn{border:0;border-radius:8px;padding:10px 16px;font-weight:600;font-size:14px;background:var(--gold);color:#fff;cursor:pointer}
+  .btn:hover{background:var(--gold-d)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:1px}
+  .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:rgba(95,131,97,.14);color:var(--green)}
+  .tag.cx{background:#f1ece4;color:var(--muted)}
+  .keyrow{display:flex;gap:10px;align-items:end;max-width:420px}
+  .muted{color:var(--muted);font-size:12.5px}
+  .link{background:none;border:0;color:var(--red);cursor:pointer;font-size:12.5px;text-decoration:underline}
+</style>
+</head>
+<body>
+<header>The Vintage Loft · Staff</header>
+<div class="wrap">
+  <div class="card">
+    <h2>Staff access</h2>
+    <div class="keyrow">
+      <div style="flex:1"><label>Access key</label><input id="key" placeholder="access key" value="loft-admin"></div>
+      <button class="btn" onclick="loadAll()">Open</button>
+    </div>
+    <div class="muted" style="margin-top:8px">Demo key is <b>loft-admin</b> (set your own via the ADMIN_KEY environment variable in production).</div>
+  </div>
+
+  <div class="card">
+    <h2>Block a time (maintenance, hold, external booking)</h2>
+    <div class="row">
+      <div style="grid-column:span 2"><label>Studio</label><select id="bRoom"></select></div>
+      <div><label>Date</label><input type="date" id="bDate"></div>
+      <div><label>Start</label><select id="bStart"></select></div>
+      <div><label>End</label><select id="bEnd"></select></div>
+      <div><button class="btn" style="width:100%" onclick="addBlock()">Block</button></div>
+    </div>
+    <div style="margin-top:10px"><label>Reason</label><input id="bReason" placeholder="Maintenance / hold / Peerspace booking"></div>
+  </div>
+
+  <div class="card">
+    <h2>Upcoming bookings</h2>
+    <table id="bkTable"><thead><tr><th>#</th><th>Studio</th><th>Date</th><th>Time</th><th>Client</th><th>Paid</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="muted" id="bkEmpty" style="margin-top:8px">Enter the access key and press Open.</div>
+  </div>
+
+  <div class="card">
+    <h2>Manual blocks</h2>
+    <table id="blTable"><thead><tr><th>Studio</th><th>Date</th><th>Time</th><th>Reason</th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+<script>
+let ROOMS=[];
+function key(){return document.getElementById('key').value.trim();}
+function label(h){const hh=Math.floor(h),m=(h-hh)>=0.5?':30':':00',ap=hh>=12?'PM':'AM';let d=hh%12;if(d===0)d=12;return d+m+' '+ap;}
+function money(n){return '$'+Number(n).toFixed(2);}
+function fillTimes(){const s=document.getElementById('bStart'),e=document.getElementById('bEnd');for(let h=8;h<=19.5;h+=0.5)s.insertAdjacentHTML('beforeend',`<option value="${h}">${label(h)}</option>`);for(let h=9;h<=20;h+=0.5)e.insertAdjacentHTML('beforeend',`<option value="${h}">${label(h)}</option>`);s.value=10;e.value=12;}
+async function init(){const d=await (await fetch('/api/rooms')).json();ROOMS=d.rooms;document.getElementById('bRoom').innerHTML=ROOMS.map(r=>`<option value="${r.id}">${r.name}</option>`).join('');fillTimes();document.getElementById('bDate').value=new Date(Date.now()+2*864e5).toISOString().slice(0,10);}
+async function loadAll(){await loadBookings();await loadBlocks();}
+async function loadBookings(){
+  const r=await fetch('/api/admin/bookings?key='+encodeURIComponent(key()));
+  if(!r.ok){document.getElementById('bkEmpty').textContent='Wrong key.';return;}
+  const d=await r.json();const tb=document.querySelector('#bkTable tbody');
+  document.getElementById('bkEmpty').textContent=d.bookings.length?'':'No bookings yet.';
+  tb.innerHTML=d.bookings.map(b=>`<tr><td>VL${b.id}</td><td>${b.roomName}</td><td>${b.date}</td><td>${label(b.start)}–${label(b.end)}</td><td>${b.customer_name||''}<div class="muted">${b.customer_email||''}</div></td><td>${money(b.paid)}</td><td><span class="tag ${b.status==='cancelled'?'cx':''}">${b.status}</span></td><td>${b.status!=='cancelled'?`<button class="link" onclick="cancelBk(${b.id})">cancel</button>`:''}</td></tr>`).join('');
+}
+async function loadBlocks(){
+  const r=await fetch('/api/admin/blocks?key='+encodeURIComponent(key()));if(!r.ok)return;
+  const d=await r.json();document.querySelector('#blTable tbody').innerHTML=d.blocks.map(b=>{const rm=ROOMS.find(x=>x.id===b.room_id)||{};return `<tr><td>${rm.name||b.room_id}</td><td>${b.date}</td><td>${label(b.start)}–${label(b.end)}</td><td>${b.reason||''}</td></tr>`;}).join('');
+}
+async function addBlock(){
+  const body={key:key(),room:document.getElementById('bRoom').value,date:document.getElementById('bDate').value,start:+document.getElementById('bStart').value,end:+document.getElementById('bEnd').value,reason:document.getElementById('bReason').value};
+  const r=await fetch('/api/admin/blocks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();if(!r.ok){alert(d.error||'Failed');return;}document.getElementById('bReason').value='';loadAll();
+}
+async function cancelBk(id){const r=await fetch('/api/admin/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key(),id})});if(r.ok)loadAll();}
+init();
+</script>
+</body>
+</html>

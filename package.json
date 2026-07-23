@@ -1,0 +1,9 @@
+{
+  "name": "vintage-loft-booking",
+  "version": "0.1.0",
+  "description": "The Vintage Loft — studio booking system (Phase 1)",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": { "start": "node --experimental-sqlite server.js" },
+  "dependencies": { "express": "^4.19.2" }
+}
