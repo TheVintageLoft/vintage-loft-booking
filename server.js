@@ -94,6 +94,10 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const EMAIL_FROM = process.env.EMAIL_FROM || 'The Vintage Loft <info@thevintageloft.ca>';
 const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || 'info@thevintageloft.ca';
 const emailEnabled = !!RESEND_API_KEY;
+// Images are served from the app's own /public folder so they load reliably in email clients.
+const PUBLIC_URL = (process.env.PUBLIC_URL || 'https://vintage-loft-booking.onrender.com').replace(/\/$/, '');
+const LOGO_URL = PUBLIC_URL + '/email-logo.png';
+const ARRIVAL_URL = PUBLIC_URL + '/email-arrival.jpg';
 
 async function sendEmail({ to, subject, html }) {
   if (!emailEnabled) { console.log('[email] skipped (no RESEND_API_KEY):', subject, '->', to); return { ok: false, skipped: true }; }
@@ -118,15 +122,14 @@ function emDate(iso) { const p = (iso || '').split('-').map(Number); if (!p[0]) 
 function emMoney(n) { return '$' + Number(n || 0).toFixed(2); }
 
 function emailShell(inner) {
-  return `<!doctype html><html><body style="margin:0;padding:0;background:#f4f1ea">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1ea"><tr><td align="center" style="padding:24px 12px">
-    <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:14px;overflow:hidden;font-family:Georgia,'Times New Roman',serif;color:#2b2b2b">
-      <tr><td style="background:#2b2622;padding:26px 30px;text-align:center">
-        <div style="color:#f4f1ea;font-size:24px;letter-spacing:1px">The Vintage Loft</div>
-        <div style="color:#c9b48a;font-size:12px;letter-spacing:3px;text-transform:uppercase;margin-top:6px">Studio Rentals &middot; Whitby</div>
+  return `<!doctype html><html><body style="margin:0;padding:0;background:#eeedec">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#eeedec"><tr><td align="center" style="padding:24px 12px">
+    <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e7e5e2;border-radius:14px;overflow:hidden;font-family:Georgia,'Times New Roman',serif;color:#3a352f">
+      <tr><td style="background:#f6f5f3;padding:30px 30px 24px;text-align:center;border-bottom:2px solid #7c7268">
+        <img src="${LOGO_URL}" alt="The Vintage Loft" width="230" style="width:230px;max-width:72%;height:auto;display:inline-block">
       </td></tr>
       <tr><td style="padding:30px">${inner}</td></tr>
-      <tr><td style="background:#f4f1ea;padding:18px 30px;text-align:center;color:#8a8375;font-size:12px;font-family:Arial,sans-serif">
+      <tr><td style="background:#f6f5f3;padding:18px 30px;text-align:center;color:#9a938a;font-size:12px;font-family:Arial,sans-serif">
         The Vintage Loft &middot; 207 Dundas St West, Whitby &middot; 905-767-2099
       </td></tr>
     </table>
@@ -149,22 +152,23 @@ function confirmationEmail({ name, confirmation, bookings, grandTotal, discountT
   const inner = `
     <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(name)},</p>
     <p style="margin:0 0 14px;line-height:1.6">Thanks for booking at The Vintage Loft Studios! We look forward to having you come in. You'll receive a reminder email the day before your booking.</p>
-    <div style="background:#f4f1ea;border-radius:10px;padding:16px 18px;margin:0 0 18px">
-      <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#8a8375;font-family:Arial,sans-serif;margin-bottom:10px">Your reservation &middot; ${confirmation}</div>
+    <div style="background:#f6f5f3;border-radius:10px;padding:16px 18px;margin:0 0 18px">
+      <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#9a938a;font-family:Arial,sans-serif;margin-bottom:10px">Your reservation &middot; ${confirmation}</div>
       <table width="100%" cellpadding="0" cellspacing="0" style="font-size:15px">
         ${bookingRowsHtml(bookings)}
         ${savings}
         <tr><td style="padding:10px 0 0"><b>Total</b></td><td align="right" style="padding:10px 0 0"><b>${emMoney(grandTotal)}</b></td></tr>
       </table>
     </div>
-    <p style="margin:0 0 8px;font-weight:bold">Arrival information</p>
+    <p style="margin:0 0 10px;font-weight:bold">Arrival information</p>
+    <img src="${ARRIVAL_URL}" alt="How to find The Vintage Loft — 207 Dundas St West, Whitby. Enter through the awning-covered door on the ground level." width="540" style="width:100%;max-width:540px;height:auto;border:1px solid #eae8e4;border-radius:10px;display:block;margin:0 0 14px">
     <div style="font-size:14px;line-height:1.6;font-family:Arial,sans-serif;margin:0 0 18px;color:#3a352f">
       <p style="margin:0 0 6px"><b>Address:</b> 207 Dundas St West, Whitby &mdash; 2nd floor of the Pizza Nova Building.</p>
       <p style="margin:0 0 6px"><b>Parking:</b> Free parking anywhere in our lot.</p>
       <p style="margin:0 0 6px"><b>Studio:</b> 905-767-2099 &nbsp;&middot;&nbsp; <b>Kelly's cell:</b> 905-767-8099</p>
     </div>
     <p style="margin:0 0 18px;line-height:1.6">If you have any questions before you arrive, give us a call or text. See you soon!<br>Kelly &amp; The Vintage Loft Team</p>
-    <div style="background:#faf8f3;border:1px solid #eee;border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.6;color:#6b6459;font-family:Arial,sans-serif">
+    <div style="background:#f6f5f3;border:1px solid #eae8e4;border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.6;color:#6b6459;font-family:Arial,sans-serif">
       <b>Cancellation policy:</b> We do not give refunds for bookings, however we give full studio credit if cancelled or rescheduled with 48 hours or more notice. (Special holiday sets have a different cancellation policy.)
     </div>`;
   return emailShell(inner);
@@ -176,6 +180,7 @@ function reminderEmail({ name }) {
     <p style="margin:0 0 14px;line-height:1.6">Just a friendly reminder that you're scheduled here at The Vintage Loft <b>tomorrow</b>.</p>
     <p style="margin:0 0 14px;line-height:1.6"><b>Inside shoes:</b> Shoes are welcome in your photos! We simply ask that you bring a clean pair of indoor shoes, or the shoes you plan to wear for your session, rather than wearing outdoor shoes into the studio. Please remind everyone joining you to bring their photo shoes as well. If anyone forgets, we have slides available in the entryway.</p>
     <p style="margin:0 0 14px;line-height:1.6">The door will be unlocked, so please come in and head upstairs. A member of our team will be there to greet you when you arrive. If you or anyone in your group requires assistance with the stairs, please call or text us when you arrive so we can help you use the chair lift.</p>
+    <img src="${ARRIVAL_URL}" alt="How to find The Vintage Loft entrance — 207 Dundas St West, Whitby" width="540" style="width:100%;max-width:540px;height:auto;border:1px solid #eae8e4;border-radius:10px;display:block;margin:4px 0 16px">
     <p style="margin:0 0 14px;line-height:1.6">If you have questions prior to your visit, please give us a call or text (our studio line can also accept text messages).<br><b>Studio:</b> 905-767-2099 &nbsp;&middot;&nbsp; <b>Kelly's cell:</b> 905-767-8099</p>
     <p style="margin:0;line-height:1.6">See you soon!<br>:) Kelly + Team</p>`;
   return emailShell(inner);
