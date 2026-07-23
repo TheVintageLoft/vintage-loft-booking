@@ -64,7 +64,7 @@
   .btn{border:0;border-radius:10px;padding:12px 20px;font-weight:600;font-size:14px}
   .btn-gold{background:var(--gold);color:#fff}
   .btn-gold:hover{background:var(--gold-d);color:#fff}
-  .btn-ink{background:var(--ink);color:#f6efe4}
+  .btn-ink{background:var(--gold);color:#fff}
   .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
   .btn-ghost:hover{border-color:var(--gold)}
   .btn:disabled{opacity:.5;cursor:not-allowed}
@@ -101,7 +101,7 @@
 
   .steps{display:flex;gap:8px;justify-content:center;margin-bottom:20px;flex-wrap:wrap}
   .step{font-size:12px;color:var(--muted);padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:#fff}
-  .step.active{background:var(--ink);color:#f6efe4;border-color:var(--ink)}
+  .step.active{background:var(--gold);color:#fff;border-color:var(--gold)}
   .step.done{color:var(--green);border-color:rgba(63,125,84,.4)}
 
   label.chk{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;padding:10px;border:1px solid var(--line);border-radius:10px;cursor:pointer}
@@ -121,7 +121,7 @@
   .modal .mbody{padding:22px}
   .tabs{display:flex;gap:6px;margin-bottom:16px}
   .tabs button{flex:1;padding:9px;border:1px solid var(--line);background:#fff;border-radius:8px;font-size:13px}
-  .tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .tabs button.on{background:var(--gold);color:#fff;border-color:var(--gold)}
   .x{background:none;border:0;font-size:22px;color:var(--muted);line-height:1}
 
   /* Bookings */
@@ -130,7 +130,7 @@
   .bk .tag{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px}
   .tag.up{background:rgba(63,125,84,.12);color:var(--green)}
   .tag.cx{background:#f1ece4;color:var(--muted)}
-  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--gold);color:#fff;
     padding:12px 20px;border-radius:30px;font-size:13.5px;box-shadow:var(--shadow);z-index:80;opacity:0;transition:.3s;pointer-events:none}
   .toast.show{opacity:1;bottom:34px}
   .hint{font-size:12px;color:var(--muted);margin-top:6px}
@@ -139,11 +139,11 @@
   .calnav{display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px;gap:10px}
   .calwrap{overflow-x:auto;padding-bottom:6px}
   .weekgrid{display:grid;grid-template-columns:repeat(7,minmax(66px,1fr));gap:6px;min-width:520px}
-  .dayhead{background:#4a423b;color:#f6efe4;text-align:center;padding:7px 4px;border-radius:8px;font-size:11.5px;font-weight:600;margin-bottom:6px;line-height:1.25}
+  .dayhead{background:var(--gold);color:#fff;text-align:center;padding:7px 4px;border-radius:8px;font-size:11.5px;font-weight:600;margin-bottom:6px;line-height:1.25}
   .slot{display:block;width:100%;text-align:center;padding:6px 2px;margin-bottom:5px;border:1px solid var(--line);border-radius:7px;background:#fff;font-size:11.5px;color:var(--ink)}
   .slot:hover:not(:disabled){border-color:var(--gold);background:#fff7ea}
   .slot.off{color:#c4b9ac;background:#f3efe9;text-decoration:line-through;border-color:transparent;cursor:not-allowed}
-  .slot.sel{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .slot.sel{background:var(--gold);color:#fff;border-color:var(--gold)}
   .dur{display:inline-block;margin:4px 6px 4px 0;padding:9px 13px;border:1px solid var(--line);border-radius:9px;background:#fff;font-size:13px}
   .dur:hover{border-color:var(--gold);background:#fff7ea}
   .roomchip{border:1px solid var(--line);background:#fff;border-radius:22px;padding:8px 15px;font-size:13.5px;font-weight:600;color:var(--ink)}
@@ -195,8 +195,8 @@
   <section id="view-room" style="display:none">
     <button class="btn btn-ghost" onclick="go('search')" style="margin-bottom:12px">← All rooms</button>
     <div class="card pad">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
-        <div><h2 id="rcName"></h2><div id="rcRate" class="cap" style="color:var(--muted);font-size:13px"></div></div>
+      <div style="text-align:center">
+        <h2 id="rcName" style="font-size:28px"></h2><div id="rcRate" class="cap" style="color:var(--muted);font-size:14px;margin-top:5px"></div>
       </div>
       <div class="calnav">
         <button class="btn btn-ghost" id="rcPrev" onclick="shiftWeek(-1)">← Prev</button>
@@ -817,15 +817,16 @@ function renderAddons(){
   if(!cart){ go('search'); return; }
   cart.addonOpts = cart.addonOpts || {};
   let html = '';
-  ADDONS.filter(a=>addonOK(a, cart.roomId)).forEach(a=>{
+  ADDONS.filter(a=>addonOK(a, cart.roomId)).sort((a,b)=>(a.priority||99)-(b.priority||99)).forEach(a=>{
     const q = cart.addons[a.id] || 0;
     let optHtml = '', priceLabel;
     if(a.options && a.options.length){
       if(!cart.addonOpts[a.id]) cart.addonOpts[a.id] = a.options[0].label;
       const sel = cart.addonOpts[a.id];
-      priceLabel = `${money(addonUnit(a, sel))} <small>/ ${a.unit}</small>`;
+      const selPrice = addonUnit(a, sel);
+      priceLabel = selPrice>0 ? `${money(selPrice)} <small>/ ${a.unit}</small>` : `<b style="color:var(--green)">Free</b>`;
       optHtml = `<div style="margin-top:8px"><select onchange="setAddonOpt('${a.id}',this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff;color:var(--ink);max-width:100%">`
-        + a.options.map(o=>`<option ${sel===o.label?'selected':''} value="${o.label}">${o.label} (${money(o.price)})</option>`).join('') + `</select></div>`;
+        + a.options.map(o=>`<option ${sel===o.label?'selected':''} value="${o.label}">${o.label}${o.price>0?` (${money(o.price)})`:''}</option>`).join('') + `</select></div>`;
     } else {
       priceLabel = a.price>0 ? `${money(a.price)} <small>/ ${a.unit}</small>` : `<b style="color:var(--green)">Free</b>`;
     }
@@ -910,9 +911,9 @@ function renderSlotPanel(){
   }
   const xmas = isChristmas(rcSel.date);
   panel.innerHTML = `<div class="card pad" style="margin-top:16px">
-    <h3 style="font-size:15px">How long? — ${fmtDate(rcSel.date)} from ${label(rcSel.start)}</h3>
-    <p style="color:var(--muted);font-size:12.5px;margin:4px 0 12px">Only the durations open from this start are shown${xmas?' · Christmas-premium rate applies':''}. Prices before tax; discounts already applied.</p>
-    <div>${btns}</div></div>`;
+    <h3 style="font-size:28px;text-align:center;margin:0">How long?</h3>
+    <p style="color:var(--muted);font-size:14px;text-align:center;margin:5px 0 16px">${fmtDate(rcSel.date)} from ${label(rcSel.start)}${xmas?' · Christmas-premium rate applies':''}. Prices before tax.</p>
+    <div style="text-align:center">${btns}</div></div>`;
   panel.scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 
