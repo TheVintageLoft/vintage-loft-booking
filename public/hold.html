@@ -58,6 +58,29 @@
   </div>
 </div>
 
+<div class="card">
+  <div class="hd"><h1>Upcoming bookings</h1><p>Real customer bookings from today onward. Cancel any test bookings to free the studio.</p></div>
+  <div class="body">
+    <div class="allrow"><a onclick="loadBookings()">Refresh list</a></div>
+    <table id="btbl"><thead><tr><th>Date</th><th>Studio</th><th>Time</th><th>Name</th><th></th></tr></thead><tbody></tbody></table>
+    <div id="bookmsg" class="muted" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="hd"><h1>Pre-launch cleanup</h1><p>Use these once, before you go live, to clear out testing data.</p></div>
+  <div class="body">
+    <p class="muted" style="margin-top:0">Remove the built-in sample bookings and the maintenance block the system created during setup. Safe: it only touches demo data, not real bookings or your holds.</p>
+    <button id="cleardemo" style="margin-top:4px">Remove demo / sample data</button>
+    <div id="demomsg" class="muted" style="margin-top:10px"></div>
+    <hr style="border:none;border-top:1px solid #eee;margin:22px 0">
+    <p class="muted" style="margin-top:0"><b>Start completely fresh.</b> This erases <b>every</b> booking and hold so you can import your real schedule from scratch. There is no undo.</p>
+    <input id="resetword" type="text" placeholder="Type RESET to confirm" style="max-width:240px">
+    <button id="resetall" style="margin-top:10px;background:#a33;display:block">Clear everything</button>
+    <div id="resetmsg" class="muted" style="margin-top:10px"></div>
+  </div>
+</div>
+
 <script>
 var ROOMS=[["grand","Grand Room"],["gatsby","The Gatsby"],["carnegie","The Carnegie"],["dream","Dream Room"],["marilyn","The Marilyn"]];
 function pad(n){return String(n).padStart(2,'0');}
@@ -156,4 +179,79 @@ function removeHold(id,btn){
     .then(function(x){ if(!x.ok){btn.disabled=false;btn.textContent='Remove';alert((x.d&&x.d.error)||'Could not remove.');return;} loadHolds(); })
     .catch(function(err){btn.disabled=false;btn.textContent='Remove';alert('Network error: '+err.message);});
 }
+
+function loadBookings(){
+  var key=document.getElementById('key').value.trim();
+  var bm=document.getElementById('bookmsg');
+  var tb=document.querySelector('#btbl tbody'); tb.innerHTML='';
+  if(!key){bm.textContent='Enter your admin key above, then click Refresh list to see bookings.';return;}
+  bm.textContent='Loading…';
+  fetch('/api/admin/bookings?key='+encodeURIComponent(key))
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(x){
+      if(!x.ok){bm.textContent=(x.d&&x.d.error)||'Could not load bookings — check your admin key.';return;}
+      var today=new Date(); var todayISO=today.getFullYear()+'-'+pad(today.getMonth()+1)+'-'+pad(today.getDate());
+      var rows=(x.d.bookings||[]).filter(function(b){return b.date>=todayISO && b.status!=='cancelled';})
+        .sort(function(a,b){return (a.date+String(a.start).padStart(6,'0'))<(b.date+String(b.start).padStart(6,'0'))?-1:1;});
+      if(!rows.length){bm.textContent='No upcoming bookings.';return;}
+      bm.textContent=rows.length+' upcoming booking'+(rows.length===1?'':'s')+'.';
+      rows.forEach(function(b){
+        var tr=document.createElement('tr');
+        var td=document.createElement('td');td.textContent=fdate(b.date);tr.appendChild(td);
+        var td2=document.createElement('td');td2.className='rm';td2.textContent=b.roomName||b.room_id;tr.appendChild(td2);
+        var td3=document.createElement('td');td3.textContent=tLabel(b.start)+' – '+tLabel(b.end);tr.appendChild(td3);
+        var td4=document.createElement('td');td4.textContent=(b.customer_name||'')+(b.payment_ref==='SEED'?' (sample)':'');tr.appendChild(td4);
+        var td5=document.createElement('td');
+        var c=document.createElement('button');c.className='del';c.textContent='Cancel';
+        c.onclick=function(){cancelBooking(b.id,c);};
+        td5.appendChild(c);tr.appendChild(td5);
+        tb.appendChild(tr);
+      });
+    })
+    .catch(function(err){bm.textContent='Network error: '+err.message;});
+}
+
+function cancelBooking(id,btn){
+  var key=document.getElementById('key').value.trim();
+  btn.disabled=true; btn.textContent='Cancelling…';
+  fetch('/api/admin/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,id:id})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(x){ if(!x.ok){btn.disabled=false;btn.textContent='Cancel';alert('Could not cancel.');return;} loadBookings(); })
+    .catch(function(err){btn.disabled=false;btn.textContent='Cancel';alert('Network error: '+err.message);});
+}
+
+document.getElementById('cleardemo').onclick=function(){
+  var key=document.getElementById('key').value.trim();
+  var dm=document.getElementById('demomsg');
+  if(!key){dm.textContent='Enter your admin key above first.';return;}
+  var btn=this; btn.disabled=true; btn.textContent='Removing…';
+  fetch('/api/admin/clear-demo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(x){
+      btn.disabled=false; btn.textContent='Remove demo / sample data';
+      if(!x.ok){dm.textContent=(x.d&&x.d.error)||'Could not clear — check your admin key.';return;}
+      dm.innerHTML='<b style="color:#2e6b34">Done.</b> Removed '+x.d.bookingsRemoved+' sample booking'+(x.d.bookingsRemoved===1?'':'s')+' and '+x.d.blocksRemoved+' maintenance block'+(x.d.blocksRemoved===1?'':'s')+'.';
+      loadHolds(); loadBookings();
+    })
+    .catch(function(err){btn.disabled=false;btn.textContent='Remove demo / sample data';dm.textContent='Network error: '+err.message;});
+};
+
+document.getElementById('resetall').onclick=function(){
+  var key=document.getElementById('key').value.trim();
+  var rm=document.getElementById('resetmsg');
+  var word=document.getElementById('resetword').value.trim();
+  if(!key){rm.textContent='Enter your admin key above first.';return;}
+  if(word!=='RESET'){rm.textContent='Type RESET in the box to confirm.';return;}
+  var btn=this; btn.disabled=true; btn.textContent='Clearing…';
+  fetch('/api/admin/reset-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,confirm:'RESET'})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(x){
+      btn.disabled=false; btn.textContent='Clear everything';
+      if(!x.ok){rm.textContent=(x.d&&x.d.error)||'Could not reset — check your admin key.';return;}
+      document.getElementById('resetword').value='';
+      rm.innerHTML='<b style="color:#2e6b34">Cleared.</b> Removed '+x.d.bookingsRemoved+' booking'+(x.d.bookingsRemoved===1?'':'s')+' and '+x.d.blocksRemoved+' hold'+(x.d.blocksRemoved===1?'':'s')+'. You can now import your real schedule from a clean slate.';
+      loadHolds(); loadBookings();
+    })
+    .catch(function(err){btn.disabled=false;btn.textContent='Clear everything';rm.textContent='Network error: '+err.message;});
+};
 </script></body></html>

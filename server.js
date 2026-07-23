@@ -245,8 +245,10 @@ function isFree(roomId, date, start, end) {
 // clear any reservations left "pending" by an interrupted checkout on a prior run
 db.exec(`DELETE FROM bookings WHERE status='pending'`);
 
-/* ---------- seed a little demo data (only if empty) ---------- */
-if (db.prepare('SELECT COUNT(*) c FROM bookings').get().c === 0 &&
+/* ---------- seed a little demo data (only if empty AND explicitly enabled) ----------
+   Production must never invent fake bookings, so this only runs when SEED_DEMO=1.     */
+if (process.env.SEED_DEMO === '1' &&
+    db.prepare('SELECT COUNT(*) c FROM bookings').get().c === 0 &&
     db.prepare('SELECT COUNT(*) c FROM blocks').get().c === 0) {
   const insB = db.prepare(`INSERT INTO bookings (room_id,date,start,end,hours,addons_json,pre,hst,total,paid,payment_ref,payment_mode,customer_name,customer_email,status,created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'confirmed', ?)`);
@@ -520,6 +522,21 @@ app.post('/api/admin/delete-block', admin, (req, res) => {
   if (!id) return res.status(400).json({ error: 'id required' });
   const info = db.prepare(`DELETE FROM blocks WHERE id=?`).run(id);
   res.json({ ok: true, deleted: info.changes });
+});
+
+// Remove ONLY the auto-generated demo data (Seed Client bookings + Maintenance block)
+app.post('/api/admin/clear-demo', admin, (_req, res) => {
+  const b = db.prepare(`DELETE FROM bookings WHERE payment_ref='SEED' OR customer_email='seed@example.com'`).run();
+  const k = db.prepare(`DELETE FROM blocks WHERE reason='Maintenance'`).run();
+  res.json({ ok: true, bookingsRemoved: b.changes, blocksRemoved: k.changes });
+});
+
+// Wipe ALL bookings and holds for a clean pre-launch start. Requires confirm:'RESET'.
+app.post('/api/admin/reset-all', admin, (req, res) => {
+  if (req.body.confirm !== 'RESET') return res.status(400).json({ error: 'confirmation required' });
+  const b = db.prepare(`DELETE FROM bookings`).run();
+  const k = db.prepare(`DELETE FROM blocks`).run();
+  res.json({ ok: true, bookingsRemoved: b.changes, blocksRemoved: k.changes });
 });
 
 // Send day-before reminders for TOMORROW's bookings (Toronto). Grouped by reservation so a
