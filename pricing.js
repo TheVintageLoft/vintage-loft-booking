@@ -33,11 +33,10 @@
   ];
 
   const ADDONS = [
-    { id: 'backdrop', name: 'Premium backdrop set',        price: 25,  unit: 'each',    desc: 'Choose from 40+ seamless & textured backdrops' },
-    { id: 'lighting', name: 'Studio lighting kit',         price: 35,  unit: 'kit',     desc: 'Strobes, softboxes & continuous LED' },
-    { id: 'wardrobe', name: 'Dress & wardrobe rental',     price: 45,  unit: 'outfit',  desc: 'Gowns and styled pieces from our collection' },
-    { id: 'event',    name: 'Event rental package',        price: 120, unit: 'package', desc: 'Chairs, tables, linens & basic décor' },
-    { id: 'glove',    name: 'White-glove setup & teardown', price: 150, unit: 'service', desc: 'We set up and reset the room for you' }
+    { id: 'backdrop',  name: 'Seamless backdrop',      price: 25, unit: 'each',   desc: 'Professional seamless paper backdrop', options: ['Rolled to Floor for Headshots', 'Taped to Floor for Full Body'] },
+    { id: 'lighting',  name: 'Studio lighting',        price: 0,  unit: 'kit',    desc: 'Profoto strobes & softboxes for Canon, Nikon & Sony' },
+    { id: 'cakesmash', name: 'Cake Smash Set',         price: 35, unit: 'set',    desc: 'Complete cake smash setup' },
+    { id: 'wardrobe',  name: 'Dress & wardrobe rental', price: 45, unit: 'outfit', desc: 'Gowns and styled pieces from our collection' }
   ];
 
   const roomById = id => ROOMS.find(r => r.id === id);
@@ -57,6 +56,15 @@
     return rateFor(room, dateStr) * hours;
   }
   function roomTotalFor(room, dateStr, hours) { const b = roomBaseFor(room, dateStr, hours); return b - b * tierFor(hours).off; }
+
+  // Which durations a studio allows. Dream skips 1.5 hr (goes 1 hr -> 2 hr).
+  function validDuration(roomId, hours) {
+    const room = roomById(roomId);
+    if (hours < CONFIG.minHours) return false;
+    if (Math.round(hours * 2) !== hours * 2) return false;          // 30-minute increments only
+    if (room && room.special === 'dream' && hours > 1 && hours < 2) return false; // no 1.5 hr for Dream
+    return true;
+  }
 
   // Authoritative price breakdown for a booking.
   function priceQuote(roomId, dateStr, hours, addons) {
@@ -87,5 +95,5 @@
   function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 
   return { CONFIG, ROOMS, ADDONS, roomById, tierFor, isWeekend, isChristmas, rateFor,
-    roomBaseFor, roomTotalFor, priceQuote, overlaps, round2 };
+    roomBaseFor, roomTotalFor, priceQuote, validDuration, overlaps, round2 };
 });

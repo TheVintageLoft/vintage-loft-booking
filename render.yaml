@@ -1,3 +1,6 @@
+# Render Blueprint — deploys the whole app with one connect.
+# On Render: New > Blueprint > connect this repo. It reads this file and sets
+# up the web service, a 1 GB persistent disk for the database, and env vars.
 services:
   - type: web
     name: vintage-loft-booking
@@ -9,9 +12,12 @@ services:
     autoDeploy: true
     envVars:
       - key: DB_PATH
-        value: /data/data.db
+        value: /data/data.db      # database lives on the persistent disk below
       - key: ADMIN_KEY
-        generateValue: true
+        generateValue: true        # secure random staff key (view it in the Render dashboard)
+      # Square keys get added here later (sandbox first, then production):
+      # - key: SQUARE_ACCESS_TOKEN
+      #   sync: false
     disk:
       name: data
       mountPath: /data

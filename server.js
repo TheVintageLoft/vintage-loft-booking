@@ -5,7 +5,7 @@ const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 const VL = require('./pricing');
 
-const DB_PATH = path.join(__dirname, 'data.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data.db');
 const db = new DatabaseSync(DB_PATH);
 db.exec(`
   CREATE TABLE IF NOT EXISTS bookings (
@@ -104,7 +104,7 @@ app.get('/api/search', (req, res) => {
   if (!date) return res.status(400).json({ error: 'date required' });
   const err = validTimes(start, end); if (err) return res.status(400).json({ error: err });
   const rooms = VL.ROOMS.map(r => {
-    const free = isFree(r.id, date, start, end);
+    const free = isFree(r.id, date, start, end) && VL.validDuration(r.id, end - start);
     const q = VL.priceQuote(r.id, date, end - start, {});
     return { id: r.id, name: r.name, cap: r.cap, tags: r.tags, color: r.color,
       rate: q.rate, xmas: q.xmas, total: q.roomTotal, available: free };
@@ -136,6 +136,7 @@ app.post('/api/bookings', (req, res) => {
   if (!VL.roomById(room)) return res.status(400).json({ error: 'unknown room' });
   if (!date) return res.status(400).json({ error: 'date required' });
   const terr = validTimes(start, end); if (terr) return res.status(400).json({ error: terr });
+  if (!VL.validDuration(room, end - start)) return res.status(400).json({ error: 'That duration is not available for this studio.' });
   if (!customerName || !customerEmail) return res.status(400).json({ error: 'name and email required' });
 
   try {
@@ -146,7 +147,7 @@ app.post('/api/bookings', (req, res) => {
     if (!pay.ok) { db.exec('ROLLBACK'); return res.status(402).json({ error: 'Payment declined' }); }
     const info = db.prepare(`INSERT INTO bookings (room_id,date,start,end,hours,addons_json,pre,hst,total,paid,payment_ref,payment_mode,customer_name,customer_email,status,created_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'confirmed', ?)`)
-      .run(room, date, start, end, end - start, JSON.stringify(addons || {}), q.pre, q.hst, q.total, q.total, pay.ref, pay.mode, customerName, customerEmail, nowISO());
+      .run(room, date, start, end, end - start, JSON.stringify({ items: addons || {}, options: req.body.addonOptions || {} }), q.pre, q.hst, q.total, q.total, pay.ref, pay.mode, customerName, customerEmail, nowISO());
     db.exec('COMMIT');
     res.json({ ok: true, id: info.lastInsertRowid, confirmation: 'VL' + info.lastInsertRowid, quote: q, paymentMode: pay.mode, paymentRef: pay.ref });
   } catch (e) { try { db.exec('ROLLBACK'); } catch (_) {} res.status(500).json({ error: e.message }); }
