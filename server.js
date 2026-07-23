@@ -479,11 +479,11 @@ app.post('/api/admin/cancel', admin, (req, res) => {
   res.json({ ok: info.changes > 0 });
 });
 
-// Daily reminder job — call this once a day (external cron) to email everyone whose booking
-// starts TOMORROW (Toronto time). Grouped by reservation so a multi-studio order gets one email.
-// reminder_sent guards against duplicates if it's called more than once.
-app.get('/api/tasks/send-reminders', admin, async (req, res) => {
-  const target = torontoISO(1); // tomorrow in Toronto
+// Send day-before reminders for TOMORROW's bookings (Toronto). Grouped by reservation so a
+// multi-studio order gets one email. reminder_sent guards against duplicates, so this is safe
+// to call repeatedly (the built-in scheduler and the manual endpoint both use it).
+async function sendRemindersForTomorrow() {
+  const target = torontoISO(1);
   const rows = db.prepare(`SELECT * FROM bookings WHERE date=? AND status='confirmed' AND reminder_sent=0`).all(target);
   const groups = {};
   for (const r of rows) { const k = r.confirmation || ('e:' + r.customer_email); (groups[k] = groups[k] || []).push(r); }
@@ -495,9 +495,39 @@ app.get('/api/tasks/send-reminders', admin, async (req, res) => {
     if (r.ok) { const mark = db.prepare(`UPDATE bookings SET reminder_sent=1 WHERE id=?`); g.forEach(b => mark.run(b.id)); sent++; }
     else if (!r.skipped) failed++;
   }
-  res.json({ ok: true, date: target, reservations: Object.keys(groups).length, sent, failed, emailEnabled });
+  if (sent) console.log('[email] sent ' + sent + ' reminder(s) for ' + target);
+  return { date: target, reservations: Object.keys(groups).length, sent, failed };
+}
+
+// Manual trigger (handy for testing, or an external cron as a backup). Same logic as the auto-run.
+app.get('/api/tasks/send-reminders', admin, async (req, res) => {
+  const r = await sendRemindersForTomorrow();
+  res.json(Object.assign({ ok: true, emailEnabled }, r));
 });
 
+// Built-in daily scheduler — automatically sends the day-before reminders each morning
+// (Toronto time), so no external cron is needed. Checks every 20 min and fires once per day
+// at/after REMINDER_HOUR. reminder_sent prevents any duplicate sends.
+function startReminderScheduler() {
+  if (!emailEnabled) { console.log('[scheduler] reminders off (no RESEND_API_KEY)'); return; }
+  const REMINDER_HOUR = Math.max(0, Math.min(23, +(process.env.REMINDER_HOUR || 9)));
+  let lastRun = null;
+  const tick = () => {
+    try {
+      const hp = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', hour: '2-digit', hour12: false }).formatToParts(new Date());
+      const hour = (+((hp.find(p => p.type === 'hour') || {}).value)) % 24;
+      const today = torontoISO(0);
+      if (hour >= REMINDER_HOUR && lastRun !== today) {
+        lastRun = today;
+        sendRemindersForTomorrow().catch(e => console.error('[email] reminder sweep error:', e.message));
+      }
+    } catch (e) { console.error('[scheduler] error:', e.message); }
+  };
+  setInterval(tick, 20 * 60 * 1000); // every 20 minutes
+  tick();
+  console.log('[scheduler] daily reminders ON — target ' + REMINDER_HOUR + ':00 America/Toronto');
+}
+
 const PORT = process.env.PORT || 3000;
-if (require.main === module) app.listen(PORT, () => console.log(`Vintage Loft booking server on :${PORT} (payments: ${payments.mode}, email: ${emailEnabled ? 'resend' : 'off'})`));
+if (require.main === module) app.listen(PORT, () => { console.log(`Vintage Loft booking server on :${PORT} (payments: ${payments.mode}, email: ${emailEnabled ? 'resend' : 'off'})`); startReminderScheduler(); });
 module.exports = { app, db };
