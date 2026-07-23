@@ -761,7 +761,13 @@ async function runSearch(){
   catch(err){ toast(err.message||'Search failed'); return; }
   const xmas = isChristmas(date);
   const openCount = data.rooms.filter(r=>r.available).length;
-  let html = `<div class="section-title"><h2>${openCount} space${openCount===1?'':'s'} available</h2>
+  let html = '';
+  if(data.closed){
+    html += `<div style="background:#f6f5f3;border:1px solid #e2ddd4;border-left:4px solid #7c7268;border-radius:10px;padding:16px 18px;margin:0 0 18px">
+      <div style="font-weight:700;color:#4a443c;margin-bottom:3px">The studio is closed on Mondays</div>
+      <div style="color:var(--muted);font-size:14px">Please pick another day for your booking. If you need a Monday, give us a call or text and we will see what we can do.</div></div>`;
+  }
+  html += `<div class="section-title"><h2>${data.closed?'Closed':openCount+' space'+(openCount===1?'':'s')+' available'}</h2>
     <span style="color:var(--muted);font-size:13px">${fmtDate(date)} · ${label(s)}–${label(e)} · ${hrTxt(e-s)}${xmas?' · Christmas premium':''}</span></div><div class="grid">`;
   data.rooms.forEach(r=>{
     const busy = !r.available;
@@ -772,7 +778,7 @@ async function runSearch(){
         <div class="cap">${r.cap} · ${r.tags}</div>
         <div class="rate"><b>${money(r.rate)}</b> /hr &nbsp;·&nbsp; ${money(r.total)} for ${hrTxt(e-s)}</div>
         <div class="foot">
-          <span class="avail ${busy?'no':'ok'}">${busy?'Booked this time':'Available'}</span>
+          <span class="avail ${busy?'no':'ok'}">${data.closed?'Closed Mondays':(busy?'Booked this time':'Available')}</span>
           <button class="btn ${busy?'btn-ghost':'btn-gold'}" ${busy?'disabled':''} onclick="selectRoom('${r.id}')">Select</button>
         </div>
       </div></div>`;

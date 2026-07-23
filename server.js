@@ -225,6 +225,14 @@ function validTimes(start, end) {
   if (Math.round(start * 2) !== start * 2 || Math.round(end * 2) !== end * 2) return 'Times must be on the half hour';
   return null;
 }
+// Days the studio is closed to public bookings (0=Sun ... 6=Sat). 1 = Monday.
+// The admin hold tool bypasses this so Kelly can still slot in her own sessions.
+const CLOSED_WEEKDAYS = new Set([1]);
+function isClosedDay(date) {
+  const p = (date || '').split('-').map(Number);
+  if (!p[0]) return false;
+  return CLOSED_WEEKDAYS.has(new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay());
+}
 function busyIntervals(roomId, date) {
   const b = db.prepare(`SELECT start,end FROM bookings WHERE room_id=? AND date=? AND status!='cancelled'`).all(roomId, date);
   const k = db.prepare(`SELECT start,end FROM blocks WHERE room_id=? AND date=?`).all(roomId, date);
@@ -345,13 +353,14 @@ app.get('/api/search', (req, res) => {
   const { date } = req.query; const start = +req.query.start, end = +req.query.end;
   if (!date) return res.status(400).json({ error: 'date required' });
   const err = validTimes(start, end); if (err) return res.status(400).json({ error: err });
+  const closed = isClosedDay(date);
   const rooms = VL.ROOMS.map(r => {
-    const free = isFree(r.id, date, start, end) && VL.validDuration(r.id, end - start);
+    const free = !closed && isFree(r.id, date, start, end) && VL.validDuration(r.id, end - start);
     const q = VL.priceQuote(r.id, date, end - start, {});
     return { id: r.id, name: r.name, cap: r.cap, tags: r.tags, color: r.color,
       rate: q.rate, xmas: q.xmas, total: q.roomTotal, available: free };
   });
-  res.json({ date, start, end, rooms });
+  res.json({ date, start, end, closed, closedReason: closed ? 'The studio is closed on Mondays.' : null, rooms });
 });
 
 // Busy intervals for a room across a date range (for the week calendar)
@@ -385,6 +394,7 @@ app.post('/api/bookings', async (req, res) => {
     if (!room) return res.status(400).json({ error: 'unknown room' });
     if (!it.date) return res.status(400).json({ error: 'date required' });
     const terr = validTimes(s, e); if (terr) return res.status(400).json({ error: terr });
+    if (isClosedDay(it.date)) return res.status(400).json({ error: 'The studio is closed on Mondays. Please choose another day.' });
     if (!VL.validDuration(it.room, e - s)) return res.status(400).json({ error: 'That duration is not available for ' + room.name + '.' });
   }
 
@@ -502,6 +512,14 @@ app.post('/api/admin/import-blocks', admin, (req, res) => {
     inserted++;
   }
   res.json({ ok: true, total: items.length, inserted, skipped, bad });
+});
+
+// Remove a single block/hold by id (used by the self-serve hold tool)
+app.post('/api/admin/delete-block', admin, (req, res) => {
+  const id = +req.body.id;
+  if (!id) return res.status(400).json({ error: 'id required' });
+  const info = db.prepare(`DELETE FROM blocks WHERE id=?`).run(id);
+  res.json({ ok: true, deleted: info.changes });
 });
 
 // Send day-before reminders for TOMORROW's bookings (Toronto). Grouped by reservation so a
