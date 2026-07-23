@@ -29,7 +29,8 @@
     { id: 'grand',    name: 'Grand Room',   cap: '900 sq ft',      reg: 100, xmas: 150, color: '#857a6d', tags: 'Natural light · high ceilings' },
     { id: 'gatsby',   name: 'The Gatsby',   cap: '600 sq ft',      reg: 80,  xmas: 120, color: '#99855f', tags: 'Bedroom & office suite · calm, textured neutrals' },
     { id: 'carnegie', name: 'The Carnegie', cap: 'Kitchen studio', reg: 80,  xmas: 120, color: '#728175', tags: 'Kitchen · natural light' },
-    { id: 'dream',    name: 'Dream Room',   cap: '200 sq ft',      reg: 50,  xmas: 100, color: '#a98f8c', tags: 'Dreamy · cloud-soft couch · olive greens & natural light', special: 'dream' }
+    { id: 'dream',    name: 'Dream Room',   cap: '200 sq ft',      reg: 50,  xmas: 100, color: '#a98f8c', tags: 'Dreamy · cloud-soft couch · olive greens & natural light', special: 'dream' },
+    { id: 'marilyn',  name: 'The Marilyn',  cap: 'Makeup room',    reg: 25,  xmas: 25,  color: '#b8917a', tags: 'Hair & makeup station · Hollywood mirrors', type: 'makeup' }
   ];
 
   const ADDONS = [
@@ -75,8 +76,13 @@
     if (a.options && a.options.length) { const o = a.options.find(x => x.label === optionLabel) || a.options[0]; return o.price; }
     return a.price || 0;
   }
-  // Is this add-on offered for this studio? (room-restricted add-ons, e.g. Bed set-up = Gatsby only)
-  function addonAllowed(a, roomId) { return !a.rooms || a.rooms.includes(roomId); }
+  // Is this add-on offered for this room? Room-restricted add-ons honor their `rooms` list;
+  // general add-ons apply to studios only (not makeup rooms like The Marilyn).
+  function addonAllowed(a, roomId) {
+    if (a.rooms) return a.rooms.includes(roomId);
+    const room = roomById(roomId);
+    return !room || (room.type || 'studio') === 'studio';
+  }
 
   // Authoritative price breakdown for a booking.
   function priceQuote(roomId, dateStr, hours, addons, addonOptions) {
