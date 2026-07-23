@@ -125,7 +125,7 @@ app.get('/api/busy', (req, res) => {
 app.post('/api/quote', (req, res) => {
   try {
     const { room, start, end, addons } = req.body;
-    res.json(VL.priceQuote(room, req.body.date, end - start, addons || {}));
+    res.json(VL.priceQuote(room, req.body.date, end - start, addons || {}, req.body.addonOptions || {}));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -142,7 +142,7 @@ app.post('/api/bookings', (req, res) => {
   try {
     db.exec('BEGIN IMMEDIATE');
     if (!isFree(room, date, start, end)) { db.exec('ROLLBACK'); return res.status(409).json({ error: 'That time was just taken. Please pick another.' }); }
-    const q = VL.priceQuote(room, date, end - start, addons || {});
+    const q = VL.priceQuote(room, date, end - start, addons || {}, req.body.addonOptions || {});
     const pay = payments.charge({ amountCents: Math.round(q.total * 100), sourceId: paymentToken || 'cnon:card-nonce-ok' });
     if (!pay.ok) { db.exec('ROLLBACK'); return res.status(402).json({ error: 'Payment declined' }); }
     const info = db.prepare(`INSERT INTO bookings (room_id,date,start,end,hours,addons_json,pre,hst,total,paid,payment_ref,payment_mode,customer_name,customer_email,status,created_at)

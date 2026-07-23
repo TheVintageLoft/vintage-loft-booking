@@ -33,10 +33,13 @@
   ];
 
   const ADDONS = [
-    { id: 'backdrop',  name: 'Seamless backdrop',      price: 25, unit: 'each',   desc: 'Professional seamless paper backdrop', options: ['Rolled to Floor for Headshots', 'Taped to Floor for Full Body'] },
-    { id: 'lighting',  name: 'Studio lighting',        price: 0,  unit: 'kit',    desc: 'Profoto strobes & softboxes for Canon, Nikon & Sony' },
-    { id: 'cakesmash', name: 'Cake Smash Set',         price: 35, unit: 'set',    desc: 'Complete cake smash setup' },
-    { id: 'wardrobe',  name: 'Dress & wardrobe rental', price: 45, unit: 'outfit', desc: 'Gowns and styled pieces from our collection' }
+    { id: 'backdrop',  name: 'Seamless backdrop', unit: 'each', desc: 'Professional seamless paper backdrop',
+      options: [ { label: 'Rolled to Floor for Headshots', price: 15 }, { label: 'Taped to Floor for Full Body', price: 35 } ] },
+    { id: 'lighting',  name: 'Studio lighting', price: 0,  unit: 'kit',   desc: 'Profoto strobes & softboxes for Canon, Nikon & Sony' },
+    { id: 'cakesmash', name: 'Cake Smash Set',  price: 35, unit: 'set',   desc: 'Complete cake smash setup' },
+    { id: 'wardrobe',  name: 'Dress rental',    price: 50, unit: 'dress', desc: 'A styled dress from our collection' },
+    { id: 'bedsetup',  name: 'Bed set-up',      price: 25, unit: 'set',   desc: 'Queen bed with fresh linens', rooms: ['gatsby'] },
+    { id: 'swing',     name: 'Macramé swing',   price: 15, unit: 'each',  desc: 'Hanging macramé swing', rooms: ['grand', 'dream'] }
   ];
 
   const roomById = id => ROOMS.find(r => r.id === id);
@@ -66,8 +69,16 @@
     return true;
   }
 
+  // Add-on price for a chosen option (option-priced add-ons like the backdrop).
+  function addonUnitPrice(a, optionLabel) {
+    if (a.options && a.options.length) { const o = a.options.find(x => x.label === optionLabel) || a.options[0]; return o.price; }
+    return a.price || 0;
+  }
+  // Is this add-on offered for this studio? (room-restricted add-ons, e.g. Bed set-up = Gatsby only)
+  function addonAllowed(a, roomId) { return !a.rooms || a.rooms.includes(roomId); }
+
   // Authoritative price breakdown for a booking.
-  function priceQuote(roomId, dateStr, hours, addons) {
+  function priceQuote(roomId, dateStr, hours, addons, addonOptions) {
     const room = roomById(roomId);
     if (!room) throw new Error('unknown room: ' + roomId);
     const xmas = isChristmas(dateStr);
@@ -81,7 +92,11 @@
     const items = [];
     for (const id in (addons || {})) {
       const a = ADDONS.find(x => x.id === id); const qty = addons[id];
-      if (a && qty > 0) { addonTotal += a.price * qty; items.push({ id, name: a.name, qty, amount: a.price * qty }); }
+      if (!a || qty <= 0 || !addonAllowed(a, roomId)) continue;   // ignore add-ons not offered for this studio
+      const opt = (addonOptions || {})[id];
+      const unit = addonUnitPrice(a, opt);
+      addonTotal += unit * qty;
+      items.push({ id, name: a.name, qty, option: opt || null, unit, amount: unit * qty });
     }
     const pre = roomTotal + addonTotal;
     const hst = round2(pre * CONFIG.hstRate);

@@ -808,21 +808,26 @@ async function lookupBookings(){
   list.innerHTML = d.bookings.map(b => `<div class="bk"><div><span class="tag ${b.status==='cancelled'?'cx':'up'}">${b.status==='cancelled'?'Cancelled':'Confirmed'}</span> <b style="margin-left:8px">${b.roomName}</b><div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)} · paid ${money(b.total)}</div></div></div>`).join('');
 }
 
-/* add-on picker: shows a dropdown for add-ons that have options (e.g. seamless backdrop),
-   marks free add-ons, and records the chosen option on the cart */
-function setAddonOpt(id, val){ cart.addonOpts = cart.addonOpts || {}; cart.addonOpts[id] = val; }
+/* ---- add-on helpers: option-priced (backdrop) + room-restricted (bed set-up, swing) ---- */
+function addonUnit(a, opt){ if(a.options && a.options.length){ const o=a.options.find(x=>x.label===opt)||a.options[0]; return o.price; } return a.price||0; }
+function addonOK(a, roomId){ return !a.rooms || a.rooms.includes(roomId); }
+function setAddonOpt(id, val){ cart.addonOpts = cart.addonOpts || {}; cart.addonOpts[id] = val; renderAddons(); }
+
 function renderAddons(){
   if(!cart){ go('search'); return; }
   cart.addonOpts = cart.addonOpts || {};
   let html = '';
-  ADDONS.forEach(a=>{
+  ADDONS.filter(a=>addonOK(a, cart.roomId)).forEach(a=>{
     const q = cart.addons[a.id] || 0;
-    const priceLabel = a.price > 0 ? `${money(a.price)} <small>/ ${a.unit}</small>` : `<b style="color:var(--green)">Free</b>`;
-    let optHtml = '';
+    let optHtml = '', priceLabel;
     if(a.options && a.options.length){
-      if(!cart.addonOpts[a.id]) cart.addonOpts[a.id] = a.options[0];
+      if(!cart.addonOpts[a.id]) cart.addonOpts[a.id] = a.options[0].label;
+      const sel = cart.addonOpts[a.id];
+      priceLabel = `${money(addonUnit(a, sel))} <small>/ ${a.unit}</small>`;
       optHtml = `<div style="margin-top:8px"><select onchange="setAddonOpt('${a.id}',this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff;color:var(--ink);max-width:100%">`
-        + a.options.map(o=>`<option ${cart.addonOpts[a.id]===o?'selected':''}>${o}</option>`).join('') + `</select></div>`;
+        + a.options.map(o=>`<option ${sel===o.label?'selected':''} value="${o.label}">${o.label} (${money(o.price)})</option>`).join('') + `</select></div>`;
+    } else {
+      priceLabel = a.price>0 ? `${money(a.price)} <small>/ ${a.unit}</small>` : `<b style="color:var(--green)">Free</b>`;
     }
     html += `<div class="addon">
       <div class="info"><b>${a.name}</b> — ${priceLabel}<br><small>${a.desc}</small>${optHtml}</div>
@@ -834,6 +839,55 @@ function renderAddons(){
   });
   document.getElementById('addonList').innerHTML = html;
   renderSide('#sideSummary', true);
+}
+
+/* ---- summaries use the option/room-aware prices (server still recomputes on booking) ---- */
+function priceCart(){
+  const room = ROOMS.find(r=>r.id===cart.roomId);
+  const xmas = isChristmas(cart.date);
+  const rate = rateFor(room, cart.date);
+  const dreamSpecial = room.special==='dream' && !xmas && cart.hours<=1;
+  const roomBase = roomBaseFor(room, cart.date, cart.hours);
+  const tier = tierFor(cart.hours);
+  const tierDisc = roomBase * tier.off;
+  const roomTotal = roomBase - tierDisc;
+  let addonTotal = 0;
+  for(const id in cart.addons){ const a=ADDONS.find(x=>x.id===id); if(!a || !addonOK(a,cart.roomId)) continue; addonTotal += addonUnit(a,(cart.addonOpts||{})[id]) * cart.addons[id]; }
+  const pre = roomTotal + addonTotal;
+  const hst = pre * CONFIG.hstRate;
+  return { rate, xmas, dreamSpecial, roomBase, tier, tierDisc, roomTotal, addonTotal, pre, hst, total: pre + hst };
+}
+function addonRows(){
+  let rows = '';
+  for(const id in cart.addons){ const a=ADDONS.find(x=>x.id===id); if(!a || !addonOK(a,cart.roomId)) continue;
+    const qty = cart.addons[id], opt = (cart.addonOpts||{})[id];
+    rows += `<div class="sum-row"><span>${a.name}${opt?` (${opt})`:''} × ${qty}</span><span>${money(addonUnit(a,opt)*qty)}</span></div>`;
+  }
+  return rows;
+}
+function renderSide(sel, showNext){
+  const p = priceCart();
+  let rows = `<h3 style="font-size:16px;margin-bottom:10px">Booking summary</h3>
+    <div class="sum-row"><span>${cart.roomName} · ${hrTxt(cart.hours)}${p.xmas?' · Christmas premium':''}</span><span>${money(p.roomBase)}</span></div>
+    <div class="sum-row"><span style="color:var(--muted)">${p.dreamSpecial?'Single-hour rate':money(p.rate)+'/hr'} · ${fmtDate(cart.date)} · ${label(cart.start)}–${label(cart.end)}</span><span></span></div>`;
+  if(p.tierDisc>0) rows += `<div class="sum-row"><span class="g">Multi-hour discount (${Math.round(p.tier.off*100)}% off)</span><span class="g">−${money(p.tierDisc)}</span></div>`;
+  rows += addonRows();
+  rows += `<div class="sum-row"><span>HST (13%)</span><span>${money(p.hst)}</span></div>`;
+  rows += `<div class="sum-row total"><span>Total due now</span><span>${money(p.total)}</span></div>`;
+  if(showNext) rows += `<button class="btn btn-gold" style="width:100%;margin-top:16px" onclick="go('review')">Continue to payment →</button>
+    <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="go('search')">← Change room / time</button>`;
+  document.querySelector(sel).innerHTML = rows;
+}
+function renderReviewSummary(){
+  const p = priceCart();
+  let rows = `<h3 style="font-size:16px;margin-bottom:10px">Order</h3>
+    <div class="sum-row"><span>${cart.roomName} · ${hrTxt(cart.hours)}${p.xmas?' · Christmas premium':''}</span><span>${money(p.roomBase)}</span></div>`;
+  if(p.tierDisc>0) rows += `<div class="sum-row"><span class="g">Multi-hour discount (${Math.round(p.tier.off*100)}% off)</span><span class="g">−${money(p.tierDisc)}</span></div>`;
+  rows += addonRows();
+  rows += `<div class="sum-row"><span>HST (13%)</span><span>${money(p.hst)}</span></div>`;
+  rows += `<div class="sum-row total"><span>Total due now</span><span>${money(p.total)}</span></div>`;
+  document.getElementById('reviewSummary').innerHTML = rows;
+  document.getElementById('payBtn').textContent = 'Pay ' + money(p.total) + ' & confirm';
 }
 
 /* durations offered in the calendar respect per-studio rules (Dream skips 1.5 hr) */
