@@ -130,26 +130,46 @@ app.post('/api/quote', (req, res) => {
 });
 
 // Create a booking — server is authoritative: re-checks availability + price, then charges + saves
+// Create a reservation of ONE OR MORE studios. All items validated + priced, charged once,
+// and booked atomically (if any studio's time was taken, the whole order is rolled back).
 app.post('/api/bookings', (req, res) => {
-  const { room, date, addons, customerName, customerEmail, paymentToken } = req.body;
-  const start = +req.body.start, end = +req.body.end;
-  if (!VL.roomById(room)) return res.status(400).json({ error: 'unknown room' });
-  if (!date) return res.status(400).json({ error: 'date required' });
-  const terr = validTimes(start, end); if (terr) return res.status(400).json({ error: terr });
-  if (!VL.validDuration(room, end - start)) return res.status(400).json({ error: 'That duration is not available for this studio.' });
+  let { items, customerName, customerEmail, paymentToken } = req.body;
+  if (!Array.isArray(items)) {   // backward-compatible with a single-room body
+    items = req.body.room ? [{ room: req.body.room, date: req.body.date, start: req.body.start, end: req.body.end, addons: req.body.addons, addonOptions: req.body.addonOptions }] : [];
+  }
+  if (!items.length) return res.status(400).json({ error: 'No studios in the booking.' });
   if (!customerName || !customerEmail) return res.status(400).json({ error: 'name and email required' });
-
+  for (const it of items) {
+    const s = +it.start, e = +it.end, room = VL.roomById(it.room);
+    if (!room) return res.status(400).json({ error: 'unknown room' });
+    if (!it.date) return res.status(400).json({ error: 'date required' });
+    const terr = validTimes(s, e); if (terr) return res.status(400).json({ error: terr });
+    if (!VL.validDuration(it.room, e - s)) return res.status(400).json({ error: 'That duration is not available for ' + room.name + '.' });
+  }
   try {
     db.exec('BEGIN IMMEDIATE');
-    if (!isFree(room, date, start, end)) { db.exec('ROLLBACK'); return res.status(409).json({ error: 'That time was just taken. Please pick another.' }); }
-    const q = VL.priceQuote(room, date, end - start, addons || {}, req.body.addonOptions || {});
-    const pay = payments.charge({ amountCents: Math.round(q.total * 100), sourceId: paymentToken || 'cnon:card-nonce-ok' });
+    const claimed = {}, quotes = [];
+    for (const it of items) {
+      const s = +it.start, e = +it.end, room = VL.roomById(it.room);
+      if (!isFree(it.room, it.date, s, e)) { db.exec('ROLLBACK'); return res.status(409).json({ error: room.name + ' was just taken for that time. Please adjust.' }); }
+      const key = it.room + '|' + it.date; claimed[key] = claimed[key] || [];
+      if (claimed[key].some(([cs, ce]) => VL.overlaps(s, e, cs, ce))) { db.exec('ROLLBACK'); return res.status(409).json({ error: 'You added ' + room.name + ' twice at overlapping times.' }); }
+      claimed[key].push([s, e]);
+      quotes.push(VL.priceQuote(it.room, it.date, e - s, it.addons || {}, it.addonOptions || {}));
+    }
+    const grandTotal = VL.round2(quotes.reduce((sum, q) => sum + q.total, 0));
+    const pay = payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: paymentToken || 'cnon:card-nonce-ok' });
     if (!pay.ok) { db.exec('ROLLBACK'); return res.status(402).json({ error: 'Payment declined' }); }
-    const info = db.prepare(`INSERT INTO bookings (room_id,date,start,end,hours,addons_json,pre,hst,total,paid,payment_ref,payment_mode,customer_name,customer_email,status,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'confirmed', ?)`)
-      .run(room, date, start, end, end - start, JSON.stringify({ items: addons || {}, options: req.body.addonOptions || {} }), q.pre, q.hst, q.total, q.total, pay.ref, pay.mode, customerName, customerEmail, nowISO());
+    const ins = db.prepare(`INSERT INTO bookings (room_id,date,start,end,hours,addons_json,pre,hst,total,paid,payment_ref,payment_mode,customer_name,customer_email,status,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'confirmed', ?)`);
+    const created = [];
+    items.forEach((it, i) => {
+      const s = +it.start, e = +it.end, q = quotes[i];
+      const info = ins.run(it.room, it.date, s, e, e - s, JSON.stringify({ items: it.addons || {}, options: it.addonOptions || {} }), q.pre, q.hst, q.total, q.total, pay.ref, pay.mode, customerName, customerEmail, nowISO());
+      created.push({ id: info.lastInsertRowid, room: it.room, roomName: q.roomName, date: it.date, start: s, end: e, total: q.total });
+    });
     db.exec('COMMIT');
-    res.json({ ok: true, id: info.lastInsertRowid, confirmation: 'VL' + info.lastInsertRowid, quote: q, paymentMode: pay.mode, paymentRef: pay.ref });
+    res.json({ ok: true, confirmation: 'VL' + created[0].id, bookings: created, grandTotal, paymentMode: pay.mode, paymentRef: pay.ref });
   } catch (e) { try { db.exec('ROLLBACK'); } catch (_) {} res.status(500).json({ error: e.message }); }
 });
 

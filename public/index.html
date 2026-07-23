@@ -253,7 +253,7 @@
           </div>
         </div>
         <div style="display:flex;gap:10px;margin-top:18px">
-          <button class="btn btn-ghost" onclick="go('addons')">← Back</button>
+          <button class="btn btn-ghost" onclick="addAnotherStudio()">+ Add another studio</button>
           <button class="btn btn-gold" style="flex:1" id="payBtn" onclick="payNow()">Pay & confirm</button>
         </div>
         <div class="hint" id="cxPolicy"></div>
@@ -769,22 +769,71 @@ async function loadWeekBusy(){
 async function openRoomCal(id){ rcRoomId = id; rcSel = null; rcWeekStart = startOfWeek(new Date()); await loadWeekBusy(); go('room'); }
 async function shiftWeek(n){ const w = new Date(rcWeekStart); w.setDate(w.getDate()+7*n); if(startOfWeek(w) < startOfWeek(new Date())) return; rcWeekStart = w; rcSel = null; await loadWeekBusy(); renderRoomCal(); }
 
-/* create the booking on the server (authoritative re-check + Square test charge) */
+/* ===== multi-room orders: one reservation can hold several studios ===== */
+var order = [];   // finalized studios in the current reservation
+function r2(n){ return Math.round((n+Number.EPSILON)*100)/100; }
+function priceItem(it){
+  const room = ROOMS.find(r=>r.id===it.roomId);
+  const xmas = isChristmas(it.date);
+  const roomBase = roomBaseFor(room, it.date, it.hours);
+  const tier = tierFor(it.hours);
+  const roomTotal = roomBase - roomBase*tier.off;
+  let addonTotal = 0;
+  for(const id in (it.addons||{})){ const a=ADDONS.find(x=>x.id===id); if(!a||!addonOK(a,it.roomId))continue; addonTotal += addonUnit(a,(it.addonOpts||{})[id])*it.addons[id]; }
+  const pre = r2(roomTotal + addonTotal), hst = r2(pre*CONFIG.hstRate);
+  return { xmas, roomBase, tier, roomTotal, addonTotal, pre, hst, total: r2(pre+hst) };
+}
+function addRoomToOrder(){ if(!cart){ go('search'); return; } order.push(JSON.parse(JSON.stringify(cart))); cart = null; go('review'); }
+function addAnotherStudio(){ cart = null; go('search'); }
+function removeOrderItem(i){ order.splice(i,1); if(!order.length) go('search'); else renderReview(); }
+
+function renderReview(){
+  if(!order.length){ go('search'); return; }
+  let box = '';
+  order.forEach((it,i)=>{
+    const p = priceItem(it);
+    let adds = '';
+    for(const id in (it.addons||{})){ const a=ADDONS.find(x=>x.id===id); if(!a||!addonOK(a,it.roomId))continue; const opt=(it.addonOpts||{})[id]; adds += `<div style="font-size:12px;color:var(--muted)">+ ${a.name}${opt?` (${opt})`:''} × ${it.addons[id]}</div>`; }
+    box += `<div class="bk" style="align-items:flex-start">
+      <div><b>${it.roomName}</b><div class="meta">${fmtDate(it.date)} · ${label(it.start)}–${label(it.end)} · ${hrTxt(it.hours)}${p.xmas?' · Christmas premium':''}</div>${adds}</div>
+      <div style="text-align:right"><div><b>${money(p.total)}</b></div><button onclick="removeOrderItem(${i})" style="background:none;border:0;color:var(--red);cursor:pointer;font-size:12px;text-decoration:underline;padding:4px 0 0">remove</button></div></div>`;
+  });
+  document.getElementById('reviewBox').innerHTML = box;
+  const cr = document.getElementById('creditRedeem'); if(cr) cr.style.display='none';
+  const cx = document.getElementById('cxPolicy'); if(cx) cx.innerHTML = `Paid in full today. Free cancellation up to <b>${CONFIG.cancelWindowHours} hrs</b> before each start time.`;
+  renderReviewSummary();
+}
+function renderReviewSummary(){
+  let preSum=0, totalSum=0;
+  const rows = order.map(it=>{ const p=priceItem(it); preSum+=p.pre; totalSum+=p.total; return `<div class="sum-row"><span>${it.roomName} · ${hrTxt(it.hours)}</span><span>${money(p.pre)}</span></div>`; }).join('');
+  preSum=r2(preSum); totalSum=r2(totalSum); const hstSum=r2(totalSum-preSum);
+  document.getElementById('reviewSummary').innerHTML =
+    `<h3 style="font-size:16px;margin-bottom:10px">Order · ${order.length} studio${order.length>1?'s':''}</h3>` + rows
+    + `<div class="sum-row"><span>HST (13%)</span><span>${money(hstSum)}</span></div>`
+    + `<div class="sum-row total"><span>Total due now</span><span>${money(totalSum)}</span></div>`;
+  const pb=document.getElementById('payBtn'); if(pb) pb.textContent = 'Pay ' + money(totalSum) + ' & confirm';
+}
+
+/* charge once for the whole order; the server books every studio atomically */
 async function payNow(){
   const name = (document.getElementById('custName')||{}).value?.trim();
   const email = (document.getElementById('custEmail')||{}).value?.trim();
   if(!name || !email){ toast('Please add your name and email'); return; }
-  const btn = document.getElementById('payBtn'); btn.disabled = true; const label0 = btn.textContent; btn.textContent = 'Processing…';
+  if(!order.length){ toast('Add a studio first'); return; }
+  const btn = document.getElementById('payBtn'); btn.disabled = true; const l0 = btn.textContent; btn.textContent = 'Processing…';
+  const items = order.map(it=>({ room:it.roomId, date:it.date, start:it.start, end:it.end, addons:it.addons, addonOptions:it.addonOpts||{} }));
   try {
-    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ room:cart.roomId, date:cart.date, start:cart.start, end:cart.end, addons:cart.addons, addonOptions:cart.addonOpts||{}, customerName:name, customerEmail:email }) });
+    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email }) });
     LAST_EMAIL = email;
-    document.getElementById('confirmSub').textContent = `Confirmation ${d.confirmation} — a receipt would be emailed via Square (${d.paymentMode} mode).`;
-    document.getElementById('confirmDetail').innerHTML = `<div class="bk"><div><b>${cart.roomName}</b><div class="meta">${fmtDate(cart.date)} · ${label(cart.start)}–${label(cart.end)}</div></div><div style="text-align:right"><div><b>${money(d.quote.total)}</b> paid in full</div></div></div>`;
-    cart = null; go('confirm'); toast('Payment complete — booking saved');
+    const n = d.bookings.length;
+    document.getElementById('confirmSub').textContent = `Confirmation ${d.confirmation} — ${n} studio${n>1?'s':''} booked. A receipt would be emailed via Square (${d.paymentMode} mode).`;
+    document.getElementById('confirmDetail').innerHTML =
+      d.bookings.map(b=>`<div class="bk"><div><b>${b.roomName}</b><div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)}</div></div><div style="text-align:right"><b>${money(b.total)}</b></div></div>`).join('')
+      + `<div class="bk" style="border-color:transparent"><div><b>Total paid in full</b></div><div style="text-align:right"><b>${money(d.grandTotal)}</b></div></div>`;
+    order = []; cart = null; go('confirm'); toast('Payment complete — booking saved');
   } catch(err){
-    btn.disabled = false; btn.textContent = label0;
-    toast(err.status===409 ? 'That time was just taken — please pick another.' : (err.message||'Could not complete booking'));
+    btn.disabled = false; btn.textContent = l0;
+    toast(err.status===409 ? (err.body && err.body.error ? err.body.error : 'A time was just taken — please adjust.') : (err.message||'Could not complete booking'));
   }
 }
 
@@ -875,21 +924,11 @@ function renderSide(sel, showNext){
   rows += addonRows();
   rows += `<div class="sum-row"><span>HST (13%)</span><span>${money(p.hst)}</span></div>`;
   rows += `<div class="sum-row total"><span>Total due now</span><span>${money(p.total)}</span></div>`;
-  if(showNext) rows += `<button class="btn btn-gold" style="width:100%;margin-top:16px" onclick="go('review')">Continue to payment →</button>
-    <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="go('search')">← Change room / time</button>`;
+  if(showNext) rows += `<button class="btn btn-gold" style="width:100%;margin-top:16px" onclick="addRoomToOrder()">Add to booking →</button>
+    <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="go('search')">← Change studio / time</button>`;
   document.querySelector(sel).innerHTML = rows;
 }
-function renderReviewSummary(){
-  const p = priceCart();
-  let rows = `<h3 style="font-size:16px;margin-bottom:10px">Order</h3>
-    <div class="sum-row"><span>${cart.roomName} · ${hrTxt(cart.hours)}${p.xmas?' · Christmas premium':''}</span><span>${money(p.roomBase)}</span></div>`;
-  if(p.tierDisc>0) rows += `<div class="sum-row"><span class="g">Multi-hour discount (${Math.round(p.tier.off*100)}% off)</span><span class="g">−${money(p.tierDisc)}</span></div>`;
-  rows += addonRows();
-  rows += `<div class="sum-row"><span>HST (13%)</span><span>${money(p.hst)}</span></div>`;
-  rows += `<div class="sum-row total"><span>Total due now</span><span>${money(p.total)}</span></div>`;
-  document.getElementById('reviewSummary').innerHTML = rows;
-  document.getElementById('payBtn').textContent = 'Pay ' + money(p.total) + ' & confirm';
-}
+/* (single-room renderReviewSummary removed — the multi-room order summary above handles review) */
 
 /* durations offered in the calendar respect per-studio rules (Dream skips 1.5 hr) */
 function validDurationClient(roomId, hours){
