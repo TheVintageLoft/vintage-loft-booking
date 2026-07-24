@@ -60,6 +60,8 @@ try { db.exec("ALTER TABLE blocks ADD COLUMN pay_link TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE bookings ADD COLUMN pay_link TEXT"); } catch (_) {}
 // client contact (phone/email JSON) on a manually-added booking
 try { db.exec("ALTER TABLE blocks ADD COLUMN client TEXT"); } catch (_) {}
+// a client directory (imported from Acuity) that powers name autocomplete
+try { db.exec(`CREATE TABLE IF NOT EXISTS clients (name_key TEXT PRIMARY KEY, name TEXT, phone TEXT, email TEXT)`); } catch (_) {}
 
 /* ---------- one-time clean reset (owner-only, no button) ----------
    Set WIPE_ONCE to any word in the host environment to clear ALL bookings + holds
@@ -587,7 +589,7 @@ app.post('/api/admin/import-blocks', admin, (req, res) => {
   res.json({ ok: true, total: items.length, inserted, skipped, bad });
 });
 
-// Known clients (for autocomplete): names + contact gathered from bookings and manual entries
+// Known clients (for autocomplete): the imported directory + names from bookings/manual entries
 app.get('/api/admin/clients', admin, (_req, res) => {
   const map = {};
   const add = (name, phone, email) => {
@@ -598,10 +600,34 @@ app.get('/api/admin/clients', admin, (_req, res) => {
     if (phone && !map[key].phone) map[key].phone = phone;
     if (email && !map[key].email) map[key].email = email;
   };
+  try { db.prepare(`SELECT name, phone, email FROM clients`).all().forEach(r => add(r.name, r.phone, r.email)); } catch (_) {}
   try { db.prepare(`SELECT DISTINCT customer_name, customer_email FROM bookings WHERE status!='cancelled'`).all().forEach(r => add(r.customer_name, '', r.customer_email)); } catch (_) {}
   try { db.prepare(`SELECT reason, client FROM blocks`).all().forEach(r => { let c = {}; try { c = JSON.parse(r.client || '{}'); } catch (_) {} add(r.reason, c.phone, c.email); }); } catch (_) {}
   const clients = Object.keys(map).map(k => map[k]).sort((a, b) => a.name.localeCompare(b.name));
   res.json({ clients });
+});
+
+// One-time import of the Acuity client list: fills the directory (autocomplete) AND backfills
+// contact onto any booking whose name matches, plus explicit fills for oddly-labeled bookings.
+app.post('/api/admin/import-clients', admin, (req, res) => {
+  const clients = Array.isArray(req.body.clients) ? req.body.clients : [];
+  const fills = Array.isArray(req.body.fills) ? req.body.fills : [];   // {reason, phone, email}
+  const up = db.prepare(`INSERT INTO clients (name_key,name,phone,email) VALUES (?,?,?,?)
+    ON CONFLICT(name_key) DO UPDATE SET name=excluded.name, phone=excluded.phone, email=excluded.email`);
+  const setByName = db.prepare(`UPDATE blocks SET client=? WHERE lower(reason)=? AND (client IS NULL OR client='')`);
+  const setByReason = db.prepare(`UPDATE blocks SET client=? WHERE lower(reason)=?`);
+  let saved = 0, filled = 0;
+  for (const c of clients) {
+    const name = (c.name || '').toString().trim(); if (!name) continue;
+    const phone = (c.phone || '').toString().slice(0, 40), email = (c.email || '').toString().slice(0, 160);
+    up.run(name.toLowerCase(), name.slice(0, 120), phone, email); saved++;
+    if (phone || email) filled += setByName.run(JSON.stringify({ phone, email }), name.toLowerCase()).changes;
+  }
+  for (const f of fills) {
+    const reason = (f.reason || '').toString().trim(); if (!reason) continue;
+    filled += setByReason.run(JSON.stringify({ phone: (f.phone || '').toString().slice(0, 40), email: (f.email || '').toString().slice(0, 160) }), reason.toLowerCase()).changes;
+  }
+  res.json({ ok: true, clientsSaved: saved, bookingsFilled: filled });
 });
 
 // Remove a single block/hold by id (used by the self-serve hold tool)
