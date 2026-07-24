@@ -167,6 +167,53 @@ async function sendEmail({ to, subject, html }) {
   } catch (e) { console.error('[email] error:', e.message); return { ok: false, error: e.message }; }
 }
 
+/* ---------- SMS booking alerts (Twilio HTTP API — no npm dependency) ----------
+   Owner/staff text alert on each new client booking, so a late-night booking never gets missed.
+   Turn it on by setting on the host:
+     TWILIO_ACCOUNT_SID   your Twilio Account SID (starts with AC...)
+     TWILIO_AUTH_TOKEN    your Twilio Auth Token
+     TWILIO_FROM          your Twilio phone number in +1 format, e.g. +19055551234
+     NOTIFY_SMS           who to text, comma-separated in +1 format, e.g. +19051112222,+19053334444
+   Without all four we log and skip, so a booking never fails because of an SMS problem. */
+const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID || '';
+const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
+const TWILIO_FROM = process.env.TWILIO_FROM || '';
+const NOTIFY_SMS = (process.env.NOTIFY_SMS || '').split(',').map(s => s.trim()).filter(Boolean);
+const smsEnabled = !!(TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM && NOTIFY_SMS.length);
+
+async function sendSMS(to, body) {
+  if (!smsEnabled) { console.log('[sms] skipped (Twilio not configured) ->', to); return { ok: false, skipped: true }; }
+  try {
+    const auth = Buffer.from(TWILIO_SID + ':' + TWILIO_TOKEN).toString('base64');
+    const form = new URLSearchParams({ To: to, From: TWILIO_FROM, Body: body });
+    const r = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + TWILIO_SID + '/Messages.json', {
+      method: 'POST',
+      headers: { 'Authorization': 'Basic ' + auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form.toString()
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) return { ok: true, sid: d.sid };
+    console.error('[sms] send failed:', d && (d.message || JSON.stringify(d)));
+    return { ok: false, error: (d && d.message) || 'send failed' };
+  } catch (e) { console.error('[sms] error:', e.message); return { ok: false, error: e.message }; }
+}
+
+function smsDate(iso) { const p = (iso || '').split('-').map(Number); if (!p[0]) return iso || ''; const dt = new Date(Date.UTC(p[0], p[1] - 1, p[2])); return _weekdays[dt.getUTCDay()].slice(0, 3) + ' ' + _months[p[1] - 1].slice(0, 3) + ' ' + p[2]; }
+
+function bookingSmsText({ name, confirmation, bookings, grandTotal, source }) {
+  const lines = (bookings || []).map(b => `${b.roomName} ${smsDate(b.date)} ${emTime(b.start)}-${emTime(b.end)}`);
+  return `New booking${source ? ' (' + source + ')' : ''} ${confirmation}\n${name || 'Guest'}\n${lines.join('\n')}\nTotal ${emMoney(grandTotal)}`;
+}
+
+async function notifyNewBooking(info) {
+  if (!smsEnabled) { console.log('[sms] new-booking alert skipped (Twilio not configured)'); return; }
+  const body = bookingSmsText(info);
+  for (const to of NOTIFY_SMS) {
+    const r = await sendSMS(to, body);
+    if (r.ok) console.log('[sms] booking alert sent ->', to);
+  }
+}
+
 const _months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const _weekdays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 function emFirst(name) { return ((name || '').trim().split(/\s+/)[0]) || 'there'; }
@@ -554,6 +601,8 @@ app.post('/api/bookings', async (req, res) => {
   const created = reservedIds.map((id, i) => ({ id, room: items[i].room, roomName: quotes[i].roomName, date: items[i].date, start: +items[i].start, end: +items[i].end, total: finals[i].total, paid: finals[i].paid }));
   // Send the confirmation email in the background — never block or fail the booking on an email problem.
   sendConfirmationEmail({ email: customerEmail, name: customerName, confirmation, bookings: created, grandTotal, discountTotal }).catch(e => console.error('[email] confirmation error:', e.message));
+  // Text the owner/manager so a booking is never missed — background, never blocks the booking.
+  notifyNewBooking({ name: customerName, confirmation, bookings: created, grandTotal }).catch(e => console.error('[sms] alert error:', e.message));
   res.json({ ok: true, confirmation, bookings: created, grandTotal, discountTotal, creditUsed, code: codeInfo ? codeInfo.code : null, paymentMode: pay.mode, paymentRef: pay.ref });
 });
 
