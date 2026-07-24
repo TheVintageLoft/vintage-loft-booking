@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><title>Hold a time — The Vintage Loft</title>
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><title>The Vintage Loft — Scheduling</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#7c7268">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Loft Holds">
+<meta name="apple-mobile-web-app-title" content="Loft Scheduling">
 <style>
   body{font-family:Georgia,serif;color:#3a352f;background:#eeedec;margin:0;padding:24px}
   .card{max-width:720px;margin:0 auto 20px;background:#fff;border:1px solid #e7e5e2;border-radius:14px;overflow:hidden}
@@ -14,6 +14,7 @@
   .hd h1{margin:0;font-size:22px;font-weight:normal}.hd p{margin:6px 0 0;font-family:Arial,sans-serif;font-size:13px;color:#8a8375}
   .body{padding:22px 26px}
   label.fld{display:block;font-family:Arial,sans-serif;font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:#8a8375;margin:16px 0 6px}
+  label.fld:first-child{margin-top:0}
   input,select{font-family:Arial,sans-serif;font-size:15px;padding:10px 12px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;width:100%}
   .times{display:flex;gap:10px}.times>div{flex:1}
   .rooms{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
@@ -23,8 +24,6 @@
   button{font-family:Arial,sans-serif;font-size:15px;font-weight:bold;background:#7c7268;color:#fff;border:0;border-radius:8px;padding:12px 22px;cursor:pointer;margin-top:20px}
   button:disabled{opacity:.5;cursor:default}
   #msg{font-family:Arial,sans-serif;font-size:14px;margin-top:16px;padding:12px 14px;border-radius:8px;display:none}
-  table{width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px;margin-top:8px}
-  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #f0eeeb}th{color:#8a8375;font-weight:normal;text-transform:uppercase;font-size:11px;letter-spacing:1px}
   .rm{text-transform:capitalize;font-weight:bold}
   .del{background:none;color:#a33;border:0;padding:2px 6px;margin:0;font-size:13px;cursor:pointer;text-decoration:underline}
   .muted{font-family:Arial,sans-serif;font-size:13px;color:#8a8375}
@@ -52,6 +51,8 @@
   .tag{display:inline-block;font-family:Arial,sans-serif;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:.5px;padding:2px 8px;border-radius:20px;margin-left:8px;vertical-align:middle}
   .tag-booking{background:#e5efe7;color:#2e6b34}
   .tag-hold{background:#f0e7d6;color:#8a6a2b}
+  #signedbar{max-width:720px;margin:0 auto 10px;text-align:right;font-family:Arial,sans-serif;font-size:13px;color:#8a8375}
+  #signedbar a{color:#7c7268;cursor:pointer;text-decoration:underline}
 </style></head><body>
 
 <div id="installbar" style="display:none;max-width:720px;margin:0 auto 16px;background:#7c7268;color:#fff;border-radius:12px;padding:14px 18px;font-family:Arial,sans-serif;font-size:14px;line-height:1.5">
@@ -60,15 +61,25 @@
   <a id="installdismiss" style="color:#f0ece7;text-decoration:underline;cursor:pointer;font-size:13px">Not now</a>
 </div>
 
-<div class="card">
-  <div class="hd"><h1>Hold a time</h1><p>The Vintage Loft — block a studio for your own session or a private hold. Not visible to public bookings.</p></div>
+<!-- SIGN IN -->
+<div class="card" id="loginCard" style="display:none">
+  <div class="hd"><h1>Sign in</h1><p>The Vintage Loft · staff scheduling</p></div>
   <div class="body">
-    <label class="fld">Admin key</label>
-    <input id="key" type="password" placeholder="The ADMIN_KEY from your Render settings">
-    <label style="font-family:Arial,sans-serif;font-size:13px;color:#3a352f;display:flex;align-items:center;gap:7px;margin-top:8px;cursor:pointer">
-      <input id="remember" type="checkbox" style="width:auto"> Remember my key on this device
-    </label>
+    <label class="fld">Password</label>
+    <input id="pw" type="password" placeholder="Your staff password" autocomplete="current-password">
+    <button id="signinbtn">Sign in</button>
+    <div id="loginmsg" class="muted" style="margin-top:12px;display:none"></div>
+    <p class="muted" style="margin-top:16px">You'll stay signed in on this device for about a month, then we'll ask again just to be safe.</p>
+  </div>
+</div>
 
+<!-- SIGNED-IN BAR -->
+<div id="signedbar" style="display:none">Signed in &nbsp;·&nbsp; <a onclick="signOut()">Sign out</a></div>
+
+<!-- HOLD FORM -->
+<div class="card appcard" style="display:none">
+  <div class="hd"><h1>Hold a time</h1><p>Block a studio for your own session or a private hold. Not visible to public bookings.</p></div>
+  <div class="body">
     <label class="fld">Date</label>
     <input id="date" type="date">
 
@@ -83,14 +94,15 @@
     </div>
 
     <label class="fld">Note (optional)</label>
-    <input id="reason" type="text" placeholder="e.g. My own client — Smith family" value="Private hold">
+    <input id="reason" type="text" placeholder="e.g. My own client, Smith family" value="Private hold">
 
     <button id="go">Hold this time</button>
     <div id="msg"></div>
   </div>
 </div>
 
-<div class="card">
+<!-- CALENDAR -->
+<div class="card appcard" style="display:none">
   <div class="hd"><h1>Calendar</h1><p>Circled days have a booking or hold. Empty days are wide open. Tap a day to see who's in.</p></div>
   <div class="body">
     <div class="cal-head">
@@ -107,7 +119,8 @@
   </div>
 </div>
 
-<div class="card">
+<!-- CLEANUP -->
+<div class="card appcard" style="display:none">
   <div class="hd"><h1>Pre-launch cleanup</h1><p>Use these once, before you go live, to clear out testing data.</p></div>
   <div class="body">
     <p class="muted" style="margin-top:0">Remove the built-in sample bookings and the maintenance block the system created during setup. Safe: it only touches demo data, not real bookings or your holds.</p>
@@ -127,27 +140,58 @@ function pad(n){return String(n).padStart(2,'0');}
 function tLabel(d){var h=Math.floor(d),m=Math.round((d-h)*60),ap=h<12?'AM':'PM',hh=h%12||12;return hh+':'+pad(m)+' '+ap;}
 function fdate(iso){var p=iso.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return M[+p[1]-1]+' '+(+p[2])+', '+p[0];}
 
-// Calendar state — declared up top so an early auto-load (remember-me) has it ready.
+// Calendar state — declared up top so an early auto-load has it ready.
 var RCOLOR={grand:'#c0392b',dream:'#2e6f9e',gatsby:'#3f8a52',carnegie:'#8a5a2b',marilyn:'#7a4fa3'};
 var MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
 var CAL={items:{}, y:null, m:null, sel:null};
 
-// build room checkboxes
+// ---- authentication (the "password" is the ADMIN_KEY, kept behind a friendly sign-in) ----
+var AUTH_WINDOW_DAYS=30;
+var AUTH={key:null};
+function getKey(){ return AUTH.key||''; }
+function saveAuth(){ try{ localStorage.setItem('vl_auth', JSON.stringify({key:AUTH.key, ts:Date.now()})); }catch(e){} }
+function showApp(){
+  document.getElementById('loginCard').style.display='none';
+  document.getElementById('signedbar').style.display='block';
+  var cards=document.querySelectorAll('.appcard'); for(var i=0;i<cards.length;i++){ cards[i].style.display=''; }
+}
+function showLogin(msg){
+  document.getElementById('loginCard').style.display='';
+  document.getElementById('signedbar').style.display='none';
+  var cards=document.querySelectorAll('.appcard'); for(var i=0;i<cards.length;i++){ cards[i].style.display='none'; }
+  var lm=document.getElementById('loginmsg');
+  if(msg){ lm.style.display='block'; lm.textContent=msg; } else { lm.style.display='none'; }
+}
+function signOut(msg){ AUTH.key=null; try{ localStorage.removeItem('vl_auth'); }catch(e){} showLogin(msg); }
+
+document.getElementById('signinbtn').onclick=function(){
+  var pw=document.getElementById('pw').value.trim();
+  var lm=document.getElementById('loginmsg');
+  if(!pw){ lm.style.display='block'; lm.textContent='Please enter your password.'; return; }
+  var btn=this; btn.disabled=true; btn.textContent='Signing in…';
+  fetch('/api/admin/blocks?key='+encodeURIComponent(pw))
+    .then(function(r){ return {ok:r.ok}; })
+    .then(function(x){
+      btn.disabled=false; btn.textContent='Sign in';
+      if(!x.ok){ lm.style.display='block'; lm.textContent='That password is not right. Please try again.'; return; }
+      AUTH.key=pw; saveAuth();
+      document.getElementById('pw').value='';
+      showApp(); loadCalendar();
+    })
+    .catch(function(){ btn.disabled=false; btn.textContent='Sign in'; lm.style.display='block'; lm.textContent='Could not reach the server. Please try again.'; });
+};
+document.getElementById('pw').addEventListener('keydown',function(e){ if(e.key==='Enter') document.getElementById('signinbtn').click(); });
+
+// build room checkboxes + time options + default date
 (function(){
   var box=document.getElementById('rooms');
-  ROOMS.forEach(function(r){
-    var l=document.createElement('label');
-    l.innerHTML='<input type="checkbox" value="'+r[0]+'"> '+r[1];
-    box.appendChild(l);
-  });
-  // build half-hour time options 8:00 to 20:00
+  ROOMS.forEach(function(r){ var l=document.createElement('label'); l.innerHTML='<input type="checkbox" value="'+r[0]+'"> '+r[1]; box.appendChild(l); });
   var s=document.getElementById('start'),e=document.getElementById('end');
   for(var d=8; d<=20; d+=0.5){
     var o1=document.createElement('option');o1.value=d;o1.textContent=tLabel(d);s.appendChild(o1);
     var o2=document.createElement('option');o2.value=d;o2.textContent=tLabel(d);e.appendChild(o2);
   }
   s.value=9; e.value=11;
-  // default date = today
   var t=new Date(); document.getElementById('date').value=t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());
 })();
 
@@ -155,47 +199,18 @@ var CAL={items:{}, y:null, m:null, sel:null};
 (function(){
   var bar=document.getElementById('installbar'), txt=document.getElementById('installtext'),
       btn=document.getElementById('installbtn'), dismiss=document.getElementById('installdismiss');
-  // already installed / running as an app? then hide entirely.
   var standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
   if(standalone) return;
   var deferred=null;
   var isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
-  // Android/Chrome: capture the install prompt and offer a button
   window.addEventListener('beforeinstallprompt', function(e){
     e.preventDefault(); deferred=e;
     txt.textContent='Add this to your home screen for quick access:';
     btn.style.display='inline-block'; bar.style.display='block';
   });
-  btn.addEventListener('click', function(){
-    if(!deferred) return;
-    deferred.prompt();
-    deferred.userChoice.finally(function(){ deferred=null; bar.style.display='none'; });
-  });
-  // iOS Safari has no install button — show the Share instructions
-  if(isIOS){
-    txt.innerHTML='To add this to your home screen: tap the <b>Share</b> icon, then <b>Add to Home Screen</b>.';
-    bar.style.display='block';
-  }
+  btn.addEventListener('click', function(){ if(!deferred) return; deferred.prompt(); deferred.userChoice.finally(function(){ deferred=null; bar.style.display='none'; }); });
+  if(isIOS){ txt.innerHTML='To add this to your home screen: tap the <b>Share</b> icon, then <b>Add to Home Screen</b>.'; bar.style.display='block'; }
   dismiss.addEventListener('click', function(){ bar.style.display='none'; });
-})();
-
-// ---- remember-me: store the admin key in this browser only if the box is ticked ----
-function persistKey(){
-  try{
-    var k=document.getElementById('key').value.trim();
-    if(document.getElementById('remember').checked && k){ localStorage.setItem('vl_admin_key',k); }
-    else { localStorage.removeItem('vl_admin_key'); }
-  }catch(e){}
-}
-(function(){
-  var saved=null; try{ saved=localStorage.getItem('vl_admin_key'); }catch(e){}
-  if(saved){
-    document.getElementById('key').value=saved;
-    document.getElementById('remember').checked=true;
-    try{ loadCalendar(); }catch(e){}   // we already have the key, so populate the calendar
-  }
-  document.getElementById('remember').addEventListener('change',persistKey);
-  document.getElementById('key').addEventListener('input',function(){ if(document.getElementById('remember').checked) persistKey(); });
 })();
 
 function setAll(v){ document.querySelectorAll('#rooms input').forEach(function(c){c.checked=v;}); }
@@ -207,12 +222,11 @@ function showMsg(el,txt,type){ el.style.display='block'; el.innerHTML=txt;
 
 document.getElementById('go').onclick=function(){
   var msg=document.getElementById('msg');
-  var key=document.getElementById('key').value.trim();
+  var key=getKey();
   var date=document.getElementById('date').value;
   var rooms=chosenRooms();
   var s=+document.getElementById('start').value, e=+document.getElementById('end').value;
   var reason=document.getElementById('reason').value.trim()||'Private hold';
-  if(!key) return showMsg(msg,'Please enter your admin key first.','err');
   if(!date) return showMsg(msg,'Please choose a date.','err');
   if(!rooms.length) return showMsg(msg,'Please choose at least one studio.','err');
   if(!(e>s)) return showMsg(msg,'The end time must be after the start time.','err');
@@ -223,7 +237,7 @@ document.getElementById('go').onclick=function(){
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
     .then(function(x){
       btn.disabled=false; btn.textContent='Hold this time';
-      if(!x.ok){return showMsg(msg,(x.d&&x.d.error)||'Could not save — check your admin key.','err');}
+      if(!x.ok){return showMsg(msg,(x.d&&x.d.error)||'Could not save — please try again.','err');}
       var added=x.d.inserted, skip=x.d.skipped;
       showMsg(msg,'<b>Held.</b> '+added+' studio'+(added===1?'':'s')+' blocked for '+fdate(date)+', '+tLabel(s)+' – '+tLabel(e)+'.'+(skip?' ('+skip+' already held.)':''),'ok');
       CAL.sel=date; loadCalendar();
@@ -231,28 +245,27 @@ document.getElementById('go').onclick=function(){
     .catch(function(err){btn.disabled=false;btn.textContent='Hold this time';showMsg(msg,'Network error: '+err.message,'err');});
 };
 
-// ---------- Calendar ---------- (RCOLOR / MONTHS / CAL declared near the top of the script)
+// ---------- Calendar ----------
 function todayISO(){ var t=new Date(); return t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate()); }
 function dowOf(iso){ var p=iso.split('-'); return new Date(Date.UTC(+p[0],+p[1]-1,+p[2])).getUTCDay(); }
+function chk(r){ if(r.status===401){ var e=new Error('unauthorized'); e.__auth=true; throw e; } return r.json(); }
 
 function loadCalendar(){
-  var key=document.getElementById('key').value.trim();
   var cm=document.getElementById('calmsg');
   if(CAL.y===null){ var t=new Date(); CAL.y=t.getFullYear(); CAL.m=t.getMonth(); }
-  if(!key){ cm.textContent='Enter your admin key above to load the calendar.'; renderMonth(); return; }
+  if(!getKey()){ renderMonth(); return; }
   cm.textContent='Loading…';
   Promise.all([
-    fetch('/api/admin/blocks?key='+encodeURIComponent(key)).then(function(r){return r.json();}),
-    fetch('/api/admin/bookings?key='+encodeURIComponent(key)).then(function(r){return r.json();})
+    fetch('/api/admin/blocks?key='+encodeURIComponent(getKey())).then(chk),
+    fetch('/api/admin/bookings?key='+encodeURIComponent(getKey())).then(chk)
   ]).then(function(res){
-    if((res[0]&&res[0].error)||(res[1]&&res[1].error)){ cm.textContent='Could not load — check your admin key.'; return; }
     var idx={};
     (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id}); });
     (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED'}); });
     CAL.items=idx; cm.textContent='';
     renderMonth();
     if(CAL.sel) selectDay(CAL.sel);
-  }).catch(function(err){ cm.textContent='Network error: '+err.message; });
+  }).catch(function(err){ if(err&&err.__auth){ signOut('For your security, please sign in again.'); return; } cm.textContent='Network error: '+err.message; });
 }
 
 function renderMonth(){
@@ -289,7 +302,7 @@ function selectDay(iso){
   var h=document.createElement('div'); h.style.cssText='font-family:Georgia,serif;font-size:16px;margin:18px 0 6px;color:#3a352f'; h.textContent=fdate(iso); det.appendChild(h);
   if(dowOf(iso)===1){ var m=document.createElement('div'); m.className='muted'; m.textContent='Closed on Mondays.'; det.appendChild(m); return; }
   var items=(CAL.items[iso]||[]).slice().sort(function(a,b){return a.start-b.start;});
-  if(!items.length){ var m2=document.createElement('div'); m2.className='muted'; m2.textContent='Nothing booked — this day is completely open.'; det.appendChild(m2); return; }
+  if(!items.length){ var m2=document.createElement('div'); m2.className='muted'; m2.textContent='Nothing booked. This day is completely open.'; det.appendChild(m2); return; }
   ROOMS.forEach(function(r){
     var rid=r[0]; var list=items.filter(function(x){return x.room===rid;});
     if(!list.length) return;
@@ -313,20 +326,18 @@ function selectDay(iso){
 }
 
 function removeHold(id,btn,label){
-  if(!window.confirm('Are you sure you want to remove this hold?\n\n'+(label||'')+'\n\nThis frees the studio back up.')) return;
-  var key=document.getElementById('key').value.trim();
+  if(!window.confirm('Are you sure you want to remove this?\n\n'+(label||'')+'\n\nThis frees the studio back up.')) return;
   btn.disabled=true; btn.textContent='Removing…';
-  fetch('/api/admin/delete-block',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,id:id})})
+  fetch('/api/admin/delete-block',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:id})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
-    .then(function(x){ if(!x.ok){btn.disabled=false;btn.textContent='Remove hold';alert((x.d&&x.d.error)||'Could not remove.');return;} loadCalendar(); })
-    .catch(function(err){btn.disabled=false;btn.textContent='Remove hold';alert('Network error: '+err.message);});
+    .then(function(x){ if(!x.ok){btn.disabled=false;btn.textContent='Remove';alert((x.d&&x.d.error)||'Could not remove.');return;} loadCalendar(); })
+    .catch(function(err){btn.disabled=false;btn.textContent='Remove';alert('Network error: '+err.message);});
 }
 
 function cancelBooking(id,btn,label){
   if(!window.confirm('Are you sure you want to cancel this booking?\n\n'+(label||'')+'\n\nThe customer will lose this reservation.')) return;
-  var key=document.getElementById('key').value.trim();
   btn.disabled=true; btn.textContent='Cancelling…';
-  fetch('/api/admin/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,id:id})})
+  fetch('/api/admin/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:id})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
     .then(function(x){ if(!x.ok){btn.disabled=false;btn.textContent='Cancel booking';alert('Could not cancel.');return;} loadCalendar(); })
     .catch(function(err){btn.disabled=false;btn.textContent='Cancel booking';alert('Network error: '+err.message);});
@@ -343,7 +354,6 @@ function shiftMonth(delta){
 }
 document.getElementById('calPrev').onclick=function(){ shiftMonth(-1); };
 document.getElementById('calNext').onclick=function(){ shiftMonth(1); };
-// swipe: left = next month, right = previous month
 (function(){
   var el=document.getElementById('calDays'); var x0=null,y0=null;
   el.addEventListener('touchstart',function(e){ x0=e.touches[0].clientX; y0=e.touches[0].clientY; },{passive:true});
@@ -354,19 +364,15 @@ document.getElementById('calNext').onclick=function(){ shiftMonth(1); };
     x0=null;
   },{passive:true});
 })();
-// draw an empty current month right away so the grid is visible before the key is entered
-renderMonth();
 
 document.getElementById('cleardemo').onclick=function(){
-  var key=document.getElementById('key').value.trim();
   var dm=document.getElementById('demomsg');
-  if(!key){dm.textContent='Enter your admin key above first.';return;}
   var btn=this; btn.disabled=true; btn.textContent='Removing…';
-  fetch('/api/admin/clear-demo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key})})
+  fetch('/api/admin/clear-demo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey()})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
     .then(function(x){
       btn.disabled=false; btn.textContent='Remove demo / sample data';
-      if(!x.ok){dm.textContent=(x.d&&x.d.error)||'Could not clear — check your admin key.';return;}
+      if(!x.ok){dm.textContent=(x.d&&x.d.error)||'Could not clear.';return;}
       dm.innerHTML='<b style="color:#2e6b34">Done.</b> Removed '+x.d.bookingsRemoved+' sample booking'+(x.d.bookingsRemoved===1?'':'s')+' and '+x.d.blocksRemoved+' maintenance block'+(x.d.blocksRemoved===1?'':'s')+'.';
       loadCalendar();
     })
@@ -374,21 +380,31 @@ document.getElementById('cleardemo').onclick=function(){
 };
 
 document.getElementById('resetall').onclick=function(){
-  var key=document.getElementById('key').value.trim();
   var rm=document.getElementById('resetmsg');
   var word=document.getElementById('resetword').value.trim();
-  if(!key){rm.textContent='Enter your admin key above first.';return;}
   if(word!=='RESET'){rm.textContent='Type RESET in the box to confirm.';return;}
   var btn=this; btn.disabled=true; btn.textContent='Clearing…';
-  fetch('/api/admin/reset-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,confirm:'RESET'})})
+  fetch('/api/admin/reset-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),confirm:'RESET'})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
     .then(function(x){
       btn.disabled=false; btn.textContent='Clear everything';
-      if(!x.ok){rm.textContent=(x.d&&x.d.error)||'Could not reset — check your admin key.';return;}
+      if(!x.ok){rm.textContent=(x.d&&x.d.error)||'Could not reset.';return;}
       document.getElementById('resetword').value='';
       rm.innerHTML='<b style="color:#2e6b34">Cleared.</b> Removed '+x.d.bookingsRemoved+' booking'+(x.d.bookingsRemoved===1?'':'s')+' and '+x.d.blocksRemoved+' hold'+(x.d.blocksRemoved===1?'':'s')+'. You can now import your real schedule from a clean slate.';
       CAL.sel=null; document.getElementById('dayDetail').innerHTML=''; loadCalendar();
     })
     .catch(function(err){btn.disabled=false;btn.textContent='Clear everything';rm.textContent='Network error: '+err.message;});
 };
+
+// ---- on load: sign in automatically if still within the window, else show the sign-in screen ----
+renderMonth();  // draw an empty current month behind the scenes
+(function(){
+  var raw=null; try{ raw=localStorage.getItem('vl_auth'); }catch(e){}
+  var ok=false;
+  if(raw){ try{ var a=JSON.parse(raw); if(a && a.key && a.ts && (Date.now()-a.ts) < AUTH_WINDOW_DAYS*86400000){ AUTH.key=a.key; ok=true; } }catch(e){} }
+  // one-time migration from the old "remember my key" storage
+  if(!ok){ try{ var oldk=localStorage.getItem('vl_admin_key'); if(oldk){ AUTH.key=oldk; saveAuth(); localStorage.removeItem('vl_admin_key'); ok=true; } }catch(e){} }
+  if(ok){ showApp(); try{ loadCalendar(); }catch(e){} }
+  else { showLogin(); }
+})();
 </script></body></html>
