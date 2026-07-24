@@ -55,6 +55,9 @@ try { db.exec("ALTER TABLE blocks ADD COLUMN kind TEXT NOT NULL DEFAULT 'hold'")
 try { db.exec("ALTER TABLE blocks ADD COLUMN notes TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE bookings ADD COLUMN notes TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE bookings ADD COLUMN intake TEXT"); } catch (_) {}
+// a Square payment link Kelly can send for a manual booking
+try { db.exec("ALTER TABLE blocks ADD COLUMN pay_link TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE bookings ADD COLUMN pay_link TEXT"); } catch (_) {}
 
 /* ---------- payments: Square Web Payments (test mode) with a stand-in fallback ----------
    Set these environment variables on the host to switch from stand-in to real Square:
@@ -90,6 +93,20 @@ const payments = {
       if (r.ok && (st === 'COMPLETED' || st === 'APPROVED')) return { ok: true, ref: d.payment.id, mode: this.mode };
       return { ok: false, mode: this.mode, error: (d.errors && d.errors[0] && d.errors[0].detail) || 'Payment failed' };
     } catch (e) { return { ok: false, mode: this.mode, error: e.message }; }
+  },
+  // Create a Square-hosted payment link (Quick Pay) for a fixed amount — for manual bookings.
+  async createLink({ amountCents, name }) {
+    if (!SQ.enabled) return { ok: false, error: 'Square is not connected yet, so payment links can’t be created. Add your Square keys in Render to turn this on.' };
+    const headers = { 'Authorization': 'Bearer ' + SQ.token, 'Content-Type': 'application/json', 'Accept': 'application/json' };
+    if (SQ.version) headers['Square-Version'] = SQ.version;
+    const body = { idempotency_key: 'vllink-' + Date.now() + '-' + Math.round(Math.random() * 1e9),
+      quick_pay: { name: (name || 'The Vintage Loft studio booking').slice(0, 255), price_money: { amount: amountCents, currency: 'CAD' }, location_id: SQ.locationId } };
+    try {
+      const r = await fetch(SQ.apiBase + '/v2/online-checkout/payment-links', { method: 'POST', headers, body: JSON.stringify(body) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.payment_link && d.payment_link.url) return { ok: true, url: d.payment_link.url, test: SQ.env !== 'production' };
+      return { ok: false, error: (d.errors && d.errors[0] && (d.errors[0].detail || d.errors[0].code)) || 'Could not create the payment link.' };
+    } catch (e) { return { ok: false, error: e.message }; }
   }
 };
 
@@ -534,6 +551,20 @@ app.post('/api/admin/delete-block', admin, (req, res) => {
   if (!id) return res.status(400).json({ error: 'id required' });
   const info = db.prepare(`DELETE FROM blocks WHERE id=?`).run(id);
   res.json({ ok: true, deleted: info.changes });
+});
+
+// Create a Square payment link for a manual booking, and remember it on the entry
+app.post('/api/admin/payment-link', admin, async (req, res) => {
+  const amount = Math.round(parseFloat(req.body.amount) * 100);
+  if (!(amount > 0)) return res.status(400).json({ error: 'Please enter a dollar amount.' });
+  const name = (req.body.name || 'The Vintage Loft — studio booking').toString().slice(0, 255);
+  const out = await payments.createLink({ amountCents: amount, name });
+  if (!out.ok) return res.status(400).json({ error: out.error });
+  if (req.body.id) {
+    const table = req.body.source === 'booking' ? 'bookings' : 'blocks';
+    try { db.prepare(`UPDATE ${table} SET pay_link=? WHERE id=?`).run(out.url, +req.body.id); } catch (_) {}
+  }
+  res.json({ ok: true, url: out.url, test: !!out.test });
 });
 
 // Save/update a staff note on any entry (a block/hold or a real booking)

@@ -154,6 +154,14 @@ function pad(n){return String(n).padStart(2,'0');}
 function tLabel(d){var h=Math.floor(d),m=Math.round((d-h)*60),ap=h<12?'AM':'PM',hh=h%12||12;return hh+':'+pad(m)+' '+ap;}
 function fdate(iso){var p=iso.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return M[+p[1]-1]+' '+(+p[2])+', '+p[0];}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+var LINKSTYLE='font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline';
+function copyText(t){ if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(function(){alert('Payment link copied. Paste it into a text or email to your client.');},function(){window.prompt('Copy this link:',t);}); } else { window.prompt('Copy this link:',t); } }
+function makeLink(entry, dollars, cb){
+  fetch('/api/admin/payment-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:entry.id,source:entry.source,amount:dollars,name:'The Vintage Loft — '+entry.label})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(x){ if(!x.ok){ alert((x.d&&x.d.error)||'Could not create link.'); cb(null); return;} cb(x.d.url, x.d.test); })
+    .catch(function(e){ alert('Network error: '+e.message); cb(null); });
+}
 
 // Calendar state — declared up top so an early auto-load has it ready.
 var RCOLOR={grand:'#c0392b',dream:'#2e6f9e',gatsby:'#3f8a52',carnegie:'#8a5a2b',marilyn:'#7a4fa3'};
@@ -277,8 +285,8 @@ function loadCalendar(){
     fetch('/api/admin/bookings?key='+encodeURIComponent(getKey())).then(chk)
   ]).then(function(res){
     var idx={};
-    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||''}); });
-    (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||''}); });
+    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||''}); });
+    (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||''}); });
     CAL.items=idx; cm.textContent='';
     renderMonth();
     if(CAL.sel) selectDay(CAL.sel);
@@ -371,6 +379,39 @@ function selectDay(iso){
         }
         draw(); card.appendChild(wrap);
       })(x);
+      // ---- payment link (bookings only) ----
+      if(x.kind==='booking'){
+        (function(entry){
+          var pw=document.createElement('div'); pw.style.marginTop='8px';
+          function draw(){
+            pw.innerHTML='';
+            if(entry.pay_link){
+              var lab=document.createElement('div'); lab.className='meta'; lab.style.wordBreak='break-all'; lab.style.marginBottom='4px';
+              var bb=document.createElement('b'); bb.textContent='Payment link: '; lab.appendChild(bb);
+              var a=document.createElement('a'); a.href=entry.pay_link; a.target='_blank'; a.rel='noopener'; a.textContent=entry.pay_link; a.style.color='#7c7268'; lab.appendChild(a);
+              pw.appendChild(lab);
+              var copy=document.createElement('a'); copy.textContent='Copy link'; copy.style.cssText=LINKSTYLE; copy.onclick=function(){ copyText(entry.pay_link); }; pw.appendChild(copy);
+              var nw=document.createElement('a'); nw.textContent='New link'; nw.style.cssText=LINKSTYLE+';margin-left:16px'; nw.onclick=function(){ form(); }; pw.appendChild(nw);
+            } else {
+              var mk=document.createElement('a'); mk.textContent='Create payment link'; mk.style.cssText=LINKSTYLE; mk.onclick=function(){ form(); }; pw.appendChild(mk);
+            }
+          }
+          function form(){
+            pw.innerHTML='';
+            var row=document.createElement('div'); row.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+            var d=document.createElement('span'); d.className='meta'; d.textContent='$';
+            var amt=document.createElement('input'); amt.type='number'; amt.step='0.01'; amt.min='0'; amt.placeholder='Amount'; amt.style.cssText='width:120px;font-family:Arial,sans-serif;font-size:14px;padding:8px;border:1px solid #ddd;border-radius:8px';
+            var gen=document.createElement('button'); gen.className='del'; gen.style.margin='0'; gen.textContent='Generate';
+            var cancel=document.createElement('a'); cancel.textContent='Cancel'; cancel.style.cssText=LINKSTYLE;
+            gen.onclick=function(){ var v=parseFloat(amt.value); if(!(v>0)){ alert('Enter a dollar amount.'); return; } gen.disabled=true; gen.textContent='Creating…';
+              makeLink(entry, v, function(url,test){ if(url){ entry.pay_link=url; draw(); if(test){ var w=document.createElement('div'); w.className='meta'; w.style.color='#a37b2b'; w.style.marginTop='4px'; w.textContent='Note: this is a Square test link until production keys are added.'; pw.appendChild(w);} } else { gen.disabled=false; gen.textContent='Generate'; } }); };
+            cancel.onclick=function(){ draw(); };
+            row.appendChild(d); row.appendChild(amt); row.appendChild(gen); row.appendChild(cancel);
+            pw.appendChild(row); amt.focus();
+          }
+          draw(); card.appendChild(pw);
+        })(x);
+      }
       var lbl=fdate(iso)+'  ·  '+r[1]+'  ·  '+tLabel(x.start)+' – '+tLabel(x.end)+'  ·  '+x.label;
       var actions=document.createElement('div'); actions.style.marginTop='8px';
       var btn=document.createElement('button'); btn.className='del';
