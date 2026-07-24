@@ -182,13 +182,13 @@
       <div class="hint" id="searchHint">Studio hours 8:00 AM – 8:00 PM · 1-hour minimum · 30-minute increments. Try a Saturday in December to see Christmas-premium pricing.</div>
     </div>
 
+    <div id="results"></div>
+
     <div class="hero" style="margin-top:34px">
       <h1>Already know your Studio?</h1>
       <p>Jump straight to a studio's live calendar and pick your time.</p>
     </div>
     <div id="roomChips" class="roomtiles"></div>
-
-    <div id="results"></div>
   </section>
 
   <!-- ROOM CALENDAR VIEW -->
@@ -831,7 +831,7 @@ async function runSearch(){
   });
   html += `</div>`;
   document.getElementById('results').innerHTML = html;
-  window.scrollTo({top:260, behavior:'smooth'});
+  const rz=document.getElementById('results'); if(rz) rz.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 /* room calendar: fetch the week's real busy times before rendering */
