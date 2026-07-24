@@ -154,6 +154,8 @@ function pad(n){return String(n).padStart(2,'0');}
 function tLabel(d){var h=Math.floor(d),m=Math.round((d-h)*60),ap=h<12?'AM':'PM',hh=h%12||12;return hh+':'+pad(m)+' '+ap;}
 function fdate(iso){var p=iso.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return M[+p[1]-1]+' '+(+p[2])+', '+p[0];}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function rname(id){for(var i=0;i<ROOMS.length;i++){if(ROOMS[i][0]===id)return ROOMS[i][1];}return id;}
+function hrsTxt(h){h=Math.round(h*100)/100;return (h===Math.floor(h)?h:h)+' h';}
 var LINKSTYLE='font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline';
 function copyText(t){ if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(function(){alert('Payment link copied. Paste it into a text or email to your client.');},function(){window.prompt('Copy this link:',t);}); } else { window.prompt('Copy this link:',t); } }
 function makeLink(entry, dollars, cb){
@@ -407,7 +409,19 @@ function selectDay(iso){
               makeLink(entry, v, function(url,test){ if(url){ entry.pay_link=url; draw(); if(test){ var w=document.createElement('div'); w.className='meta'; w.style.color='#a37b2b'; w.style.marginTop='4px'; w.textContent='Note: this is a Square test link until production keys are added.'; pw.appendChild(w);} } else { gen.disabled=false; gen.textContent='Generate'; } }); };
             cancel.onclick=function(){ draw(); };
             row.appendChild(d); row.appendChild(amt); row.appendChild(gen); row.appendChild(cancel);
-            pw.appendChild(row); amt.focus();
+            pw.appendChild(row);
+            // auto-calculate the price for this studio + duration (base room rate, no add-ons)
+            var calc=document.createElement('div'); calc.className='meta'; calc.style.marginTop='6px'; calc.textContent='Calculating price…'; pw.appendChild(calc);
+            fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:entry.room,date:iso,start:entry.start,end:entry.end,addons:{}})})
+              .then(function(r){return r.json();})
+              .then(function(q){
+                if(q&&typeof q.total==='number'){
+                  amt.value=q.total.toFixed(2);
+                  calc.innerHTML=esc(rname(entry.room))+' · '+hrsTxt(entry.end-entry.start)+' → $'+q.roomTotal.toFixed(2)+' + HST $'+q.hst.toFixed(2)+' = <b>$'+q.total.toFixed(2)+'</b>. Edit if you need to add anything.';
+                } else { calc.textContent='Enter the amount to charge.'; }
+              })
+              .catch(function(){ calc.textContent='Enter the amount to charge.'; });
+            amt.focus();
           }
           draw(); card.appendChild(pw);
         })(x);
