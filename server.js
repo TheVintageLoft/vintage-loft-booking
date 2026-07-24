@@ -61,6 +61,27 @@ try { db.exec("ALTER TABLE bookings ADD COLUMN pay_link TEXT"); } catch (_) {}
 // client contact (phone/email JSON) on a manually-added booking
 try { db.exec("ALTER TABLE blocks ADD COLUMN client TEXT"); } catch (_) {}
 
+/* ---------- one-time clean reset (owner-only, no button) ----------
+   Set WIPE_ONCE to any word in the host environment to clear ALL bookings + holds
+   the next time the server starts. It runs ONCE per value: the word is recorded, so
+   leaving the setting in place will NOT wipe again on later restarts. To wipe again
+   later, change WIPE_ONCE to a different word. There is no UI or API for this. */
+try { db.exec(`CREATE TABLE IF NOT EXISTS wipes (token TEXT PRIMARY KEY, at TEXT)`); } catch (_) {}
+if (process.env.WIPE_ONCE) {
+  const token = String(process.env.WIPE_ONCE);
+  try {
+    const already = db.prepare(`SELECT 1 FROM wipes WHERE token=?`).get(token);
+    if (!already) {
+      const b = db.prepare(`DELETE FROM bookings`).run();
+      const k = db.prepare(`DELETE FROM blocks`).run();
+      db.prepare(`INSERT INTO wipes (token,at) VALUES (?,?)`).run(token, new Date().toISOString());
+      console.log(`[wipe] one-time reset "${token}": removed ${b.changes} bookings + ${k.changes} holds`);
+    } else {
+      console.log(`[wipe] token "${token}" already used — skipping (calendar left intact)`);
+    }
+  } catch (e) { console.error('[wipe] error:', e.message); }
+}
+
 /* ---------- payments: Square Web Payments (test mode) with a stand-in fallback ----------
    Set these environment variables on the host to switch from stand-in to real Square:
      SQUARE_ACCESS_TOKEN  (sandbox access token; keep secret — host env only)
@@ -603,6 +624,30 @@ app.post('/api/admin/payment-link', admin, async (req, res) => {
     try { db.prepare(`UPDATE ${table} SET pay_link=? WHERE id=?`).run(out.url, +req.body.id); } catch (_) {}
   }
   res.json({ ok: true, url: out.url, test: !!out.test });
+});
+
+// Edit an entry's studio / date / time (when a client calls to change). Re-checks availability,
+// ignoring the entry itself so it can shrink/extend or move without colliding with its old slot.
+app.post('/api/admin/edit-entry', admin, (req, res) => {
+  const id = +req.body.id;
+  const source = req.body.source === 'booking' ? 'booking' : 'block';
+  const room = (req.body.room || '').toString();
+  const date = (req.body.date || '').toString();
+  const s = +req.body.start, e = +req.body.end;
+  if (!id) return res.status(400).json({ error: 'id required' });
+  if (!VL.roomById(room)) return res.status(400).json({ error: 'Unknown studio.' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Please choose a valid date.' });
+  if (!(e > s)) return res.status(400).json({ error: 'The end time must be after the start time.' });
+  // collision check against everything in that room/date except this same entry
+  const others = [
+    ...db.prepare(`SELECT id,start,end FROM bookings WHERE room_id=? AND date=? AND status!='cancelled'`).all(room, date).map(x => ({ t: 'booking', id: x.id, start: x.start, end: x.end })),
+    ...db.prepare(`SELECT id,start,end FROM blocks WHERE room_id=? AND date=?`).all(room, date).map(x => ({ t: 'block', id: x.id, start: x.start, end: x.end }))
+  ];
+  const clash = others.some(iv => !(iv.t === source && iv.id === id) && VL.overlaps(s, e, iv.start, iv.end));
+  if (clash) return res.status(409).json({ error: 'That studio is already booked at that time. Please pick another slot.' });
+  if (source === 'booking') db.prepare(`UPDATE bookings SET room_id=?, date=?, start=?, end=?, hours=? WHERE id=?`).run(room, date, s, e, e - s, id);
+  else db.prepare(`UPDATE blocks SET room_id=?, date=?, start=?, end=? WHERE id=?`).run(room, date, s, e, id);
+  res.json({ ok: true });
 });
 
 // Save/update a staff note on any entry (a block/hold or a real booking)

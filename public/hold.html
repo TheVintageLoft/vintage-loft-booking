@@ -163,6 +163,14 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return
 function rname(id){for(var i=0;i<ROOMS.length;i++){if(ROOMS[i][0]===id)return ROOMS[i][1];}return id;}
 function hrsTxt(h){h=Math.round(h*100)/100;return (h===Math.floor(h)?h:h)+' h';}
 var LINKSTYLE='font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline';
+var INPUTSTYLE='width:100%;font-family:Arial,sans-serif;font-size:14px;padding:8px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;background:#fff';
+function fillTimes(sel,val){ sel.innerHTML=''; for(var d=8; d<=20; d+=0.5){ var o=document.createElement('option'); o.value=d; o.textContent=tLabel(d); if(d===val) o.selected=true; sel.appendChild(o); } }
+function saveEdit(entry, room, date, start, end, cb){
+  fetch('/api/admin/edit-entry',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:entry.id,source:entry.source,room:room,date:date,start:start,end:end})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(x){ if(!x.ok){ cb(false,(x.d&&x.d.error)); return; } cb(true); })
+    .catch(function(e){ cb(false,'Network error: '+e.message); });
+}
 function copyText(t){ if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(function(){alert('Payment link copied. Paste it into a text or email to your client.');},function(){window.prompt('Copy this link:',t);}); } else { window.prompt('Copy this link:',t); } }
 function makeLink(entry, dollars, cb){
   fetch('/api/admin/payment-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:entry.id,source:entry.source,amount:dollars,name:'The Vintage Loft — '+entry.label})})
@@ -499,6 +507,39 @@ function selectDay(iso){
       if(x.source==='booking'){ btn.textContent='Cancel booking'; (function(id,lbl,btn){ btn.onclick=function(){ cancelBooking(id,btn,lbl); }; })(x.id,lbl,btn); }
       else { btn.textContent=(x.kind==='booking'?'Remove booking':'Remove hold'); (function(id,lbl,btn){ btn.onclick=function(){ removeHold(id,btn,lbl); }; })(x.id,lbl,btn); }
       actions.appendChild(btn);
+      // Edit time / studio (inline)
+      var editLink=document.createElement('a'); editLink.textContent='Edit time / studio'; editLink.style.cssText=LINKSTYLE+';margin-left:16px';
+      (function(entry, dayIso){
+        editLink.onclick=function(){
+          if(card.querySelector('.editbox')) return;   // already open
+          var box=document.createElement('div'); box.className='editbox'; box.style.cssText='margin-top:10px;background:#f6f5f3;border-radius:8px;padding:12px';
+          function field(labelTxt, el){ var w=document.createElement('div'); w.style.marginBottom='8px'; var l=document.createElement('div'); l.className='muted'; l.style.marginBottom='3px'; l.textContent=labelTxt; w.appendChild(l); w.appendChild(el); return w; }
+          var sroom=document.createElement('select'); sroom.style.cssText=INPUTSTYLE; ROOMS.forEach(function(rr){ var o=document.createElement('option'); o.value=rr[0]; o.textContent=rr[1]; if(rr[0]===entry.room)o.selected=true; sroom.appendChild(o); });
+          var sdate=document.createElement('input'); sdate.type='date'; sdate.value=dayIso; sdate.style.cssText=INPUTSTYLE;
+          var sstart=document.createElement('select'); sstart.style.cssText=INPUTSTYLE; fillTimes(sstart, entry.start);
+          var send=document.createElement('select'); send.style.cssText=INPUTSTYLE; fillTimes(send, entry.end);
+          box.appendChild(field('Studio', sroom));
+          box.appendChild(field('Date', sdate));
+          var trow=document.createElement('div'); trow.style.cssText='display:flex;gap:10px'; var tw1=document.createElement('div'); tw1.style.flex='1'; tw1.appendChild(field('Start', sstart)); var tw2=document.createElement('div'); tw2.style.flex='1'; tw2.appendChild(field('End', send)); trow.appendChild(tw1); trow.appendChild(tw2); box.appendChild(trow);
+          var emsg=document.createElement('div'); emsg.className='meta'; emsg.style.margin='4px 0 8px';
+          var save=document.createElement('button'); save.className='del'; save.style.margin='0'; save.textContent='Save changes';
+          var cancel=document.createElement('a'); cancel.textContent='Cancel'; cancel.style.cssText=LINKSTYLE+';margin-left:16px';
+          save.onclick=function(){
+            var nr=sroom.value, nd=sdate.value, ns=+sstart.value, ne=+send.value;
+            if(!nd){ emsg.style.color='#a33'; emsg.textContent='Please choose a date.'; return; }
+            if(!(ne>ns)){ emsg.style.color='#a33'; emsg.textContent='The end time must be after the start.'; return; }
+            save.disabled=true; save.textContent='Saving…';
+            saveEdit(entry, nr, nd, ns, ne, function(ok,err){
+              if(!ok){ save.disabled=false; save.textContent='Save changes'; emsg.style.color='#a33'; emsg.textContent=err||'Could not save.'; return; }
+              CAL.sel=nd; loadCalendar();
+            });
+          };
+          cancel.onclick=function(){ box.remove(); };
+          box.appendChild(emsg); box.appendChild(save); box.appendChild(cancel);
+          card.appendChild(box);
+        };
+      })(x, iso);
+      actions.appendChild(editLink);
       if(x.source==='block'){
         var flip=document.createElement('a');
         flip.style.cssText='font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline;margin-left:16px';
