@@ -314,7 +314,7 @@ if (process.env.SEED_DEMO === '1' &&
 
 /* ---------- app ---------- */
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));   // large enough for the full client-list import
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/pricing.js', (_req, res) => res.sendFile(path.join(__dirname, 'pricing.js')));
 
