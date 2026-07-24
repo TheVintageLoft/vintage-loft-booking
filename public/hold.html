@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><title>The Vintage Loft — Scheduling</title>
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><title>The Vintage Loft · Staff App</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#7c7268">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Loft Scheduling">
+<meta name="apple-mobile-web-app-title" content="Staff App">
 <style>
   body{font-family:Georgia,serif;color:#3a352f;background:#eeedec;margin:0;padding:24px}
   .card{max-width:720px;margin:0 auto 20px;background:#fff;border:1px solid #e7e5e2;border-radius:14px;overflow:hidden}
@@ -51,7 +51,8 @@
   .tag{display:inline-block;font-family:Arial,sans-serif;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:.5px;padding:2px 8px;border-radius:20px;margin-left:8px;vertical-align:middle}
   .tag-booking{background:#e5efe7;color:#2e6b34}
   .tag-hold{background:#f0e7d6;color:#8a6a2b}
-  #signedbar{max-width:720px;margin:0 auto 10px;text-align:right;font-family:Arial,sans-serif;font-size:13px;color:#8a8375}
+  #signedbar{max-width:720px;margin:0 auto 12px;display:flex;justify-content:space-between;align-items:baseline;font-family:Arial,sans-serif;font-size:13px;color:#8a8375}
+  #signedbar .appname{font-family:Georgia,serif;font-size:20px;color:#3a352f}
   #signedbar a{color:#7c7268;cursor:pointer;text-decoration:underline}
 </style></head><body>
 
@@ -63,7 +64,7 @@
 
 <!-- SIGN IN -->
 <div class="card" id="loginCard" style="display:none">
-  <div class="hd"><h1>Sign in</h1><p>The Vintage Loft · staff scheduling</p></div>
+  <div class="hd"><h1>Sign in</h1><p>The Vintage Loft · Staff App</p></div>
   <div class="body">
     <label class="fld">Password</label>
     <input id="pw" type="password" placeholder="Your staff password" autocomplete="current-password">
@@ -74,7 +75,28 @@
 </div>
 
 <!-- SIGNED-IN BAR -->
-<div id="signedbar" style="display:none">Signed in &nbsp;·&nbsp; <a onclick="signOut()">Sign out</a></div>
+<div id="signedbar" style="display:none">
+  <span class="appname">Staff App</span>
+  <span>Signed in &nbsp;·&nbsp; <a onclick="signOut()">Sign out</a></span>
+</div>
+
+<!-- CALENDAR (primary view — check who's booked) -->
+<div class="card appcard" style="display:none">
+  <div class="hd"><h1>Schedule</h1><p>Circled days have a booking or hold. Empty days are wide open. Tap a day to see who's in.</p></div>
+  <div class="body">
+    <div class="cal-head">
+      <button class="cal-nav" id="calPrev" aria-label="Previous month">‹</button>
+      <h2 id="calTitle">—</h2>
+      <button class="cal-nav" id="calNext" aria-label="Next month">›</button>
+    </div>
+    <div class="cal-grid" id="calDow"></div>
+    <div class="cal-grid" id="calDays"></div>
+    <div class="callegend" id="calLegend"></div>
+    <div id="dayDetail"></div>
+    <div id="calmsg" class="muted" style="margin-top:10px"></div>
+    <div class="allrow" style="margin-top:10px"><a onclick="loadCalendar()">Refresh</a></div>
+  </div>
+</div>
 
 <!-- HOLD FORM -->
 <div class="card appcard" style="display:none">
@@ -98,24 +120,6 @@
 
     <button id="go">Hold this time</button>
     <div id="msg"></div>
-  </div>
-</div>
-
-<!-- CALENDAR -->
-<div class="card appcard" style="display:none">
-  <div class="hd"><h1>Calendar</h1><p>Circled days have a booking or hold. Empty days are wide open. Tap a day to see who's in.</p></div>
-  <div class="body">
-    <div class="cal-head">
-      <button class="cal-nav" id="calPrev" aria-label="Previous month">‹</button>
-      <h2 id="calTitle">—</h2>
-      <button class="cal-nav" id="calNext" aria-label="Next month">›</button>
-    </div>
-    <div class="cal-grid" id="calDow"></div>
-    <div class="cal-grid" id="calDays"></div>
-    <div class="callegend" id="calLegend"></div>
-    <div id="dayDetail"></div>
-    <div id="calmsg" class="muted" style="margin-top:10px"></div>
-    <div class="allrow" style="margin-top:10px"><a onclick="loadCalendar()">Refresh calendar</a></div>
   </div>
 </div>
 

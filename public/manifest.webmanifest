@@ -1,7 +1,7 @@
 {
-  "name": "The Vintage Loft — Holds",
-  "short_name": "Loft Holds",
-  "description": "Block studios and manage holds for The Vintage Loft.",
+  "name": "The Vintage Loft Staff App",
+  "short_name": "Staff App",
+  "description": "Check the schedule and manage holds for The Vintage Loft.",
   "start_url": "/hold.html",
   "scope": "/hold.html",
   "display": "standalone",
