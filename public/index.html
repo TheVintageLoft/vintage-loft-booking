@@ -376,6 +376,7 @@ const CONFIG = {
   hstRate: 0.13,             // Ontario HST
   minHours: 1,               // 1-hour minimum
   incrementMin: 15,          // 15-min start increments (durations stay in 30-min steps)
+  leadHours: 12,             // clients must book online at least this many hours ahead (else call/text)
   dreamSingleHour: 75,       // Dream: a 1-hour-only booking costs this (else $50/hr)
   christmasWeekendsOnly: true,// Christmas premium applies to weekends within the window (confirm w/ Mason)
   // Mason's length-of-booking discount tiers (apply to any room, any season):
@@ -480,7 +481,7 @@ function startOfWeek(d){const x=new Date(d);x.setHours(12,0,0,0);x.setDate(x.get
 function openRoomCal(id){rcRoomId=id;rcSel=null;rcWeekStart=startOfWeek(new Date());go('room');}
 function shiftWeek(n){const w=new Date(rcWeekStart);w.setDate(w.getDate()+7*n);if(startOfWeek(w)<startOfWeek(new Date()))return;rcWeekStart=w;rcSel=null;renderRoomCal();}
 function slotAvailable(room,ds,h){
-  if(hoursUntil(ds,h)<=0) return false;          // past
+  if(hoursUntil(ds,h) < (CONFIG.leadHours||12)) return false;   // past, or inside the 12-hr online-booking cutoff
   const end=h+CONFIG.minHours;
   if(end>20) return false;                        // no room for the 1-hr minimum before close
   return !roomBusy(room.id,ds,h,end);
@@ -813,7 +814,12 @@ async function runSearch(){
       <div style="font-weight:700;color:#4a443c;margin-bottom:3px">The studio is closed on Mondays</div>
       <div style="color:var(--muted);font-size:14px">Please pick another day for your booking. If you need a Monday, give us a call or text and we will see what we can do.</div></div>`;
   }
-  html += `<div class="section-title"><h2>${data.closed?'Closed':openCount+' space'+(openCount===1?'':'s')+' available'}</h2>
+  if(data.tooSoon){
+    html += `<div style="background:#f6f5f3;border:1px solid #e2ddd4;border-left:4px solid #7c7268;border-radius:10px;padding:16px 18px;margin:0 0 18px">
+      <div style="font-weight:700;color:#4a443c;margin-bottom:3px">Booking within ${data.leadHours||12} hours</div>
+      <div style="color:var(--muted);font-size:14px">For a booking this soon, please call or text us at <b>905-767-2099</b> and we'll get you set up and make sure staff is ready for you.</div></div>`;
+  }
+  html += `<div class="section-title"><h2>${data.closed?'Closed':(data.tooSoon?'Call us to book':openCount+' space'+(openCount===1?'':'s')+' available')}</h2>
     <span style="color:var(--muted);font-size:13px">${fmtDate(date)} · ${label(s)}–${label(e)} · ${hrTxt(e-s)}${xmas?' · Christmas premium':''}</span></div><div class="grid">`;
   data.rooms.forEach(r=>{
     const busy = !r.available;

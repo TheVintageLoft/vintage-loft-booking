@@ -362,6 +362,8 @@ function isClosedDay(date) {
 }
 // A 15-minute turnover gap is required between separate bookings/blocks in the same room.
 const BUFFER = (VL.CONFIG.bufferMin || 15) / 60;
+// Clients must book online at least this many hours ahead; anything sooner routes to staff (call/text).
+const LEAD_HOURS = VL.CONFIG.leadHours || 12;
 function busyIntervals(roomId, date) {
   const b = db.prepare(`SELECT start,end FROM bookings WHERE room_id=? AND date=? AND status!='cancelled'`).all(roomId, date);
   const k = db.prepare(`SELECT start,end FROM blocks WHERE room_id=? AND date=?`).all(roomId, date);
@@ -494,14 +496,15 @@ app.get('/api/search', (req, res) => {
   if (!date) return res.status(400).json({ error: 'date required' });
   const err = validTimes(start, end); if (err) return res.status(400).json({ error: err });
   const closed = isClosedDay(date);
+  const tooSoon = hoursUntil(date, start) < LEAD_HOURS;   // inside the 12-hr online-booking cutoff
   const rooms = VL.ROOMS.map(r => {
-    const free = !closed && isFree(r.id, date, start, end) && VL.validDuration(r.id, end - start);
+    const free = !closed && !tooSoon && isFree(r.id, date, start, end) && VL.validDuration(r.id, end - start);
     const setupAvailable = free && isFree(r.id, date, start, end, true);   // is the 15-min-before also free for early-arrival setup?
     const q = VL.priceQuote(r.id, date, end - start, {});
     return { id: r.id, name: r.name, cap: r.cap, tags: r.tags, color: r.color,
       rate: q.rate, xmas: q.xmas, total: q.roomTotal, available: free, setupAvailable };
   });
-  res.json({ date, start, end, closed, closedReason: closed ? 'The studio is closed on Mondays.' : null, rooms });
+  res.json({ date, start, end, closed, tooSoon, leadHours: LEAD_HOURS, closedReason: closed ? 'The studio is closed on Mondays.' : null, rooms });
 });
 
 // Busy intervals for a room across a date range (for the week calendar)
@@ -536,6 +539,7 @@ app.post('/api/bookings', async (req, res) => {
     if (!it.date) return res.status(400).json({ error: 'date required' });
     const terr = validTimes(s, e); if (terr) return res.status(400).json({ error: terr });
     if (isClosedDay(it.date)) return res.status(400).json({ error: 'The studio is closed on Mondays. Please choose another day.' });
+    if (hoursUntil(it.date, s) < LEAD_HOURS) return res.status(400).json({ error: 'Bookings within ' + LEAD_HOURS + ' hours need to be arranged with us directly — please call or text 905-767-2099.' });
     if (!VL.validDuration(it.room, e - s)) return res.status(400).json({ error: 'That duration is not available for ' + room.name + '.' });
   }
 

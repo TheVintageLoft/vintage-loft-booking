@@ -15,6 +15,7 @@
     incrementMin: 15,         // 15-minute START-time increments (durations still move in 30-min steps)
     durationStepMin: 30,      // booking length changes in 30-minute steps
     bufferMin: 15,            // required turnover gap between separate bookings in the same room
+    leadHours: 12,            // clients must book online at least this many hours ahead (else call/text staff)
     dreamSingleHour: 75,      // Dream: a 1-hour-only booking costs this (else $50/hr)
     christmasWeekendsOnly: true,
     christmasStart: [10, 7],  // Nov 7  (month index 10)
