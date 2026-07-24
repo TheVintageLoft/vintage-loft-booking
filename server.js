@@ -61,6 +61,8 @@ try { db.exec("ALTER TABLE blocks ADD COLUMN pay_link TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE bookings ADD COLUMN pay_link TEXT"); } catch (_) {}
 // client contact (phone/email JSON) on a manually-added booking
 try { db.exec("ALTER TABLE blocks ADD COLUMN client TEXT"); } catch (_) {}
+// add-ons chosen on a manually-added booking ({items:{id:qty}, options:{id:label}})
+try { db.exec("ALTER TABLE blocks ADD COLUMN addons_json TEXT"); } catch (_) {}
 // a client directory (imported from Acuity) that powers name autocomplete
 try { db.exec(`CREATE TABLE IF NOT EXISTS clients (name_key TEXT PRIMARY KEY, name TEXT, phone TEXT, email TEXT)`); } catch (_) {}
 // client accounts (email + password), login sessions, and a credit-wallet ledger
@@ -721,7 +723,7 @@ app.post('/api/admin/import-blocks', admin, (req, res) => {
   const client = req.body.client && (req.body.client.phone || req.body.client.email)
     ? JSON.stringify({ phone: (req.body.client.phone || '').toString().slice(0, 40), email: (req.body.client.email || '').toString().slice(0, 120) }) : null;
   const exists = db.prepare(`SELECT id FROM blocks WHERE room_id=? AND date=? AND start=? AND end=?`);
-  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,client,created_at) VALUES (?,?,?,?,?,?,?,?)`);
+  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,client,addons_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)`);
   const retag = db.prepare(`UPDATE blocks SET kind=? WHERE id=?`);
   let inserted = 0, skipped = 0, bad = 0;
   const madeForEmail = [];
@@ -731,7 +733,8 @@ app.post('/api/admin/import-blocks', admin, (req, res) => {
     const kind = (b.kind === 'booking' || b.kind === 'hold') ? b.kind : defKind;
     const found = exists.get(room, date, s, e);
     if (found) { retag.run(kind, found.id); skipped++; continue; }   // re-tag existing so labels can be corrected
-    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, client, nowISO());
+    const addonsStr = JSON.stringify({ items: (b.addons && typeof b.addons === 'object') ? b.addons : {}, options: (b.addonOptions && typeof b.addonOptions === 'object') ? b.addonOptions : {} });
+    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, client, addonsStr, nowISO());
     inserted++;
     madeForEmail.push({ roomName: (VL.roomById(room) || {}).name || room, date, start: s, end: e });
   }
@@ -741,7 +744,7 @@ app.post('/api/admin/import-blocks', admin, (req, res) => {
   if (req.body.sendConfirmation && email && defKind === 'booking' && madeForEmail.length) {
     try {
       let grandTotal = 0;
-      items.forEach(b => { const r = VL.roomById((b.room || '').toString()); if (r) { try { grandTotal += VL.priceQuote(r.id, (b.date || '').toString(), (+b.end) - (+b.start), {}).total; } catch (_) {} } });
+      items.forEach(b => { const r = VL.roomById((b.room || '').toString()); if (r) { try { grandTotal += VL.priceQuote(r.id, (b.date || '').toString(), (+b.end) - (+b.start), b.addons || {}, b.addonOptions || {}).total; } catch (_) {} } });
       grandTotal = VL.round2(grandTotal);
       const name = (req.body.blocks[0] && req.body.blocks[0].reason) || 'there';
       const confirmation = 'VL-' + ((madeForEmail[0].date || '').replace(/-/g, '').slice(2)) + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();

@@ -148,6 +148,11 @@
       </label>
     </div>
 
+    <div id="addonWrap" style="display:none;margin-top:14px">
+      <label class="fld">Add-ons (client booking)</label>
+      <div id="addonPick"></div>
+    </div>
+
     <button id="go">Add to calendar</button>
     <div id="msg"></div>
   </div>
@@ -250,7 +255,8 @@ document.getElementById('pw').addEventListener('keydown',function(e){ if(e.key==
 // build room checkboxes + time options + default date
 (function(){
   var box=document.getElementById('rooms');
-  ROOMS.forEach(function(r){ var l=document.createElement('label'); l.innerHTML='<input type="checkbox" value="'+r[0]+'"> '+r[1]; box.appendChild(l); });
+  ROOMS.forEach(function(r){ var l=document.createElement('label'); l.innerHTML='<input type="checkbox" value="'+r[0]+'"> '+r[1]; box.appendChild(l); var cbx=l.querySelector('input'); if(cbx) cbx.addEventListener('change', renderAddonPicker); });
+  (function(){ var ek=document.getElementById('entrykind'); if(ek) ek.addEventListener('change', renderAddonPicker); })();
   var s=document.getElementById('start'),e=document.getElementById('end');
   for(var d=8; d<=20; d+=0.25){
     var o1=document.createElement('option');o1.value=d;o1.textContent=tLabel(d);s.appendChild(o1);
@@ -285,6 +291,44 @@ function showMsg(el,txt,type){ el.style.display='block'; el.innerHTML=txt;
   else if(type==='err'){el.style.background='#fdecea';el.style.color='#a33';}
   else{el.style.background='#f6f5f3';el.style.color='#3a352f';} }
 
+/* ---- add-ons on the manual booking form ---- */
+var ADDONS=[];
+function loadAddons(){ fetch('/api/rooms').then(function(r){return r.json();}).then(function(d){ ADDONS=d.addons||[]; renderAddonPicker(); }).catch(function(){}); }
+loadAddons();
+var addonSel={items:{},options:{}};
+function aOK(a,roomId){ if(a.rooms) return a.rooms.indexOf(roomId)>=0; if(a.roomPrices) return a.roomPrices[roomId]!=null; return roomId!=='marilyn'; }
+function aUnit(a,opt,roomId){ if(a.roomPrices && roomId && a.roomPrices[roomId]!=null) return a.roomPrices[roomId]; if(a.options && a.options.length){ var o=null; for(var i=0;i<a.options.length;i++){ if(a.options[i].label===opt){o=a.options[i];break;} } if(!o)o=a.options[0]; return o.price; } return a.price||0; }
+function entryAddons(e){ try{ var j=JSON.parse(e.addons_json||'{}'); return {items:(j.items||{}),options:(j.options||{})}; }catch(_){ return {items:{},options:{}}; } }
+function renderAddonPicker(){
+  var wrap=document.getElementById('addonWrap'), box=document.getElementById('addonPick');
+  if(!wrap||!box) return;
+  var kind=document.getElementById('entrykind').value;
+  var rooms=chosenRooms();
+  if(kind!=='booking' || rooms.length!==1 || !ADDONS.length){ wrap.style.display='none'; box.innerHTML=''; addonSel={items:{},options:{}}; return; }
+  var roomId=rooms[0];
+  var list=ADDONS.filter(function(a){ return !a.hidden && aOK(a,roomId); }).sort(function(a,b){ return (a.priority||99)-(b.priority||99); });
+  if(!list.length){ wrap.style.display='none'; box.innerHTML=''; addonSel={items:{},options:{}}; return; }
+  wrap.style.display='block';
+  var html='';
+  list.forEach(function(a){
+    var on=addonSel.items[a.id]>0, f;
+    if(a.options && a.options.length){ if(!addonSel.options[a.id]) addonSel.options[a.id]=a.options[0].label; f=aUnit(a,addonSel.options[a.id],roomId); }
+    else { f=aUnit(a,null,roomId); }
+    var priceTxt = f>0 ? ('$'+f.toFixed(2)) : 'Free';
+    html+='<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;font-family:Arial,sans-serif;font-size:14px;cursor:pointer">'
+      +'<input type="checkbox" data-aid="'+a.id+'" '+(on?'checked':'')+' style="width:auto;margin-top:3px"> '
+      +'<span><b>'+esc(a.name)+'</b> &middot; '+priceTxt+'<br><span class="muted" style="font-size:12px">'+esc(a.desc||'')+'</span></span></label>';
+    if(a.options && a.options.length){
+      html+='<select data-aopt="'+a.id+'" style="margin:0 0 8px 26px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px">';
+      a.options.forEach(function(o){ html+='<option '+(addonSel.options[a.id]===o.label?'selected':'')+' value="'+esc(o.label)+'">'+esc(o.label)+(o.price>0?(' ($'+o.price+')'):'')+'</option>'; });
+      html+='</select>';
+    }
+  });
+  box.innerHTML=html;
+  Array.prototype.forEach.call(box.querySelectorAll('input[data-aid]'),function(cb){ cb.addEventListener('change',function(){ var id=cb.getAttribute('data-aid'); if(cb.checked) addonSel.items[id]=1; else delete addonSel.items[id]; }); });
+  Array.prototype.forEach.call(box.querySelectorAll('select[data-aopt]'),function(sl){ sl.addEventListener('change',function(){ addonSel.options[sl.getAttribute('data-aopt')]=sl.value; renderAddonPicker(); }); });
+}
+
 document.getElementById('go').onclick=function(){
   var msg=document.getElementById('msg');
   var key=getKey();
@@ -300,7 +344,7 @@ document.getElementById('go').onclick=function(){
   if(!rooms.length) return showMsg(msg,'Please choose at least one studio.','err');
   if(!(e>s)) return showMsg(msg,'The end time must be after the start time.','err');
   var client=(phone||email)?{phone:phone,email:email}:null;
-  var blocks=rooms.map(function(r){return {room:r,date:date,start:s,end:e,reason:reason};});
+  var blocks=rooms.map(function(r){return {room:r,date:date,start:s,end:e,reason:reason,addons:(rooms.length===1?addonSel.items:{}),addonOptions:(rooms.length===1?addonSel.options:{})};});
   var payload={key:key,blocks:blocks,kind:kind};
   if(client) payload.client=client;
   if(kind==='booking' && email && sendConfirm) payload.sendConfirmation=true;
@@ -414,6 +458,13 @@ function selectDay(iso){
           ib.innerHTML=h; card.appendChild(ib);
         }
       }
+      // ---- add-ons on this entry ----
+      (function(){
+        var aj=null; try{ aj=JSON.parse(x.addons_json||'{}'); }catch(e){}
+        var items=aj&&aj.items?aj.items:null;
+        if(items){ var names=[]; for(var id in items){ if(items[id]>0){ var a=null; for(var i=0;i<ADDONS.length;i++){ if(ADDONS[i].id===id){a=ADDONS[i];break;} } var opt=(aj.options||{})[id]; names.push((a?esc(a.name):esc(id))+(opt?' ('+esc(opt)+')':'')); } }
+          if(names.length){ var ab=document.createElement('div'); ab.className='meta'; ab.style.marginTop='4px'; ab.innerHTML='<b>Add-ons:</b> '+names.join(', '); card.appendChild(ab); } }
+      })();
       // ---- notes (staff-editable) ----
       (function(entry){
         var wrap=document.createElement('div'); wrap.style.marginTop='8px';
@@ -479,7 +530,7 @@ function selectDay(iso){
             var calc=document.createElement('div'); calc.className='meta'; calc.style.marginTop='6px'; pw.appendChild(calc);
             function recalcBase(){
               calc.textContent='Calculating price…';
-              fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:entry.room,date:iso,start:entry.start,end:entry.end,addons:{}})})
+              fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:entry.room,date:iso,start:entry.start,end:entry.end,addons:entryAddons(entry).items,addonOptions:entryAddons(entry).options})})
                 .then(function(r){return r.json();})
                 .then(function(q){
                   if(q&&typeof q.total==='number'){ amt.value=q.total.toFixed(2);
@@ -491,7 +542,7 @@ function selectDay(iso){
               var cv=code.value.trim();
               if(!cv){ cmsg.textContent=''; recalcBase(); return; }
               cmsg.style.color='#8a8375'; cmsg.textContent='Checking…';
-              fetch('/api/apply-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:cv,items:[{room:entry.room,date:iso,start:entry.start,end:entry.end}]})})
+              fetch('/api/apply-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:cv,items:[{room:entry.room,date:iso,start:entry.start,end:entry.end,addons:entryAddons(entry).items,addonOptions:entryAddons(entry).options}]})})
                 .then(function(r){return r.json().then(function(dd){return{ok:r.ok,d:dd};});})
                 .then(function(x){
                   if(!x.ok){ cmsg.style.color='#a33'; cmsg.textContent=(x.d&&x.d.error)||'Invalid code'; return; }
