@@ -410,17 +410,43 @@ function selectDay(iso){
             cancel.onclick=function(){ draw(); };
             row.appendChild(d); row.appendChild(amt); row.appendChild(gen); row.appendChild(cancel);
             pw.appendChild(row);
-            // auto-calculate the price for this studio + duration (base room rate, no add-ons)
-            var calc=document.createElement('div'); calc.className='meta'; calc.style.marginTop='6px'; calc.textContent='Calculating price…'; pw.appendChild(calc);
-            fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:entry.room,date:iso,start:entry.start,end:entry.end,addons:{}})})
-              .then(function(r){return r.json();})
-              .then(function(q){
-                if(q&&typeof q.total==='number'){
-                  amt.value=q.total.toFixed(2);
-                  calc.innerHTML=esc(rname(entry.room))+' · '+hrsTxt(entry.end-entry.start)+' → $'+q.roomTotal.toFixed(2)+' + HST $'+q.hst.toFixed(2)+' = <b>$'+q.total.toFixed(2)+'</b>. Edit if you need to add anything.';
-                } else { calc.textContent='Enter the amount to charge.'; }
-              })
-              .catch(function(){ calc.textContent='Enter the amount to charge.'; });
+            // optional VIP / discount code
+            var crow=document.createElement('div'); crow.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px';
+            var clab=document.createElement('span'); clab.className='meta'; clab.textContent='Code:';
+            var code=document.createElement('input'); code.type='text'; code.placeholder='VIP / discount (optional)'; code.style.cssText='width:170px;font-family:Arial,sans-serif;font-size:14px;padding:8px;border:1px solid #ddd;border-radius:8px;text-transform:uppercase';
+            var applyBtn=document.createElement('a'); applyBtn.textContent='Apply'; applyBtn.style.cssText=LINKSTYLE;
+            var cmsg=document.createElement('span'); cmsg.className='meta';
+            crow.appendChild(clab); crow.appendChild(code); crow.appendChild(applyBtn); crow.appendChild(cmsg);
+            pw.appendChild(crow);
+            var calc=document.createElement('div'); calc.className='meta'; calc.style.marginTop='6px'; pw.appendChild(calc);
+            function recalcBase(){
+              calc.textContent='Calculating price…';
+              fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:entry.room,date:iso,start:entry.start,end:entry.end,addons:{}})})
+                .then(function(r){return r.json();})
+                .then(function(q){
+                  if(q&&typeof q.total==='number'){ amt.value=q.total.toFixed(2);
+                    calc.innerHTML=esc(rname(entry.room))+' · '+hrsTxt(entry.end-entry.start)+' → $'+q.roomTotal.toFixed(2)+' + HST $'+q.hst.toFixed(2)+' = <b>$'+q.total.toFixed(2)+'</b>. Edit if you need to add anything.';
+                  } else { calc.textContent='Enter the amount to charge.'; }
+                }).catch(function(){ calc.textContent='Enter the amount to charge.'; });
+            }
+            applyBtn.onclick=function(){
+              var cv=code.value.trim();
+              if(!cv){ cmsg.textContent=''; recalcBase(); return; }
+              cmsg.style.color='#8a8375'; cmsg.textContent='Checking…';
+              fetch('/api/apply-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:cv,items:[{room:entry.room,date:iso,start:entry.start,end:entry.end}]})})
+                .then(function(r){return r.json().then(function(dd){return{ok:r.ok,d:dd};});})
+                .then(function(x){
+                  if(!x.ok){ cmsg.style.color='#a33'; cmsg.textContent=(x.d&&x.d.error)||'Invalid code'; return; }
+                  var bd=x.d.breakdown;
+                  if(bd&&typeof bd.grandTotal==='number'){
+                    amt.value=bd.grandTotal.toFixed(2);
+                    cmsg.style.color='#2e6b34'; cmsg.textContent='Applied · saved $'+(bd.discountTotal||0).toFixed(2);
+                    calc.innerHTML=esc(rname(entry.room))+' · '+hrsTxt(entry.end-entry.start)+' with <b>'+esc(cv.toUpperCase())+'</b> → <b>$'+bd.grandTotal.toFixed(2)+'</b> (incl HST).';
+                  } else { cmsg.style.color='#2e6b34'; cmsg.textContent='Code valid'; }
+                }).catch(function(){ cmsg.style.color='#a33'; cmsg.textContent='Network error'; });
+            };
+            code.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); applyBtn.onclick(); } });
+            recalcBase();
             amt.focus();
           }
           draw(); card.appendChild(pw);
