@@ -102,6 +102,15 @@
   </div>
 </div>
 
+<!-- CLIENT SEARCH -->
+<div class="card appcard" style="display:none">
+  <div class="hd"><h1>Find a client</h1><p>Search a client by name to see all their bookings. Tap one to jump to it.</p></div>
+  <div class="body">
+    <input id="clientSearch" type="text" autocomplete="off" placeholder="Type a client's name…">
+    <div id="clientResults" style="margin-top:8px"></div>
+  </div>
+</div>
+
 <!-- HOLD / BOOKING FORM -->
 <div class="card appcard" style="display:none">
   <div class="hd"><h1>Add to the calendar</h1><p>Block a studio for yourself (a Hold), or log a client reservation (a Booking). Not shown to the public.</p></div>
@@ -584,6 +593,52 @@ function cancelBooking(id,btn,label){
     .then(function(x){ if(!x.ok){btn.disabled=false;btn.textContent='Cancel booking';alert('Could not cancel.');return;} loadCalendar(); })
     .catch(function(err){btn.disabled=false;btn.textContent='Cancel booking';alert('Network error: '+err.message);});
 }
+
+// ---------- client search ----------
+function allEntries(){
+  var all=[]; Object.keys(CAL.items).forEach(function(date){ (CAL.items[date]||[]).forEach(function(e){ all.push({date:date, e:e}); }); });
+  return all;
+}
+function renderClientSearch(){
+  var q=(document.getElementById('clientSearch').value||'').trim().toLowerCase();
+  var res=document.getElementById('clientResults'); res.innerHTML='';
+  if(q.length<1) return;
+  var names={};
+  allEntries().forEach(function(it){ var n=(it.e.label||'').trim(); if(n && n.toLowerCase().indexOf(q)>=0){ names[n]=(names[n]||0)+1; } });
+  var keys=Object.keys(names).sort();
+  if(!keys.length){ res.innerHTML='<div class="muted">No clients match.</div>'; return; }
+  keys.slice(0,25).forEach(function(n){
+    var row=document.createElement('div'); row.style.cssText='padding:10px 12px;border:1px solid #e7e5e2;border-radius:8px;margin-bottom:6px;cursor:pointer;font-family:Arial,sans-serif;font-size:14px;background:#faf9f7';
+    var contact=CLIENTS[n.toLowerCase()]; var sub='';
+    if(contact && (contact.phone||contact.email)){ var p=[]; if(contact.phone)p.push(contact.phone); if(contact.email)p.push(contact.email); sub='<div class="muted" style="margin-top:2px">'+esc(p.join('  ·  '))+'</div>'; }
+    row.innerHTML='<b>'+esc(n)+'</b> <span class="muted">· '+names[n]+' booking'+(names[n]===1?'':'s')+'</span>'+sub;
+    row.onclick=function(){ showClientBookings(n); };
+    res.appendChild(row);
+  });
+}
+function showClientBookings(name){
+  var res=document.getElementById('clientResults'); res.innerHTML='';
+  var back=document.createElement('a'); back.textContent='← Back to search'; back.style.cssText=LINKSTYLE; back.onclick=function(){ renderClientSearch(); }; res.appendChild(back);
+  var h=document.createElement('div'); h.style.cssText='font-family:Georgia,serif;font-size:17px;margin:10px 0 4px;color:#3a352f'; h.textContent=name; res.appendChild(h);
+  var contact=CLIENTS[name.toLowerCase()];
+  if(contact && (contact.phone||contact.email)){ var c=document.createElement('div'); c.className='muted'; c.style.marginBottom='8px'; var pp=[]; if(contact.phone)pp.push('Phone: '+contact.phone); if(contact.email)pp.push('Email: '+contact.email); c.textContent=pp.join('   ·   '); res.appendChild(c); }
+  var mine=allEntries().filter(function(it){ return (it.e.label||'').trim().toLowerCase()===name.toLowerCase(); })
+    .sort(function(a,b){ return (a.date+String(a.e.start).padStart(6,'0'))<(b.date+String(b.e.start).padStart(6,'0'))?-1:1; });
+  if(!mine.length){ var m=document.createElement('div'); m.className='muted'; m.textContent='No bookings found.'; res.appendChild(m); return; }
+  mine.forEach(function(it){
+    var e=it.e;
+    var card=document.createElement('div'); card.style.cssText='border-left:4px solid '+(RCOLOR[e.room]||'#ccc')+';background:#faf9f7;border-radius:8px;padding:9px 12px;margin:6px 0;cursor:pointer;font-family:Arial,sans-serif;font-size:14px';
+    card.innerHTML='<b>'+esc(fdate(it.date))+'</b><div class="muted" style="margin-top:2px">'+esc(rname(e.room))+'  ·  '+tLabel(e.start)+' – '+tLabel(e.end)+'</div>';
+    card.onclick=function(){ jumpToDay(it.date); };
+    res.appendChild(card);
+  });
+}
+function jumpToDay(date){
+  var p=date.split('-'); CAL.y=+p[0]; CAL.m=+p[1]-1; CAL.sel=date;
+  renderMonth(); selectDay(date);
+  try{ document.querySelector('.appcard .cal-head').scrollIntoView({behavior:'smooth', block:'start'}); }catch(e){}
+}
+var _cs=document.getElementById('clientSearch'); if(_cs) _cs.addEventListener('input', renderClientSearch);
 
 // month navigation
 function shiftMonth(delta){
