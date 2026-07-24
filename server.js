@@ -58,6 +58,8 @@ try { db.exec("ALTER TABLE bookings ADD COLUMN intake TEXT"); } catch (_) {}
 // a Square payment link Kelly can send for a manual booking
 try { db.exec("ALTER TABLE blocks ADD COLUMN pay_link TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE bookings ADD COLUMN pay_link TEXT"); } catch (_) {}
+// client contact (phone/email JSON) on a manually-added booking
+try { db.exec("ALTER TABLE blocks ADD COLUMN client TEXT"); } catch (_) {}
 
 /* ---------- payments: Square Web Payments (test mode) with a stand-in fallback ----------
    Set these environment variables on the host to switch from stand-in to real Square:
@@ -529,20 +531,56 @@ app.post('/api/admin/import-blocks', admin, (req, res) => {
   const items = Array.isArray(req.body.blocks) ? req.body.blocks : [];
   // request-level default kind; each block may override with its own b.kind
   const defKind = req.body.kind === 'booking' ? 'booking' : 'hold';
+  const client = req.body.client && (req.body.client.phone || req.body.client.email)
+    ? JSON.stringify({ phone: (req.body.client.phone || '').toString().slice(0, 40), email: (req.body.client.email || '').toString().slice(0, 120) }) : null;
   const exists = db.prepare(`SELECT id FROM blocks WHERE room_id=? AND date=? AND start=? AND end=?`);
-  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,created_at) VALUES (?,?,?,?,?,?,?)`);
+  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,client,created_at) VALUES (?,?,?,?,?,?,?,?)`);
   const retag = db.prepare(`UPDATE blocks SET kind=? WHERE id=?`);
   let inserted = 0, skipped = 0, bad = 0;
+  const madeForEmail = [];
   for (const b of items) {
     const room = (b.room || '').toString(), date = (b.date || '').toString(), s = +b.start, e = +b.end;
     if (!VL.roomById(room) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !(e > s)) { bad++; continue; }
     const kind = (b.kind === 'booking' || b.kind === 'hold') ? b.kind : defKind;
     const found = exists.get(room, date, s, e);
     if (found) { retag.run(kind, found.id); skipped++; continue; }   // re-tag existing so labels can be corrected
-    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, nowISO());
+    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, client, nowISO());
     inserted++;
+    madeForEmail.push({ roomName: (VL.roomById(room) || {}).name || room, date, start: s, end: e });
   }
+
+  // Optionally email the client a confirmation (only for manually-added bookings with an email).
+  const email = req.body.client && req.body.client.email;
+  if (req.body.sendConfirmation && email && defKind === 'booking' && madeForEmail.length) {
+    try {
+      let grandTotal = 0;
+      items.forEach(b => { const r = VL.roomById((b.room || '').toString()); if (r) { try { grandTotal += VL.priceQuote(r.id, (b.date || '').toString(), (+b.end) - (+b.start), {}).total; } catch (_) {} } });
+      grandTotal = VL.round2(grandTotal);
+      const name = (req.body.blocks[0] && req.body.blocks[0].reason) || 'there';
+      const confirmation = 'VL-' + ((madeForEmail[0].date || '').replace(/-/g, '').slice(2)) + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
+      sendConfirmationEmail({ email, name, confirmation, bookings: madeForEmail, grandTotal, discountTotal: 0 })
+        .catch(e => console.error('[email] manual confirmation error:', e.message));
+    } catch (e) { console.error('[email] manual confirmation build error:', e.message); }
+  }
+
   res.json({ ok: true, total: items.length, inserted, skipped, bad });
+});
+
+// Known clients (for autocomplete): names + contact gathered from bookings and manual entries
+app.get('/api/admin/clients', admin, (_req, res) => {
+  const map = {};
+  const add = (name, phone, email) => {
+    name = (name || '').toString().trim();
+    if (!name || name.toLowerCase() === 'private hold' || name.toLowerCase() === 'imported') return;
+    const key = name.toLowerCase();
+    if (!map[key]) map[key] = { name, phone: '', email: '' };
+    if (phone && !map[key].phone) map[key].phone = phone;
+    if (email && !map[key].email) map[key].email = email;
+  };
+  try { db.prepare(`SELECT DISTINCT customer_name, customer_email FROM bookings WHERE status!='cancelled'`).all().forEach(r => add(r.customer_name, '', r.customer_email)); } catch (_) {}
+  try { db.prepare(`SELECT reason, client FROM blocks`).all().forEach(r => { let c = {}; try { c = JSON.parse(r.client || '{}'); } catch (_) {} add(r.reason, c.phone, c.email); }); } catch (_) {}
+  const clients = Object.keys(map).map(k => map[k]).sort((a, b) => a.name.localeCompare(b.name));
+  res.json({ clients });
 });
 
 // Remove a single block/hold by id (used by the self-serve hold tool)
