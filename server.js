@@ -51,6 +51,10 @@ try { db.exec("ALTER TABLE bookings ADD COLUMN discount REAL NOT NULL DEFAULT 0"
 try { db.exec("ALTER TABLE bookings ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
 // 'kind' tells an imported real booking ('booking') apart from a room blockout ('hold').
 try { db.exec("ALTER TABLE blocks ADD COLUMN kind TEXT NOT NULL DEFAULT 'hold'"); } catch (_) {}
+// staff notes on any calendar entry, plus the client intake form answers on real bookings
+try { db.exec("ALTER TABLE blocks ADD COLUMN notes TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE bookings ADD COLUMN notes TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE bookings ADD COLUMN intake TEXT"); } catch (_) {}
 
 /* ---------- payments: Square Web Payments (test mode) with a stand-in fallback ----------
    Set these environment variables on the host to switch from stand-in to real Square:
@@ -529,6 +533,25 @@ app.post('/api/admin/delete-block', admin, (req, res) => {
   if (!id) return res.status(400).json({ error: 'id required' });
   const info = db.prepare(`DELETE FROM blocks WHERE id=?`).run(id);
   res.json({ ok: true, deleted: info.changes });
+});
+
+// Save/update a staff note on any entry (a block/hold or a real booking)
+app.post('/api/admin/set-note', admin, (req, res) => {
+  const id = +req.body.id;
+  const notes = (req.body.notes == null ? '' : String(req.body.notes)).slice(0, 4000);
+  if (!id) return res.status(400).json({ error: 'id required' });
+  const table = req.body.source === 'booking' ? 'bookings' : 'blocks';
+  const info = db.prepare(`UPDATE ${table} SET notes=? WHERE id=?`).run(notes, id);
+  res.json({ ok: true, changed: info.changes });
+});
+
+// Flip an entry between a real Booking and a Hold (blocks only)
+app.post('/api/admin/set-kind', admin, (req, res) => {
+  const id = +req.body.id;
+  const kind = req.body.kind === 'booking' ? 'booking' : 'hold';
+  if (!id) return res.status(400).json({ error: 'id required' });
+  const info = db.prepare(`UPDATE blocks SET kind=? WHERE id=?`).run(kind, id);
+  res.json({ ok: true, changed: info.changes, kind });
 });
 
 // Remove ONLY the auto-generated demo data (Seed Client bookings + Maintenance block)

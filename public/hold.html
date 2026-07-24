@@ -102,10 +102,16 @@
   </div>
 </div>
 
-<!-- HOLD FORM -->
+<!-- HOLD / BOOKING FORM -->
 <div class="card appcard" style="display:none">
-  <div class="hd"><h1>Hold a time</h1><p>Block a studio for your own session or a private hold. Not visible to public bookings.</p></div>
+  <div class="hd"><h1>Add to the calendar</h1><p>Block a studio for yourself (a Hold), or log a client reservation (a Booking). Not shown to the public.</p></div>
   <div class="body">
+    <label class="fld">This is a</label>
+    <select id="entrykind">
+      <option value="hold">Hold — I'm blocking the room for myself</option>
+      <option value="booking">Booking — a real client reservation</option>
+    </select>
+
     <label class="fld">Date</label>
     <input id="date" type="date">
 
@@ -119,10 +125,10 @@
       <div><span class="muted">End</span><select id="end"></select></div>
     </div>
 
-    <label class="fld">Note (optional)</label>
-    <input id="reason" type="text" placeholder="e.g. My own client, Smith family" value="Private hold">
+    <label class="fld">Name / note</label>
+    <input id="reason" type="text" placeholder="e.g. Smith family, or Private hold" value="Private hold">
 
-    <button id="go">Hold this time</button>
+    <button id="go">Add to calendar</button>
     <div id="msg"></div>
   </div>
 </div>
@@ -231,26 +237,28 @@ function showMsg(el,txt,type){ el.style.display='block'; el.innerHTML=txt;
 document.getElementById('go').onclick=function(){
   var msg=document.getElementById('msg');
   var key=getKey();
+  var kind=document.getElementById('entrykind').value==='booking'?'booking':'hold';
   var date=document.getElementById('date').value;
   var rooms=chosenRooms();
   var s=+document.getElementById('start').value, e=+document.getElementById('end').value;
-  var reason=document.getElementById('reason').value.trim()||'Private hold';
+  var reason=document.getElementById('reason').value.trim()||(kind==='booking'?'Booking':'Private hold');
   if(!date) return showMsg(msg,'Please choose a date.','err');
   if(!rooms.length) return showMsg(msg,'Please choose at least one studio.','err');
   if(!(e>s)) return showMsg(msg,'The end time must be after the start time.','err');
   var blocks=rooms.map(function(r){return {room:r,date:date,start:s,end:e,reason:reason};});
-  var btn=this; btn.disabled=true; btn.textContent='Holding…';
-  showMsg(msg,'Saving your hold…','info');
-  fetch('/api/admin/import-blocks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,blocks:blocks,kind:'hold'})})
+  var btn=this; btn.disabled=true; btn.textContent='Saving…';
+  showMsg(msg,'Saving…','info');
+  fetch('/api/admin/import-blocks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,blocks:blocks,kind:kind})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
     .then(function(x){
-      btn.disabled=false; btn.textContent='Hold this time';
+      btn.disabled=false; btn.textContent='Add to calendar';
       if(!x.ok){return showMsg(msg,(x.d&&x.d.error)||'Could not save — please try again.','err');}
       var added=x.d.inserted, skip=x.d.skipped;
-      showMsg(msg,'<b>Held.</b> '+added+' studio'+(added===1?'':'s')+' blocked for '+fdate(date)+', '+tLabel(s)+' – '+tLabel(e)+'.'+(skip?' ('+skip+' already held.)':''),'ok');
+      var word=kind==='booking'?'Booking':'Hold';
+      showMsg(msg,'<b>'+word+' saved.</b> '+added+' studio'+(added===1?'':'s')+' for '+fdate(date)+', '+tLabel(s)+' – '+tLabel(e)+'.'+(skip?' ('+skip+' already on the calendar.)':''),'ok');
       CAL.sel=date; loadCalendar();
     })
-    .catch(function(err){btn.disabled=false;btn.textContent='Hold this time';showMsg(msg,'Network error: '+err.message,'err');});
+    .catch(function(err){btn.disabled=false;btn.textContent='Add to calendar';showMsg(msg,'Network error: '+err.message,'err');});
 };
 
 // ---------- Calendar ----------
@@ -268,8 +276,8 @@ function loadCalendar(){
     fetch('/api/admin/bookings?key='+encodeURIComponent(getKey())).then(chk)
   ]).then(function(res){
     var idx={};
-    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id}); });
-    (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED'}); });
+    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||''}); });
+    (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||''}); });
     CAL.items=idx; cm.textContent='';
     renderMonth();
     if(CAL.sel) selectDay(CAL.sel);
@@ -324,13 +332,62 @@ function selectDay(iso){
       else { tag.className='tag tag-hold'; tag.textContent='Hold'; }
       who.appendChild(tag); card.appendChild(who);
       var meta=document.createElement('div'); meta.className='meta'; meta.textContent=tLabel(x.start)+' – '+tLabel(x.end); card.appendChild(meta);
-      var btn=document.createElement('button'); btn.className='del'; btn.style.marginTop='7px';
+      // ---- notes (staff-editable) ----
+      (function(entry){
+        var wrap=document.createElement('div'); wrap.style.marginTop='8px';
+        function draw(){
+          wrap.innerHTML='';
+          if(entry.notes){
+            var nt=document.createElement('div'); nt.className='meta'; nt.style.whiteSpace='pre-wrap'; nt.style.marginBottom='4px';
+            var b=document.createElement('b'); b.textContent='Notes: '; nt.appendChild(b);
+            nt.appendChild(document.createTextNode(entry.notes)); wrap.appendChild(nt);
+          }
+          var a=document.createElement('a'); a.style.cssText='font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline';
+          a.textContent=entry.notes?'Edit note':'Add note'; a.onclick=function(){ edit(); }; wrap.appendChild(a);
+        }
+        function edit(){
+          wrap.innerHTML='';
+          var ta=document.createElement('textarea'); ta.value=entry.notes||''; ta.placeholder='Session details, requests, photographer, etc.';
+          ta.style.cssText='width:100%;min-height:80px;font-family:Arial,sans-serif;font-size:14px;padding:9px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box';
+          wrap.appendChild(ta);
+          var save=document.createElement('button'); save.className='del'; save.style.marginTop='6px'; save.textContent='Save note';
+          save.onclick=function(){ save.disabled=true; save.textContent='Saving…'; saveNote(entry, ta.value, function(ok){ if(ok){ entry.notes=ta.value; draw(); } else { save.disabled=false; save.textContent='Save note'; } }); };
+          var cancel=document.createElement('a'); cancel.style.cssText='margin-left:16px;font-family:Arial,sans-serif;font-size:13px;color:#8a8375;cursor:pointer;text-decoration:underline'; cancel.textContent='Cancel'; cancel.onclick=function(){ draw(); };
+          wrap.appendChild(save); wrap.appendChild(cancel); ta.focus();
+        }
+        draw(); card.appendChild(wrap);
+      })(x);
       var lbl=fdate(iso)+'  ·  '+r[1]+'  ·  '+tLabel(x.start)+' – '+tLabel(x.end)+'  ·  '+x.label;
+      var actions=document.createElement('div'); actions.style.marginTop='8px';
+      var btn=document.createElement('button'); btn.className='del';
       if(x.source==='booking'){ btn.textContent='Cancel booking'; (function(id,lbl,btn){ btn.onclick=function(){ cancelBooking(id,btn,lbl); }; })(x.id,lbl,btn); }
       else { btn.textContent=(x.kind==='booking'?'Remove booking':'Remove hold'); (function(id,lbl,btn){ btn.onclick=function(){ removeHold(id,btn,lbl); }; })(x.id,lbl,btn); }
-      card.appendChild(btn); det.appendChild(card);
+      actions.appendChild(btn);
+      if(x.source==='block'){
+        var flip=document.createElement('a');
+        flip.style.cssText='font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline;margin-left:16px';
+        var toKind=(x.kind==='booking')?'hold':'booking';
+        flip.textContent=(x.kind==='booking')?'Change to Hold':'Change to Booking';
+        (function(id,toKind){ flip.onclick=function(){ setKind(id,toKind); }; })(x.id,toKind);
+        actions.appendChild(flip);
+      }
+      card.appendChild(actions); det.appendChild(card);
     });
   });
+}
+
+function saveNote(entry, notes, cb){
+  fetch('/api/admin/set-note',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:entry.id,source:entry.source,notes:notes})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(x){ if(!x.ok){ alert((x.d&&x.d.error)||'Could not save note.'); cb(false); return; } cb(true); })
+    .catch(function(err){ alert('Network error: '+err.message); cb(false); });
+}
+
+function setKind(id,kind){
+  fetch('/api/admin/set-kind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:id,kind:kind})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(x){ if(!x.ok){alert((x.d&&x.d.error)||'Could not change.');return;} loadCalendar(); })
+    .catch(function(err){ alert('Network error: '+err.message); });
 }
 
 function removeHold(id,btn,label){
