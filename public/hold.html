@@ -28,6 +28,27 @@
   .rm{text-transform:capitalize;font-weight:bold}
   .del{background:none;color:#a33;border:0;padding:2px 6px;margin:0;font-size:13px;cursor:pointer;text-decoration:underline}
   .muted{font-family:Arial,sans-serif;font-size:13px;color:#8a8375}
+  /* calendar */
+  .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .cal-head h2{margin:0;font-size:19px;font-weight:normal;font-family:Georgia,serif;color:#3a352f}
+  .cal-nav{background:#f6f5f3;color:#7c7268;border:1px solid #e7e5e2;border-radius:10px;padding:5px 15px;margin:0;font-size:17px;font-weight:bold}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;touch-action:pan-y}
+  .cal-dow{text-align:center;font-family:Arial,sans-serif;font-size:11px;color:#a49d92;text-transform:uppercase;padding:2px 0}
+  .cal-day{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;font-size:15px;border-radius:50%;cursor:pointer;color:#3a352f;user-select:none}
+  .cal-day.blank{visibility:hidden;cursor:default}
+  .cal-day.has{box-shadow:inset 0 0 0 2px #b3a99c;background:#f3efe9}
+  .cal-day.closed{color:#d2ccc3;cursor:default}
+  .cal-day.past{color:#c4bfb6}
+  .cal-day.today{font-weight:bold}
+  .cal-day.sel{background:#7c7268!important;color:#fff!important;box-shadow:none!important}
+  .callegend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:16px 0 2px}
+  .legdot{display:inline-flex;align-items:center;gap:6px;font-family:Arial,sans-serif;font-size:12px;color:#6b655c}
+  .legdot i{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .studiohdr{font-family:Arial,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#8a8375;margin:16px 0 4px;display:flex;align-items:center;gap:7px}
+  .studiohdr i{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .daycard{border-left:4px solid #ccc;background:#faf9f7;border-radius:8px;padding:10px 12px;margin:6px 0;font-family:Arial,sans-serif;font-size:14px}
+  .daycard .who{font-weight:bold}
+  .daycard .meta{color:#8a8375;font-size:13px;margin-top:2px}
 </style></head><body>
 
 <div id="installbar" style="display:none;max-width:720px;margin:0 auto 16px;background:#7c7268;color:#fff;border-radius:12px;padding:14px 18px;font-family:Arial,sans-serif;font-size:14px;line-height:1.5">
@@ -67,20 +88,19 @@
 </div>
 
 <div class="card">
-  <div class="hd"><h1>Upcoming holds</h1><p>Everything currently blocked from today onward. Remove any to free it up again.</p></div>
+  <div class="hd"><h1>Calendar</h1><p>Circled days have a booking or hold. Empty days are wide open. Tap a day to see who's in.</p></div>
   <div class="body">
-    <div class="allrow"><a onclick="loadHolds()">Refresh list</a></div>
-    <table id="tbl"><thead><tr><th>Date</th><th>Studio</th><th>Time</th><th>Note</th><th></th></tr></thead><tbody></tbody></table>
-    <div id="holdmsg" class="muted" style="margin-top:8px"></div>
-  </div>
-</div>
-
-<div class="card">
-  <div class="hd"><h1>Upcoming bookings</h1><p>Real customer bookings from today onward. Cancel any test bookings to free the studio.</p></div>
-  <div class="body">
-    <div class="allrow"><a onclick="loadBookings()">Refresh list</a></div>
-    <table id="btbl"><thead><tr><th>Date</th><th>Studio</th><th>Time</th><th>Name</th><th></th></tr></thead><tbody></tbody></table>
-    <div id="bookmsg" class="muted" style="margin-top:8px"></div>
+    <div class="cal-head">
+      <button class="cal-nav" id="calPrev" aria-label="Previous month">‹</button>
+      <h2 id="calTitle">—</h2>
+      <button class="cal-nav" id="calNext" aria-label="Next month">›</button>
+    </div>
+    <div class="cal-grid" id="calDow"></div>
+    <div class="cal-grid" id="calDays"></div>
+    <div class="callegend" id="calLegend"></div>
+    <div id="dayDetail"></div>
+    <div id="calmsg" class="muted" style="margin-top:10px"></div>
+    <div class="allrow" style="margin-top:10px"><a onclick="loadCalendar()">Refresh calendar</a></div>
   </div>
 </div>
 
@@ -164,7 +184,7 @@ function persistKey(){
   if(saved){
     document.getElementById('key').value=saved;
     document.getElementById('remember').checked=true;
-    loadHolds(); loadBookings();   // auto-fill both lists since we already have the key
+    loadCalendar();   // we already have the key, so populate the calendar
   }
   document.getElementById('remember').addEventListener('change',persistKey);
   document.getElementById('key').addEventListener('input',function(){ if(document.getElementById('remember').checked) persistKey(); });
@@ -198,42 +218,89 @@ document.getElementById('go').onclick=function(){
       if(!x.ok){return showMsg(msg,(x.d&&x.d.error)||'Could not save — check your admin key.','err');}
       var added=x.d.inserted, skip=x.d.skipped;
       showMsg(msg,'<b>Held.</b> '+added+' studio'+(added===1?'':'s')+' blocked for '+fdate(date)+', '+tLabel(s)+' – '+tLabel(e)+'.'+(skip?' ('+skip+' already held.)':''),'ok');
-      loadHolds();
+      CAL.sel=date; loadCalendar();
     })
     .catch(function(err){btn.disabled=false;btn.textContent='Hold this time';showMsg(msg,'Network error: '+err.message,'err');});
 };
 
-function loadHolds(){
+// ---------- Calendar ----------
+var RCOLOR={grand:'#c0392b',dream:'#2e6f9e',gatsby:'#3f8a52',carnegie:'#8a5a2b',marilyn:'#7a4fa3'};
+var MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+var CAL={items:{}, y:null, m:null, sel:null};
+
+function todayISO(){ var t=new Date(); return t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate()); }
+function dowOf(iso){ var p=iso.split('-'); return new Date(Date.UTC(+p[0],+p[1]-1,+p[2])).getUTCDay(); }
+
+function loadCalendar(){
   var key=document.getElementById('key').value.trim();
-  var hm=document.getElementById('holdmsg');
-  var tb=document.querySelector('#tbl tbody'); tb.innerHTML='';
-  if(!key){hm.textContent='Enter your admin key above, then click Refresh list to see current holds.';return;}
-  hm.textContent='Loading…';
-  fetch('/api/admin/blocks?key='+encodeURIComponent(key))
-    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
-    .then(function(x){
-      if(!x.ok){hm.textContent=(x.d&&x.d.error)||'Could not load holds — check your admin key.';return;}
-      var today=new Date(); var todayISO=today.getFullYear()+'-'+pad(today.getMonth()+1)+'-'+pad(today.getDate());
-      var rows=(x.d.blocks||[]).filter(function(b){return b.date>=todayISO;})
-        .sort(function(a,b){return (a.date+String(a.start).padStart(6,'0'))<(b.date+String(b.start).padStart(6,'0'))?-1:1;});
-      if(!rows.length){hm.textContent='No upcoming holds.';return;}
-      hm.textContent=rows.length+' upcoming hold'+(rows.length===1?'':'s')+'.';
-      var names={}; ROOMS.forEach(function(r){names[r[0]]=r[1];});
-      rows.forEach(function(b){
-        var tr=document.createElement('tr');
-        var td=document.createElement('td');td.textContent=fdate(b.date);tr.appendChild(td);
-        var td2=document.createElement('td');td2.className='rm';td2.textContent=names[b.room_id]||b.room_id;tr.appendChild(td2);
-        var td3=document.createElement('td');td3.textContent=tLabel(b.start)+' – '+tLabel(b.end);tr.appendChild(td3);
-        var td4=document.createElement('td');td4.textContent=b.reason||'';tr.appendChild(td4);
-        var td5=document.createElement('td');
-        var del=document.createElement('button');del.className='del';del.textContent='Remove';
-        var hlabel=fdate(b.date)+'  ·  '+(names[b.room_id]||b.room_id)+'  ·  '+tLabel(b.start)+' – '+tLabel(b.end)+(b.reason?('  ·  '+b.reason):'');
-        del.onclick=function(){removeHold(b.id,del,hlabel);};
-        td5.appendChild(del);tr.appendChild(td5);
-        tb.appendChild(tr);
-      });
-    })
-    .catch(function(err){hm.textContent='Network error: '+err.message;});
+  var cm=document.getElementById('calmsg');
+  if(CAL.y===null){ var t=new Date(); CAL.y=t.getFullYear(); CAL.m=t.getMonth(); }
+  if(!key){ cm.textContent='Enter your admin key above to load the calendar.'; renderMonth(); return; }
+  cm.textContent='Loading…';
+  Promise.all([
+    fetch('/api/admin/blocks?key='+encodeURIComponent(key)).then(function(r){return r.json();}),
+    fetch('/api/admin/bookings?key='+encodeURIComponent(key)).then(function(r){return r.json();})
+  ]).then(function(res){
+    if((res[0]&&res[0].error)||(res[1]&&res[1].error)){ cm.textContent='Could not load — check your admin key.'; return; }
+    var idx={};
+    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({type:'hold',room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id}); });
+    (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({type:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED'}); });
+    CAL.items=idx; cm.textContent='';
+    renderMonth();
+    if(CAL.sel) selectDay(CAL.sel);
+  }).catch(function(err){ cm.textContent='Network error: '+err.message; });
+}
+
+function renderMonth(){
+  if(CAL.y===null){ var t=new Date(); CAL.y=t.getFullYear(); CAL.m=t.getMonth(); }
+  document.getElementById('calTitle').textContent=MONTHS[CAL.m]+' '+CAL.y;
+  var dow=document.getElementById('calDow'); dow.innerHTML='';
+  ['S','M','T','W','T','F','S'].forEach(function(d){ var c=document.createElement('div'); c.className='cal-dow'; c.textContent=d; dow.appendChild(c); });
+  var days=document.getElementById('calDays'); days.innerHTML='';
+  var first=new Date(Date.UTC(CAL.y,CAL.m,1)).getUTCDay();
+  var dim=new Date(Date.UTC(CAL.y,CAL.m+1,0)).getUTCDate();
+  var tISO=todayISO();
+  for(var i=0;i<first;i++){ var b=document.createElement('div'); b.className='cal-day blank'; days.appendChild(b); }
+  for(var dd=1;dd<=dim;dd++){
+    var iso=CAL.y+'-'+pad(CAL.m+1)+'-'+pad(dd);
+    var el=document.createElement('div'); el.textContent=dd;
+    var wd=new Date(Date.UTC(CAL.y,CAL.m,dd)).getUTCDay();
+    var cls='cal-day';
+    if(wd===1){ cls+=' closed'; }
+    else if(CAL.items[iso] && CAL.items[iso].length){ cls+=' has'; }
+    if(iso<tISO) cls+=' past';
+    if(iso===tISO) cls+=' today';
+    if(iso===CAL.sel) cls+=' sel';
+    el.className=cls;
+    if(wd!==1){ (function(iso){ el.onclick=function(){ selectDay(iso); }; })(iso); }
+    days.appendChild(el);
+  }
+  var leg=document.getElementById('calLegend'); leg.innerHTML='';
+  ROOMS.forEach(function(r){ var s=document.createElement('span'); s.className='legdot'; s.innerHTML='<i style="background:'+RCOLOR[r[0]]+'"></i>'+r[1]; leg.appendChild(s); });
+}
+
+function selectDay(iso){
+  CAL.sel=iso; renderMonth();
+  var det=document.getElementById('dayDetail'); det.innerHTML='';
+  var h=document.createElement('div'); h.style.cssText='font-family:Georgia,serif;font-size:16px;margin:18px 0 6px;color:#3a352f'; h.textContent=fdate(iso); det.appendChild(h);
+  if(dowOf(iso)===1){ var m=document.createElement('div'); m.className='muted'; m.textContent='Closed on Mondays.'; det.appendChild(m); return; }
+  var items=(CAL.items[iso]||[]).slice().sort(function(a,b){return a.start-b.start;});
+  if(!items.length){ var m2=document.createElement('div'); m2.className='muted'; m2.textContent='Nothing booked — this day is completely open.'; det.appendChild(m2); return; }
+  ROOMS.forEach(function(r){
+    var rid=r[0]; var list=items.filter(function(x){return x.room===rid;});
+    if(!list.length) return;
+    var hdr=document.createElement('div'); hdr.className='studiohdr'; hdr.innerHTML='<i style="background:'+RCOLOR[rid]+'"></i>'+r[1]; det.appendChild(hdr);
+    list.forEach(function(x){
+      var card=document.createElement('div'); card.className='daycard'; card.style.borderLeftColor=RCOLOR[rid];
+      var who=document.createElement('div'); who.className='who'; who.textContent=x.label+(x.sample?' (sample)':'')+(x.type==='hold'?'  ·  hold':''); card.appendChild(who);
+      var meta=document.createElement('div'); meta.className='meta'; meta.textContent=tLabel(x.start)+' – '+tLabel(x.end); card.appendChild(meta);
+      var btn=document.createElement('button'); btn.className='del'; btn.style.marginTop='7px';
+      var lbl=fdate(iso)+'  ·  '+r[1]+'  ·  '+tLabel(x.start)+' – '+tLabel(x.end)+'  ·  '+x.label;
+      if(x.type==='hold'){ btn.textContent='Remove hold'; (function(id,lbl,btn){ btn.onclick=function(){ removeHold(id,btn,lbl); }; })(x.id,lbl,btn); }
+      else { btn.textContent='Cancel booking'; (function(id,lbl,btn){ btn.onclick=function(){ cancelBooking(id,btn,lbl); }; })(x.id,lbl,btn); }
+      card.appendChild(btn); det.appendChild(card);
+    });
+  });
 }
 
 function removeHold(id,btn,label){
@@ -242,40 +309,8 @@ function removeHold(id,btn,label){
   btn.disabled=true; btn.textContent='Removing…';
   fetch('/api/admin/delete-block',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,id:id})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
-    .then(function(x){ if(!x.ok){btn.disabled=false;btn.textContent='Remove';alert((x.d&&x.d.error)||'Could not remove.');return;} loadHolds(); })
-    .catch(function(err){btn.disabled=false;btn.textContent='Remove';alert('Network error: '+err.message);});
-}
-
-function loadBookings(){
-  var key=document.getElementById('key').value.trim();
-  var bm=document.getElementById('bookmsg');
-  var tb=document.querySelector('#btbl tbody'); tb.innerHTML='';
-  if(!key){bm.textContent='Enter your admin key above, then click Refresh list to see bookings.';return;}
-  bm.textContent='Loading…';
-  fetch('/api/admin/bookings?key='+encodeURIComponent(key))
-    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
-    .then(function(x){
-      if(!x.ok){bm.textContent=(x.d&&x.d.error)||'Could not load bookings — check your admin key.';return;}
-      var today=new Date(); var todayISO=today.getFullYear()+'-'+pad(today.getMonth()+1)+'-'+pad(today.getDate());
-      var rows=(x.d.bookings||[]).filter(function(b){return b.date>=todayISO && b.status!=='cancelled';})
-        .sort(function(a,b){return (a.date+String(a.start).padStart(6,'0'))<(b.date+String(b.start).padStart(6,'0'))?-1:1;});
-      if(!rows.length){bm.textContent='No upcoming bookings.';return;}
-      bm.textContent=rows.length+' upcoming booking'+(rows.length===1?'':'s')+'.';
-      rows.forEach(function(b){
-        var tr=document.createElement('tr');
-        var td=document.createElement('td');td.textContent=fdate(b.date);tr.appendChild(td);
-        var td2=document.createElement('td');td2.className='rm';td2.textContent=b.roomName||b.room_id;tr.appendChild(td2);
-        var td3=document.createElement('td');td3.textContent=tLabel(b.start)+' – '+tLabel(b.end);tr.appendChild(td3);
-        var td4=document.createElement('td');td4.textContent=(b.customer_name||'')+(b.payment_ref==='SEED'?' (sample)':'');tr.appendChild(td4);
-        var td5=document.createElement('td');
-        var c=document.createElement('button');c.className='del';c.textContent='Cancel';
-        var blabel=fdate(b.date)+'  ·  '+(b.roomName||b.room_id)+'  ·  '+tLabel(b.start)+' – '+tLabel(b.end)+'  ·  '+(b.customer_name||'');
-        c.onclick=function(){cancelBooking(b.id,c,blabel);};
-        td5.appendChild(c);tr.appendChild(td5);
-        tb.appendChild(tr);
-      });
-    })
-    .catch(function(err){bm.textContent='Network error: '+err.message;});
+    .then(function(x){ if(!x.ok){btn.disabled=false;btn.textContent='Remove hold';alert((x.d&&x.d.error)||'Could not remove.');return;} loadCalendar(); })
+    .catch(function(err){btn.disabled=false;btn.textContent='Remove hold';alert('Network error: '+err.message);});
 }
 
 function cancelBooking(id,btn,label){
@@ -284,9 +319,34 @@ function cancelBooking(id,btn,label){
   btn.disabled=true; btn.textContent='Cancelling…';
   fetch('/api/admin/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,id:id})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
-    .then(function(x){ if(!x.ok){btn.disabled=false;btn.textContent='Cancel';alert('Could not cancel.');return;} loadBookings(); })
-    .catch(function(err){btn.disabled=false;btn.textContent='Cancel';alert('Network error: '+err.message);});
+    .then(function(x){ if(!x.ok){btn.disabled=false;btn.textContent='Cancel booking';alert('Could not cancel.');return;} loadCalendar(); })
+    .catch(function(err){btn.disabled=false;btn.textContent='Cancel booking';alert('Network error: '+err.message);});
 }
+
+// month navigation
+function shiftMonth(delta){
+  if(CAL.y===null){ var t=new Date(); CAL.y=t.getFullYear(); CAL.m=t.getMonth(); }
+  CAL.m+=delta;
+  if(CAL.m<0){ CAL.m=11; CAL.y--; }
+  if(CAL.m>11){ CAL.m=0; CAL.y++; }
+  CAL.sel=null; document.getElementById('dayDetail').innerHTML='';
+  renderMonth();
+}
+document.getElementById('calPrev').onclick=function(){ shiftMonth(-1); };
+document.getElementById('calNext').onclick=function(){ shiftMonth(1); };
+// swipe: left = next month, right = previous month
+(function(){
+  var el=document.getElementById('calDays'); var x0=null,y0=null;
+  el.addEventListener('touchstart',function(e){ x0=e.touches[0].clientX; y0=e.touches[0].clientY; },{passive:true});
+  el.addEventListener('touchend',function(e){
+    if(x0===null) return;
+    var dx=e.changedTouches[0].clientX-x0, dy=e.changedTouches[0].clientY-y0;
+    if(Math.abs(dx)>45 && Math.abs(dx)>Math.abs(dy)){ shiftMonth(dx<0?1:-1); }
+    x0=null;
+  },{passive:true});
+})();
+// draw an empty current month right away so the grid is visible before the key is entered
+renderMonth();
 
 document.getElementById('cleardemo').onclick=function(){
   var key=document.getElementById('key').value.trim();
@@ -299,7 +359,7 @@ document.getElementById('cleardemo').onclick=function(){
       btn.disabled=false; btn.textContent='Remove demo / sample data';
       if(!x.ok){dm.textContent=(x.d&&x.d.error)||'Could not clear — check your admin key.';return;}
       dm.innerHTML='<b style="color:#2e6b34">Done.</b> Removed '+x.d.bookingsRemoved+' sample booking'+(x.d.bookingsRemoved===1?'':'s')+' and '+x.d.blocksRemoved+' maintenance block'+(x.d.blocksRemoved===1?'':'s')+'.';
-      loadHolds(); loadBookings();
+      loadCalendar();
     })
     .catch(function(err){btn.disabled=false;btn.textContent='Remove demo / sample data';dm.textContent='Network error: '+err.message;});
 };
@@ -318,7 +378,7 @@ document.getElementById('resetall').onclick=function(){
       if(!x.ok){rm.textContent=(x.d&&x.d.error)||'Could not reset — check your admin key.';return;}
       document.getElementById('resetword').value='';
       rm.innerHTML='<b style="color:#2e6b34">Cleared.</b> Removed '+x.d.bookingsRemoved+' booking'+(x.d.bookingsRemoved===1?'':'s')+' and '+x.d.blocksRemoved+' hold'+(x.d.blocksRemoved===1?'':'s')+'. You can now import your real schedule from a clean slate.';
-      loadHolds(); loadBookings();
+      CAL.sel=null; document.getElementById('dayDetail').innerHTML=''; loadCalendar();
     })
     .catch(function(err){btn.disabled=false;btn.textContent='Clear everything';rm.textContent='Network error: '+err.message;});
 };
