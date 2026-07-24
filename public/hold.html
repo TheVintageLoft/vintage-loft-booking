@@ -124,6 +124,11 @@ function pad(n){return String(n).padStart(2,'0');}
 function tLabel(d){var h=Math.floor(d),m=Math.round((d-h)*60),ap=h<12?'AM':'PM',hh=h%12||12;return hh+':'+pad(m)+' '+ap;}
 function fdate(iso){var p=iso.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return M[+p[1]-1]+' '+(+p[2])+', '+p[0];}
 
+// Calendar state — declared up top so an early auto-load (remember-me) has it ready.
+var RCOLOR={grand:'#c0392b',dream:'#2e6f9e',gatsby:'#3f8a52',carnegie:'#8a5a2b',marilyn:'#7a4fa3'};
+var MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+var CAL={items:{}, y:null, m:null, sel:null};
+
 // build room checkboxes
 (function(){
   var box=document.getElementById('rooms');
@@ -184,7 +189,7 @@ function persistKey(){
   if(saved){
     document.getElementById('key').value=saved;
     document.getElementById('remember').checked=true;
-    loadCalendar();   // we already have the key, so populate the calendar
+    try{ loadCalendar(); }catch(e){}   // we already have the key, so populate the calendar
   }
   document.getElementById('remember').addEventListener('change',persistKey);
   document.getElementById('key').addEventListener('input',function(){ if(document.getElementById('remember').checked) persistKey(); });
@@ -223,11 +228,7 @@ document.getElementById('go').onclick=function(){
     .catch(function(err){btn.disabled=false;btn.textContent='Hold this time';showMsg(msg,'Network error: '+err.message,'err');});
 };
 
-// ---------- Calendar ----------
-var RCOLOR={grand:'#c0392b',dream:'#2e6f9e',gatsby:'#3f8a52',carnegie:'#8a5a2b',marilyn:'#7a4fa3'};
-var MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
-var CAL={items:{}, y:null, m:null, sel:null};
-
+// ---------- Calendar ---------- (RCOLOR / MONTHS / CAL declared near the top of the script)
 function todayISO(){ var t=new Date(); return t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate()); }
 function dowOf(iso){ var p=iso.split('-'); return new Date(Date.UTC(+p[0],+p[1]-1,+p[2])).getUTCDay(); }
 
