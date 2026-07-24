@@ -12,7 +12,9 @@
     cancelWindowHours: 48,    // free cancel + full credit if >= this many hours out (Phase 2)
     hstRate: 0.13,            // Ontario HST
     minHours: 1,              // 1-hour minimum
-    incrementMin: 30,         // 30-minute booking increments
+    incrementMin: 15,         // 15-minute START-time increments (durations still move in 30-min steps)
+    durationStepMin: 30,      // booking length changes in 30-minute steps
+    bufferMin: 15,            // required turnover gap between separate bookings in the same room
     dreamSingleHour: 75,      // Dream: a 1-hour-only booking costs this (else $50/hr)
     christmasWeekendsOnly: true,
     christmasStart: [10, 7],  // Nov 7  (month index 10)
@@ -41,7 +43,10 @@
     { id: 'cakesmash', name: 'Cake Smash Set',  price: 35, unit: 'set',   desc: 'Complete cake smash setup' },
     { id: 'wardrobe',  name: 'Dress rental',    price: 50, unit: 'dress', desc: 'A styled dress from our collection' },
     { id: 'bedsetup',  name: 'Bed set-up',      price: 25, unit: 'set',   desc: 'Queen bed with fresh linens', rooms: ['gatsby'], priority: 1 },
-    { id: 'swing',     name: 'Macramé swing',   price: 15, unit: 'each',  desc: 'Hanging macramé swing', rooms: ['grand', 'dream'] }
+    { id: 'swing',     name: 'Macramé swing',   price: 15, unit: 'each',  desc: 'Hanging macramé swing', rooms: ['grand', 'dream'] },
+    { id: 'earlysetup', name: '15 min early arrival (setup)', unit: 'setup', boolean: true, priority: 2,
+      desc: 'Arrive 15 minutes before your session to set up. Your time starts 15 minutes early and that window is reserved for you (a 9:00 booking begins at 8:45).',
+      roomPrices: { grand: 25, gatsby: 20, carnegie: 20, dream: 15, marilyn: 7 } }
   ];
 
   const roomById = id => ROOMS.find(r => r.id === id);
@@ -72,7 +77,8 @@
   }
 
   // Add-on price for a chosen option (option-priced add-ons like the backdrop).
-  function addonUnitPrice(a, optionLabel) {
+  function addonUnitPrice(a, optionLabel, roomId) {
+    if (a.roomPrices && roomId && a.roomPrices[roomId] != null) return a.roomPrices[roomId];
     if (a.options && a.options.length) { const o = a.options.find(x => x.label === optionLabel) || a.options[0]; return o.price; }
     return a.price || 0;
   }
@@ -80,6 +86,7 @@
   // general add-ons apply to studios only (not makeup rooms like The Marilyn).
   function addonAllowed(a, roomId) {
     if (a.rooms) return a.rooms.includes(roomId);
+    if (a.roomPrices) return a.roomPrices[roomId] != null;   // per-room add-on (e.g. early setup) — offered wherever it has a price, incl. makeup rooms
     const room = roomById(roomId);
     return !room || (room.type || 'studio') === 'studio';
   }
@@ -101,9 +108,10 @@
       const a = ADDONS.find(x => x.id === id); const qty = addons[id];
       if (!a || qty <= 0 || !addonAllowed(a, roomId)) continue;   // ignore add-ons not offered for this studio
       const opt = (addonOptions || {})[id];
-      const unit = addonUnitPrice(a, opt);
-      addonTotal += unit * qty;
-      items.push({ id, name: a.name, qty, option: opt || null, unit, amount: unit * qty });
+      const useQty = a.boolean ? 1 : qty;                 // boolean add-ons (early setup) are always quantity 1
+      const unit = addonUnitPrice(a, opt, roomId);
+      addonTotal += unit * useQty;
+      items.push({ id, name: a.name, qty: useQty, option: opt || null, unit, amount: unit * useQty });
     }
     const pre = roomTotal + addonTotal;
     const hst = round2(pre * CONFIG.hstRate);
@@ -133,5 +141,6 @@
   }
 
   return { CONFIG, ROOMS, ADDONS, roomById, tierFor, isWeekend, isChristmas, rateFor,
-    roomBaseFor, roomTotalFor, priceQuote, validDuration, overlaps, round2, applyDiscountToQuote };
+    roomBaseFor, roomTotalFor, priceQuote, validDuration, overlaps, round2, applyDiscountToQuote,
+    addonUnitPrice, addonAllowed };
 });

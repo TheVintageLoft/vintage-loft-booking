@@ -375,7 +375,7 @@ const CONFIG = {
   cancelWindowHours: 48,     // free cancel + full credit if >= this many hours out
   hstRate: 0.13,             // Ontario HST
   minHours: 1,               // 1-hour minimum
-  incrementMin: 30,          // 30-minute booking increments
+  incrementMin: 15,          // 15-min start increments (durations stay in 30-min steps)
   dreamSingleHour: 75,       // Dream: a 1-hour-only booking costs this (else $50/hr)
   christmasWeekendsOnly: true,// Christmas premium applies to weekends within the window (confirm w/ Mason)
   // Mason's length-of-booking discount tiers (apply to any room, any season):
@@ -432,7 +432,7 @@ let lastSearch = null;
 /* ---------- HELPERS ---------- */
 const $ = s=>document.querySelector(s);
 const money = n=>'$'+n.toFixed(2);
-function label(h){const hh=Math.floor(h),m=(h-hh)>=0.5?':30':':00',ap=hh>=12?'PM':'AM';let d=hh%12;if(d===0)d=12;return d+m+' '+ap;}
+function label(h){const hh=Math.floor(h),mm=Math.round((h-hh)*60),ap=hh>=12?'PM':'AM';let d=hh%12;if(d===0)d=12;return d+':'+String(mm).padStart(2,'0')+' '+ap;}
 function hrTxt(h){return (h%1===0?h:h.toFixed(1))+' hr';}
 function fillTimes(){
   const s=$('#fStart'), e=$('#fEnd'); s.innerHTML='';e.innerHTML='';
@@ -498,7 +498,7 @@ function renderRoomCal(){
   days.forEach(d=>{
     const ds=ymd(d);
     html+=`<div><div class="dayhead">${d.toLocaleDateString('en-CA',{weekday:'short'})}<br>${d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})}</div>`;
-    for(let h=8;h<=19.5;h+=0.5){
+    for(let h=8;h<=19.75;h+=0.25){          // 15-minute start-time slots
       const ok=slotAvailable(room,ds,h);
       const sel=rcSel && rcSel.date===ds && rcSel.start===h;
       html+=`<button class="slot ${ok?'':'off'} ${sel?'sel':''}" ${ok?'':'disabled'} onclick="pickStart('${ds}',${h})">${label(h)}</button>`;
@@ -580,9 +580,11 @@ function renderAddons(){
     html+=`<div class="addon">
       <div class="info"><b>${a.name}</b> — ${money(a.price)} <small>/ ${a.unit}</small><br><small>${a.desc}</small></div>
       <div class="qty">
-        <button onclick="chAddon('${a.id}',-1)">−</button>
+        ${a.boolean
+          ? `<label style="display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:${(a.id==='earlysetup'&&!setupFreeClient())?'not-allowed':'pointer'};opacity:${(a.id==='earlysetup'&&!setupFreeClient())?0.5:1}"><input type="checkbox" ${q?'checked':''} ${(a.id==='earlysetup'&&!setupFreeClient())?'disabled':''} onchange="toggleAddon('${a.id}',this.checked)"> ${(a.id==='earlysetup'&&!setupFreeClient())?'Not available for this time':'Add'}</label>`
+          : `<button onclick="chAddon('${a.id}',-1)">−</button>
         <span id="q_${a.id}">${q}</span>
-        <button onclick="chAddon('${a.id}',1)">+</button>
+        <button onclick="chAddon('${a.id}',1)">+</button>`}
       </div></div>`;
   });
   $('#addonList').innerHTML=html;
@@ -791,7 +793,7 @@ var LAST_EMAIL = '';
 async function fetchJSON(u, opts){ const r = await fetch(u, opts); if(!r.ok){ const e = await r.json().catch(()=>({})); throw Object.assign(new Error(e.error||('HTTP '+r.status)), {status:r.status, body:e}); } return r.json(); }
 
 /* availability now comes from the server (fetched into CAL_BUSY for the open room) */
-function roomBusy(roomId, date, s, e){ return CAL_BUSY.some(iv => iv.date===date && overlaps(s, e, iv.start, iv.end)); }
+function roomBusy(roomId, date, s, e){ return CAL_BUSY.some(iv => iv.date===date && overlaps(s, e, iv.start-0.25, iv.end+0.25)); }  // 15-min turnover buffer
 
 /* search: ask the server which studios are open + their price */
 async function runSearch(){
@@ -879,7 +881,7 @@ function priceItem(it){
   const tier = tierFor(it.hours);
   const roomTotal = roomBase - roomBase*tier.off;
   let addonTotal = 0;
-  for(const id in (it.addons||{})){ const a=ADDONS.find(x=>x.id===id); if(!a||!addonOK(a,it.roomId))continue; addonTotal += addonUnit(a,(it.addonOpts||{})[id])*it.addons[id]; }
+  for(const id in (it.addons||{})){ const a=ADDONS.find(x=>x.id===id); if(!a||!addonOK(a,it.roomId))continue; addonTotal += addonUnit(a,(it.addonOpts||{})[id],it.roomId)*it.addons[id]; }
   const pre = r2(roomTotal + addonTotal), hst = r2(pre*CONFIG.hstRate);
   return { xmas, roomBase, tier, roomTotal, addonTotal, pre, hst, total: r2(pre+hst) };
 }
@@ -895,7 +897,7 @@ function renderReview(){
     let adds = '';
     for(const id in (it.addons||{})){ const a=ADDONS.find(x=>x.id===id); if(!a||!addonOK(a,it.roomId))continue; const opt=(it.addonOpts||{})[id]; adds += `<div style="font-size:12px;color:var(--muted)">+ ${a.name}${opt?` (${opt})`:''} × ${it.addons[id]}</div>`; }
     box += `<div class="bk" style="align-items:flex-start">
-      <div><b>${it.roomName}</b><div class="meta">${fmtDate(it.date)} · ${label(it.start)}–${label(it.end)} · ${hrTxt(it.hours)}${p.xmas?' · Christmas premium':''}</div>${adds}</div>
+      <div><b>${it.roomName}</b><div class="meta">${fmtDate(it.date)} · ${label(it.start)}–${label(it.end)} · ${hrTxt(it.hours)}${p.xmas?' · Christmas premium':''}${it.addons&&it.addons.earlysetup?` · arrive ${label(it.start-0.25)} to set up`:''}</div>${adds}</div>
       <div style="text-align:right"><div><b>${money(p.total)}</b></div><button onclick="removeOrderItem(${i})" style="background:none;border:0;color:var(--red);cursor:pointer;font-size:12px;text-decoration:underline;padding:4px 0 0">remove</button></div></div>`;
   });
   document.getElementById('reviewBox').innerHTML = box;
@@ -1080,8 +1082,10 @@ async function cancelMyBooking(id){
 function toggleAcctCredit(){ useAcctCredit=document.getElementById('useCredit').checked; renderReviewSummary(); }
 
 /* ---- add-on helpers: option-priced (backdrop) + room-restricted (bed set-up, swing) ---- */
-function addonUnit(a, opt){ if(a.options && a.options.length){ const o=a.options.find(x=>x.label===opt)||a.options[0]; return o.price; } return a.price||0; }
-function addonOK(a, roomId){ if(a.rooms) return a.rooms.includes(roomId); const r=ROOMS.find(x=>x.id===roomId); return !r || (r.type||'studio')==='studio'; }
+function addonUnit(a, opt, roomId){ if(a.roomPrices && roomId && a.roomPrices[roomId]!=null) return a.roomPrices[roomId]; if(a.options && a.options.length){ const o=a.options.find(x=>x.label===opt)||a.options[0]; return o.price; } return a.price||0; }
+function addonOK(a, roomId){ if(a.rooms) return a.rooms.includes(roomId); if(a.roomPrices) return a.roomPrices[roomId]!=null; const r=ROOMS.find(x=>x.id===roomId); return !r || (r.type||'studio')==='studio'; }
+function toggleAddon(id, on){ if(!cart) return; if(on) cart.addons[id]=1; else delete cart.addons[id]; renderAddons(); }
+function setupFreeClient(){ if(!cart) return true; return !CAL_BUSY.some(iv => iv.date===cart.date && overlaps(cart.start-0.25, cart.end, iv.start-0.25, iv.end+0.25)); }
 function setAddonOpt(id, val){ cart.addonOpts = cart.addonOpts || {}; cart.addonOpts[id] = val; renderAddons(); }
 
 function renderAddons(){
@@ -1094,19 +1098,22 @@ function renderAddons(){
     if(a.options && a.options.length){
       if(!cart.addonOpts[a.id]) cart.addonOpts[a.id] = a.options[0].label;
       const sel = cart.addonOpts[a.id];
-      const selPrice = addonUnit(a, sel);
+      const selPrice = addonUnit(a, sel, cart.roomId);
       priceLabel = selPrice>0 ? `${money(selPrice)} <small>/ ${a.unit}</small>` : `<b style="color:var(--green)">Free</b>`;
       optHtml = `<div style="margin-top:8px"><select onchange="setAddonOpt('${a.id}',this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff;color:var(--ink);max-width:100%">`
         + a.options.map(o=>`<option ${sel===o.label?'selected':''} value="${o.label}">${o.label}${o.price>0?` (${money(o.price)})`:''}</option>`).join('') + `</select></div>`;
     } else {
-      priceLabel = a.price>0 ? `${money(a.price)} <small>/ ${a.unit}</small>` : `<b style="color:var(--green)">Free</b>`;
+      const flat = addonUnit(a, null, cart.roomId);
+      priceLabel = flat>0 ? `${money(flat)} <small>/ ${a.unit}</small>` : `<b style="color:var(--green)">Free</b>`;
     }
     html += `<div class="addon">
       <div class="info"><b>${a.name}</b> — ${priceLabel}<br><small>${a.desc}</small>${optHtml}</div>
       <div class="qty">
-        <button onclick="chAddon('${a.id}',-1)">−</button>
+        ${a.boolean
+          ? `<label style="display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:${(a.id==='earlysetup'&&!setupFreeClient())?'not-allowed':'pointer'};opacity:${(a.id==='earlysetup'&&!setupFreeClient())?0.5:1}"><input type="checkbox" ${q?'checked':''} ${(a.id==='earlysetup'&&!setupFreeClient())?'disabled':''} onchange="toggleAddon('${a.id}',this.checked)"> ${(a.id==='earlysetup'&&!setupFreeClient())?'Not available for this time':'Add'}</label>`
+          : `<button onclick="chAddon('${a.id}',-1)">−</button>
         <span id="q_${a.id}">${q}</span>
-        <button onclick="chAddon('${a.id}',1)">+</button>
+        <button onclick="chAddon('${a.id}',1)">+</button>`}
       </div></div>`;
   });
   document.getElementById('addonList').innerHTML = html;
@@ -1124,7 +1131,7 @@ function priceCart(){
   const tierDisc = roomBase * tier.off;
   const roomTotal = roomBase - tierDisc;
   let addonTotal = 0;
-  for(const id in cart.addons){ const a=ADDONS.find(x=>x.id===id); if(!a || !addonOK(a,cart.roomId)) continue; addonTotal += addonUnit(a,(cart.addonOpts||{})[id]) * cart.addons[id]; }
+  for(const id in cart.addons){ const a=ADDONS.find(x=>x.id===id); if(!a || !addonOK(a,cart.roomId)) continue; addonTotal += addonUnit(a,(cart.addonOpts||{})[id],cart.roomId) * cart.addons[id]; }
   const pre = roomTotal + addonTotal;
   const hst = pre * CONFIG.hstRate;
   return { rate, xmas, dreamSpecial, roomBase, tier, tierDisc, roomTotal, addonTotal, pre, hst, total: pre + hst };
@@ -1133,7 +1140,7 @@ function addonRows(){
   let rows = '';
   for(const id in cart.addons){ const a=ADDONS.find(x=>x.id===id); if(!a || !addonOK(a,cart.roomId)) continue;
     const qty = cart.addons[id], opt = (cart.addonOpts||{})[id];
-    rows += `<div class="sum-row"><span>${a.name}${opt?` (${opt})`:''} × ${qty}</span><span>${money(addonUnit(a,opt)*qty)}</span></div>`;
+    rows += `<div class="sum-row"><span>${a.name}${opt?` (${opt})`:''} × ${qty}</span><span>${money(addonUnit(a,opt,cart.roomId)*qty)}</span></div>`;
   }
   return rows;
 }

@@ -173,7 +173,7 @@ function rname(id){for(var i=0;i<ROOMS.length;i++){if(ROOMS[i][0]===id)return RO
 function hrsTxt(h){h=Math.round(h*100)/100;return (h===Math.floor(h)?h:h)+' h';}
 var LINKSTYLE='font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline';
 var INPUTSTYLE='width:100%;font-family:Arial,sans-serif;font-size:14px;padding:8px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;background:#fff';
-function fillTimes(sel,val){ sel.innerHTML=''; for(var d=8; d<=20; d+=0.5){ var o=document.createElement('option'); o.value=d; o.textContent=tLabel(d); if(d===val) o.selected=true; sel.appendChild(o); } }
+function fillTimes(sel,val){ sel.innerHTML=''; for(var d=8; d<=20; d+=0.25){ var o=document.createElement('option'); o.value=d; o.textContent=tLabel(d); if(d===val) o.selected=true; sel.appendChild(o); } }
 function saveEdit(entry, room, date, start, end, cb){
   fetch('/api/admin/edit-entry',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:entry.id,source:entry.source,room:room,date:date,start:start,end:end})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
@@ -252,7 +252,7 @@ document.getElementById('pw').addEventListener('keydown',function(e){ if(e.key==
   var box=document.getElementById('rooms');
   ROOMS.forEach(function(r){ var l=document.createElement('label'); l.innerHTML='<input type="checkbox" value="'+r[0]+'"> '+r[1]; box.appendChild(l); });
   var s=document.getElementById('start'),e=document.getElementById('end');
-  for(var d=8; d<=20; d+=0.5){
+  for(var d=8; d<=20; d+=0.25){
     var o1=document.createElement('option');o1.value=d;o1.textContent=tLabel(d);s.appendChild(o1);
     var o2=document.createElement('option');o2.value=d;o2.textContent=tLabel(d);e.appendChild(o2);
   }

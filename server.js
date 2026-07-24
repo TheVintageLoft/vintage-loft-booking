@@ -67,6 +67,9 @@ try { db.exec(`CREATE TABLE IF NOT EXISTS clients (name_key TEXT PRIMARY KEY, na
 try { db.exec(`CREATE TABLE IF NOT EXISTS client_accounts (email TEXT PRIMARY KEY, name TEXT, pass_salt TEXT, pass_hash TEXT, created_at TEXT)`); } catch (_) {}
 try { db.exec(`CREATE TABLE IF NOT EXISTS client_sessions (token TEXT PRIMARY KEY, email TEXT, created_at TEXT)`); } catch (_) {}
 try { db.exec(`CREATE TABLE IF NOT EXISTS credit_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, amount REAL, reason TEXT, booking_id INTEGER, created_at TEXT)`); } catch (_) {}
+// early-arrival setup: a flag on the booking + a linked 15-min block that reserves the time before it
+try { db.exec("ALTER TABLE bookings ADD COLUMN setup INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
+try { db.exec("ALTER TABLE blocks ADD COLUMN booking_id INTEGER"); } catch (_) {}
 
 /* ---------- one-time clean reset (owner-only, no button) ----------
    Set WIPE_ONCE to any word in the host environment to clear ALL bookings + holds
@@ -334,6 +337,7 @@ function hoursUntil(dateStr, startHour) { const p = (dateStr || '').split('-').m
 // cancel a real booking (bookings table) and issue full account credit if >= 48h before start
 function cancelBookingWithCredit(b) {
   db.prepare(`UPDATE bookings SET status='cancelled' WHERE id=?`).run(b.id);
+  removeSetupBlocks(b.id);   // free the reserved early-arrival window, if any
   const hrs = hoursUntil(b.date, b.start);
   const already = db.prepare(`SELECT 1 FROM credit_ledger WHERE booking_id=? AND amount>0`).get(b.id);
   let credited = 0;
@@ -343,7 +347,7 @@ function cancelBookingWithCredit(b) {
 function validTimes(start, end) {
   if (!(start >= 8 && end <= 20 && end > start)) return 'Outside studio hours (8:00–20:00)';
   if ((end - start) < VL.CONFIG.minHours) return VL.CONFIG.minHours + '-hour minimum';
-  if (Math.round(start * 2) !== start * 2 || Math.round(end * 2) !== end * 2) return 'Times must be on the half hour';
+  if (Math.round(start * 4) !== start * 4 || Math.round(end * 4) !== end * 4) return 'Times must be on the quarter hour';
   return null;
 }
 // Days the studio is closed to public bookings (0=Sun ... 6=Sat). 1 = Monday.
@@ -354,14 +358,25 @@ function isClosedDay(date) {
   if (!p[0]) return false;
   return CLOSED_WEEKDAYS.has(new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay());
 }
+// A 15-minute turnover gap is required between separate bookings/blocks in the same room.
+const BUFFER = (VL.CONFIG.bufferMin || 15) / 60;
 function busyIntervals(roomId, date) {
   const b = db.prepare(`SELECT start,end FROM bookings WHERE room_id=? AND date=? AND status!='cancelled'`).all(roomId, date);
   const k = db.prepare(`SELECT start,end FROM blocks WHERE room_id=? AND date=?`).all(roomId, date);
   return [...b, ...k];
 }
-function isFree(roomId, date, start, end) {
-  return !busyIntervals(roomId, date).some(iv => VL.overlaps(start, end, iv.start, iv.end));
+// Free if the requested window keeps at least the 15-min buffer from every existing entry.
+// When setup=true the window is extended 15 min earlier (the reserved early-arrival time).
+function isFree(roomId, date, start, end, setup) {
+  const s = setup ? VL.round2(start - BUFFER) : start;
+  return !busyIntervals(roomId, date).some(iv => VL.overlaps(s, end, iv.start - BUFFER, iv.end + BUFFER));
 }
+// The reserved 15-min early-arrival window, stored as a block linked to its booking.
+function addSetupBlock(bookingId, room, date, start) {
+  db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,booking_id,created_at) VALUES (?,?,?,?,?,?,?,?)`)
+    .run(room, date, VL.round2(start - BUFFER), start, 'Early arrival setup', 'hold', bookingId, nowISO());
+}
+function removeSetupBlocks(bookingId) { db.prepare(`DELETE FROM blocks WHERE booking_id=?`).run(bookingId); }
 
 // clear any reservations left "pending" by an interrupted checkout on a prior run
 db.exec(`DELETE FROM bookings WHERE status='pending'`);
@@ -479,9 +494,10 @@ app.get('/api/search', (req, res) => {
   const closed = isClosedDay(date);
   const rooms = VL.ROOMS.map(r => {
     const free = !closed && isFree(r.id, date, start, end) && VL.validDuration(r.id, end - start);
+    const setupAvailable = free && isFree(r.id, date, start, end, true);   // is the 15-min-before also free for early-arrival setup?
     const q = VL.priceQuote(r.id, date, end - start, {});
     return { id: r.id, name: r.name, cap: r.cap, tags: r.tags, color: r.color,
-      rate: q.rate, xmas: q.xmas, total: q.roomTotal, available: free };
+      rate: q.rate, xmas: q.xmas, total: q.roomTotal, available: free, setupAvailable };
   });
   res.json({ date, start, end, closed, closedReason: closed ? 'The studio is closed on Mondays.' : null, rooms });
 });
@@ -536,7 +552,9 @@ app.post('/api/bookings', async (req, res) => {
     const claimed = {};
     for (const it of items) {
       const s = +it.start, e = +it.end, room = VL.roomById(it.room);
+      const setup = !!(it.addons && it.addons.earlysetup);
       if (!isFree(it.room, it.date, s, e)) { db.exec('ROLLBACK'); return res.status(409).json({ error: room.name + ' was just taken for that time. Please adjust.' }); }
+      if (setup && !isFree(it.room, it.date, s, e, true)) { db.exec('ROLLBACK'); return res.status(409).json({ error: 'The 15 minutes before your ' + room.name + ' booking is not free for early setup. Please remove that add-on or pick a different time.' }); }
       const key = it.room + '|' + it.date; claimed[key] = claimed[key] || [];
       if (claimed[key].some(([cs, ce]) => VL.overlaps(s, e, cs, ce))) { db.exec('ROLLBACK'); return res.status(409).json({ error: 'You added ' + room.name + ' twice at overlapping times.' }); }
       claimed[key].push([s, e]);
@@ -554,12 +572,14 @@ app.post('/api/bookings', async (req, res) => {
     }
     grandTotal = VL.round2(finals.reduce((sum, f) => sum + f.paid, 0));
     const intakeStr = req.body.intake ? JSON.stringify(req.body.intake).slice(0, 4000) : null;
-    const ins = db.prepare(`INSERT INTO bookings (room_id,date,start,end,hours,addons_json,pre,hst,total,paid,payment_ref,payment_mode,customer_name,customer_email,intake,status,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,0,'PENDING','pending',?,?,?, 'pending', ?)`);
+    const ins = db.prepare(`INSERT INTO bookings (room_id,date,start,end,hours,addons_json,pre,hst,total,paid,payment_ref,payment_mode,customer_name,customer_email,intake,setup,status,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,0,'PENDING','pending',?,?,?,?, 'pending', ?)`);
     items.forEach((it, i) => {
       const s = +it.start, e = +it.end, q = quotes[i];
-      const info = ins.run(it.room, it.date, s, e, e - s, JSON.stringify({ items: it.addons || {}, options: it.addonOptions || {} }), q.pre, q.hst, q.total, customerName, customerEmail, intakeStr, nowISO());
+      const setup = (it.addons && it.addons.earlysetup) ? 1 : 0;
+      const info = ins.run(it.room, it.date, s, e, e - s, JSON.stringify({ items: it.addons || {}, options: it.addonOptions || {} }), q.pre, q.hst, q.total, customerName, customerEmail, intakeStr, setup, nowISO());
       reservedIds.push(info.lastInsertRowid);
+      if (setup) addSetupBlock(info.lastInsertRowid, it.room, it.date, s);   // reserve the 15-min early-arrival window
     });
     db.exec('COMMIT');
   } catch (e) { try { db.exec('ROLLBACK'); } catch (_) {} return res.status(500).json({ error: e.message }); }
@@ -582,7 +602,7 @@ app.post('/api/bookings', async (req, res) => {
   // 3) Confirm the reservations, or release them if the charge failed
   if (!pay.ok) {
     const del = db.prepare(`DELETE FROM bookings WHERE id=? AND status='pending'`);
-    reservedIds.forEach(id => del.run(id));
+    reservedIds.forEach(id => { removeSetupBlocks(id); del.run(id); });
     return res.status(402).json({ error: pay.error || 'Payment failed' });
   }
   // One confirmation number for the whole order: VL_YYMMDD-N, N = the Nth booking made that day.
@@ -810,13 +830,23 @@ app.post('/api/admin/edit-entry', admin, (req, res) => {
   if (!(e > s)) return res.status(400).json({ error: 'The end time must be after the start time.' });
   // collision check against everything in that room/date except this same entry
   const others = [
-    ...db.prepare(`SELECT id,start,end FROM bookings WHERE room_id=? AND date=? AND status!='cancelled'`).all(room, date).map(x => ({ t: 'booking', id: x.id, start: x.start, end: x.end })),
-    ...db.prepare(`SELECT id,start,end FROM blocks WHERE room_id=? AND date=?`).all(room, date).map(x => ({ t: 'block', id: x.id, start: x.start, end: x.end }))
+    ...db.prepare(`SELECT id,start,end FROM bookings WHERE room_id=? AND date=? AND status!='cancelled'`).all(room, date).map(x => ({ t: 'booking', id: x.id, start: x.start, end: x.end, bid: null })),
+    ...db.prepare(`SELECT id,start,end,booking_id FROM blocks WHERE room_id=? AND date=?`).all(room, date).map(x => ({ t: 'block', id: x.id, start: x.start, end: x.end, bid: x.booking_id }))
   ];
-  const clash = others.some(iv => !(iv.t === source && iv.id === id) && VL.overlaps(s, e, iv.start, iv.end));
-  if (clash) return res.status(409).json({ error: 'That studio is already booked at that time. Please pick another slot.' });
-  if (source === 'booking') db.prepare(`UPDATE bookings SET room_id=?, date=?, start=?, end=?, hours=? WHERE id=?`).run(room, date, s, e, e - s, id);
-  else db.prepare(`UPDATE blocks SET room_id=?, date=?, start=?, end=? WHERE id=?`).run(room, date, s, e, id);
+  const clash = others.some(iv => {
+    if (iv.t === source && iv.id === id) return false;                            // ignore the entry itself
+    if (source === 'booking' && iv.t === 'block' && iv.bid === id) return false;  // ignore this booking's own setup block
+    return VL.overlaps(s, e, iv.start - BUFFER, iv.end + BUFFER);                 // keep the 15-min turnover gap
+  });
+  if (clash) return res.status(409).json({ error: 'That studio is booked (or within 15 minutes of another booking) at that time. Please pick another slot.' });
+  if (source === 'booking') {
+    db.prepare(`UPDATE bookings SET room_id=?, date=?, start=?, end=?, hours=? WHERE id=?`).run(room, date, s, e, e - s, id);
+    const bk = db.prepare(`SELECT setup FROM bookings WHERE id=?`).get(id);   // move its reserved setup window along with it
+    removeSetupBlocks(id);
+    if (bk && bk.setup) addSetupBlock(id, room, date, s);
+  } else {
+    db.prepare(`UPDATE blocks SET room_id=?, date=?, start=?, end=? WHERE id=?`).run(room, date, s, e, id);
+  }
   res.json({ ok: true });
 });
 
