@@ -108,8 +108,8 @@
   <div class="body">
     <label class="fld">This is a</label>
     <select id="entrykind">
-      <option value="hold">Hold — I'm blocking the room for myself</option>
-      <option value="booking">Booking — a real client reservation</option>
+      <option value="hold">HOLD - I'm temporarily blocking the studio</option>
+      <option value="booking">BOOKING - a real client reservation</option>
     </select>
 
     <label class="fld">Date</label>
@@ -347,7 +347,7 @@ function selectDay(iso){
         if(info){
           var ib=document.createElement('div'); ib.style.cssText='margin-top:8px;background:#f6f5f3;border-radius:8px;padding:9px 11px;font-family:Arial,sans-serif;font-size:13px;color:#3a352f;line-height:1.5';
           var h='<div style="text-transform:uppercase;font-size:11px;letter-spacing:.5px;color:#8a8375;margin-bottom:4px">Client form</div>';
-          if(info.reason) h+='<div><b>Renting because:</b> '+esc(info.reason)+'</div>';
+          if(info.reason) h+='<div><b>Renting description:</b> '+esc(info.reason)+'</div>';
           if(info.sessions&&info.sessions.length) h+='<div><b>Session type:</b> '+esc(info.sessions.join(', '))+'</div>';
           if(info.photographer) h+='<div><b>Photographer:</b> '+esc(info.photographer)+'</div>';
           if(info.details) h+='<div style="margin-top:4px;white-space:pre-wrap"><b>Details:</b> '+esc(info.details)+'</div>';
