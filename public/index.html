@@ -241,6 +241,50 @@
         </div>
 
         <div style="margin-top:18px">
+          <h3 style="font-size:15px;margin:0 0 4px">Tell us about your visit</h3>
+          <p class="hint" style="margin:0 0 12px">A few quick questions so we can prep the studio just for you.</p>
+
+          <div class="field" style="margin-bottom:12px">
+            <label>What best describes why you're renting? <span style="color:var(--red)">*</span></label>
+            <select id="inReason" style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff">
+              <option value="">Choose one…</option>
+              <option>Photographer/Videographer hosting my client(s)</option>
+              <option>Client/Content Creator — my photographer/videographer will work with us</option>
+              <option>Client/Content Creator — handy with my own equipment</option>
+              <option>Company hosting a meeting / luncheon / event</option>
+              <option>Bride coming in for Wedding Portraits</option>
+              <option>Client hosting a meeting for up to 8 people</option>
+              <option>Musician — practice / recording / filming</option>
+              <option>Actor recording a self tape</option>
+              <option>Artist showcasing my work</option>
+              <option>None of the above</option>
+            </select>
+          </div>
+
+          <div class="field" style="margin-bottom:12px">
+            <label>If this is a photo or video session, what kind? (choose any)</label>
+            <div id="inSessions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px"></div>
+          </div>
+
+          <div class="field" style="margin-bottom:12px">
+            <label>Coming in with a photographer? Who is it?</label>
+            <input id="inPhotographer" placeholder="Photographer's name (optional)">
+          </div>
+
+          <div class="field">
+            <label>Anything else we should know? Requests, inspiration, details…</label>
+            <textarea id="inDetails" rows="3" style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-family:inherit;resize:vertical"></textarea>
+          </div>
+        </div>
+        <script>
+        (function(){
+          var S=['Family','Newborn','Maternity','Engagements','Headshots','Branding/Content','Boudoir','Fashion','Cakesmash','Graduation Portraits','Wedding Portraits','Product Photography'];
+          var box=document.getElementById('inSessions'); if(!box) return;
+          S.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-size:13px;display:flex;align-items:center;gap:6px;background:#f6f5f3;border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer'; l.innerHTML='<input type="checkbox" value="'+s+'" style="width:auto"> '+s; box.appendChild(l); });
+        })();
+        </script>
+
+        <div style="margin-top:18px">
           <h3 style="font-size:15px;margin:0 0 10px">Discount or gift code</h3>
           <div style="display:flex;gap:10px;align-items:stretch">
             <input id="codeInput" placeholder="Enter a code" autocomplete="off"
@@ -895,6 +939,14 @@ async function payNow(){
   const email = (document.getElementById('custEmail')||{}).value?.trim();
   if(!name || !email){ toast('Please add your name and email'); return; }
   if(!order.length){ toast('Add a studio first'); return; }
+  const inReason = (document.getElementById('inReason')||{}).value || '';
+  if(!inReason){ toast('Please tell us what best describes your visit'); const r=document.getElementById('inReason'); if(r) r.focus(); return; }
+  const intake = {
+    reason: inReason,
+    sessions: Array.prototype.map.call(document.querySelectorAll('#inSessions input:checked'), function(c){return c.value;}),
+    photographer: ((document.getElementById('inPhotographer')||{}).value||'').trim(),
+    details: ((document.getElementById('inDetails')||{}).value||'').trim()
+  };
   const btn = document.getElementById('payBtn'); btn.disabled = true; const l0 = btn.textContent; btn.textContent = 'Processing…';
   let paymentToken;
   if(sqPayments && orderTotalDue > 0){
@@ -906,7 +958,7 @@ async function payNow(){
   const items = order.map(it=>({ room:it.roomId, date:it.date, start:it.start, end:it.end, addons:it.addons, addonOptions:it.addonOpts||{} }));
   const codeToSend = appliedCode ? appliedCode.code : undefined;
   try {
-    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken, code:codeToSend }) });
+    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken, code:codeToSend, intake }) });
     LAST_EMAIL = email;
     const n = d.bookings.length;
     document.getElementById('confirmSub').textContent = `Confirmation ${d.confirmation} — ${n} studio${n>1?'s':''} booked. A receipt has been sent to your email.`;

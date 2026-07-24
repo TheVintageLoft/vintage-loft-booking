@@ -153,6 +153,7 @@ var ROOMS=[["grand","Grand Room"],["gatsby","The Gatsby"],["carnegie","The Carne
 function pad(n){return String(n).padStart(2,'0');}
 function tLabel(d){var h=Math.floor(d),m=Math.round((d-h)*60),ap=h<12?'AM':'PM',hh=h%12||12;return hh+':'+pad(m)+' '+ap;}
 function fdate(iso){var p=iso.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return M[+p[1]-1]+' '+(+p[2])+', '+p[0];}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 
 // Calendar state — declared up top so an early auto-load has it ready.
 var RCOLOR={grand:'#c0392b',dream:'#2e6f9e',gatsby:'#3f8a52',carnegie:'#8a5a2b',marilyn:'#7a4fa3'};
@@ -332,6 +333,19 @@ function selectDay(iso){
       else { tag.className='tag tag-hold'; tag.textContent='Hold'; }
       who.appendChild(tag); card.appendChild(who);
       var meta=document.createElement('div'); meta.className='meta'; meta.textContent=tLabel(x.start)+' – '+tLabel(x.end); card.appendChild(meta);
+      // ---- client intake form answers (read-only, from the booking checkout) ----
+      if(x.intake){
+        var info=null; try{ info=JSON.parse(x.intake); }catch(e){}
+        if(info){
+          var ib=document.createElement('div'); ib.style.cssText='margin-top:8px;background:#f6f5f3;border-radius:8px;padding:9px 11px;font-family:Arial,sans-serif;font-size:13px;color:#3a352f;line-height:1.5';
+          var h='<div style="text-transform:uppercase;font-size:11px;letter-spacing:.5px;color:#8a8375;margin-bottom:4px">Client form</div>';
+          if(info.reason) h+='<div><b>Renting because:</b> '+esc(info.reason)+'</div>';
+          if(info.sessions&&info.sessions.length) h+='<div><b>Session type:</b> '+esc(info.sessions.join(', '))+'</div>';
+          if(info.photographer) h+='<div><b>Photographer:</b> '+esc(info.photographer)+'</div>';
+          if(info.details) h+='<div style="margin-top:4px;white-space:pre-wrap"><b>Details:</b> '+esc(info.details)+'</div>';
+          ib.innerHTML=h; card.appendChild(ib);
+        }
+      }
       // ---- notes (staff-editable) ----
       (function(entry){
         var wrap=document.createElement('div'); wrap.style.marginTop='8px';

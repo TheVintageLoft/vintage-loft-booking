@@ -438,11 +438,12 @@ app.post('/api/bookings', async (req, res) => {
       finals = quotes.map(q => ({ pre: q.pre, hst: q.hst, total: q.total, discount: 0, paid: q.total }));
     }
     grandTotal = VL.round2(finals.reduce((sum, f) => sum + f.paid, 0));
-    const ins = db.prepare(`INSERT INTO bookings (room_id,date,start,end,hours,addons_json,pre,hst,total,paid,payment_ref,payment_mode,customer_name,customer_email,status,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,0,'PENDING','pending',?,?, 'pending', ?)`);
+    const intakeStr = req.body.intake ? JSON.stringify(req.body.intake).slice(0, 4000) : null;
+    const ins = db.prepare(`INSERT INTO bookings (room_id,date,start,end,hours,addons_json,pre,hst,total,paid,payment_ref,payment_mode,customer_name,customer_email,intake,status,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,0,'PENDING','pending',?,?,?, 'pending', ?)`);
     items.forEach((it, i) => {
       const s = +it.start, e = +it.end, q = quotes[i];
-      const info = ins.run(it.room, it.date, s, e, e - s, JSON.stringify({ items: it.addons || {}, options: it.addonOptions || {} }), q.pre, q.hst, q.total, customerName, customerEmail, nowISO());
+      const info = ins.run(it.room, it.date, s, e, e - s, JSON.stringify({ items: it.addons || {}, options: it.addonOptions || {} }), q.pre, q.hst, q.total, customerName, customerEmail, intakeStr, nowISO());
       reservedIds.push(info.lastInsertRowid);
     });
     db.exec('COMMIT');
