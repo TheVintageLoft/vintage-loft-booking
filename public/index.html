@@ -796,16 +796,22 @@ async function fetchJSON(u, opts){ const r = await fetch(u, opts); if(!r.ok){ co
 /* availability now comes from the server (fetched into CAL_BUSY for the open room) */
 function roomBusy(roomId, date, s, e){ return CAL_BUSY.some(iv => iv.date===date && overlaps(s, e, iv.start-0.25, iv.end+0.25)); }  // 15-min turnover buffer
 
+/* show a search validation message right under the search box (where results render) */
+function searchNotice(msg){
+  const rz=document.getElementById('results');
+  if(rz){ rz.innerHTML='<div style="background:#f6f5f3;border:1px solid #e2ddd4;border-left:4px solid #7c7268;border-radius:10px;padding:16px 18px;margin:0 0 18px"><div style="font-weight:700;color:#4a443c">'+msg+'</div></div>';
+    rz.scrollIntoView({behavior:'smooth',block:'start'}); }
+}
 /* search: ask the server which studios are open + their price */
 async function runSearch(){
   const date = document.getElementById('fDate').value, s = +document.getElementById('fStart').value, e = +document.getElementById('fEnd').value;
-  if(!date){ toast('Please choose a date'); return; }
-  if(e<=s){ toast('End time must be after start time'); return; }
-  if(e-s<1){ toast('1-hour minimum'); return; }
+  if(!date){ searchNotice('Please choose a date.'); return; }
+  if(e<=s){ searchNotice('The end time must be after the start time.'); return; }
+  if(e-s<1){ searchNotice('There is a 1-hour minimum. Please choose an end time at least 1 hour after the start.'); return; }
   lastSearch = { date, s, e, hours:e-s };
   let data;
   try { data = await fetchJSON(`/api/search?date=${date}&start=${s}&end=${e}`); }
-  catch(err){ toast(err.message||'Search failed'); return; }
+  catch(err){ searchNotice(err.message||'Search failed. Please try again.'); return; }
   const xmas = isChristmas(date);
   const openCount = data.rooms.filter(r=>r.available).length;
   let html = '';
