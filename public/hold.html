@@ -151,11 +151,6 @@
     <p class="muted" style="margin-top:0">Remove the built-in sample bookings and the maintenance block the system created during setup. Safe: it only touches demo data, not real bookings or your holds.</p>
     <button id="cleardemo" style="margin-top:4px">Remove demo / sample data</button>
     <div id="demomsg" class="muted" style="margin-top:10px"></div>
-    <hr style="border:none;border-top:1px solid #eee;margin:22px 0">
-    <p class="muted" style="margin-top:0"><b>Start completely fresh.</b> This erases <b>every</b> booking and hold so you can import your real schedule from scratch. There is no undo.</p>
-    <input id="resetword" type="text" placeholder="Type RESET to confirm" style="max-width:240px">
-    <button id="resetall" style="margin-top:10px;background:#a33;display:block">Clear everything</button>
-    <div id="resetmsg" class="muted" style="margin-top:10px"></div>
   </div>
 </div>
 
@@ -585,22 +580,6 @@ document.getElementById('cleardemo').onclick=function(){
     .catch(function(err){btn.disabled=false;btn.textContent='Remove demo / sample data';dm.textContent='Network error: '+err.message;});
 };
 
-document.getElementById('resetall').onclick=function(){
-  var rm=document.getElementById('resetmsg');
-  var word=document.getElementById('resetword').value.trim();
-  if(word!=='RESET'){rm.textContent='Type RESET in the box to confirm.';return;}
-  var btn=this; btn.disabled=true; btn.textContent='Clearing…';
-  fetch('/api/admin/reset-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),confirm:'RESET'})})
-    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
-    .then(function(x){
-      btn.disabled=false; btn.textContent='Clear everything';
-      if(!x.ok){rm.textContent=(x.d&&x.d.error)||'Could not reset.';return;}
-      document.getElementById('resetword').value='';
-      rm.innerHTML='<b style="color:#2e6b34">Cleared.</b> Removed '+x.d.bookingsRemoved+' booking'+(x.d.bookingsRemoved===1?'':'s')+' and '+x.d.blocksRemoved+' hold'+(x.d.blocksRemoved===1?'':'s')+'. You can now import your real schedule from a clean slate.';
-      CAL.sel=null; document.getElementById('dayDetail').innerHTML=''; loadCalendar();
-    })
-    .catch(function(err){btn.disabled=false;btn.textContent='Clear everything';rm.textContent='Network error: '+err.message;});
-};
 
 // ---- on load: sign in automatically if still within the window, else show the sign-in screen ----
 renderMonth();  // draw an empty current month behind the scenes

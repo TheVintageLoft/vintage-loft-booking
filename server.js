@@ -631,13 +631,8 @@ app.post('/api/admin/clear-demo', admin, (_req, res) => {
   res.json({ ok: true, bookingsRemoved: b.changes, blocksRemoved: k.changes });
 });
 
-// Wipe ALL bookings and holds for a clean pre-launch start. Requires confirm:'RESET'.
-app.post('/api/admin/reset-all', admin, (req, res) => {
-  if (req.body.confirm !== 'RESET') return res.status(400).json({ error: 'confirmation required' });
-  const b = db.prepare(`DELETE FROM bookings`).run();
-  const k = db.prepare(`DELETE FROM blocks`).run();
-  res.json({ ok: true, bookingsRemoved: b.changes, blocksRemoved: k.changes });
-});
+// (The "reset everything" endpoint was intentionally removed — no way to wipe all
+//  data from the app or the API, so a teammate can't erase the calendar by accident.)
 
 // Send day-before reminders for TOMORROW's bookings (Toronto). Grouped by reservation so a
 // multi-studio order gets one email. reminder_sent guards against duplicates, so this is safe
