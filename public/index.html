@@ -921,11 +921,20 @@ function renderReviewSummary(){
   }
   let percentLine = (appliedCode && appliedCode.type==='percent' && discSum>0)
     ? `<div class="sum-row" style="color:var(--green,#2e7d32)"><span>Discount (${appliedCode.code})</span><span>−${money(discSum)}</span></div>` : '';
+  // account credit (only when logged in with a balance)
+  let creditUsed = 0, creditLine = '';
+  const cr = document.getElementById('creditRedeem');
+  if(CLIENT && CLIENT.credit>0 && totalSum>0){
+    if(cr){ cr.style.display=''; cr.innerHTML = `<label class="chk" style="display:flex;gap:8px;align-items:center;cursor:pointer;font-size:14px"><input type="checkbox" id="useCredit" ${useAcctCredit?'checked':''} onchange="toggleAcctCredit()"> <span><b>Apply account credit</b> — you have <b>${money(CLIENT.credit)}</b></span></label>`; }
+    if(useAcctCredit){ creditUsed = r2(Math.min(CLIENT.credit, totalSum)); totalSum = r2(totalSum - creditUsed);
+      creditLine = `<div class="sum-row" style="color:var(--green,#2e7d32)"><span>Account credit applied</span><span>−${money(creditUsed)}</span></div>`; }
+  } else if(cr){ cr.style.display='none'; cr.innerHTML=''; }
   document.getElementById('reviewSummary').innerHTML =
     `<h3 style="font-size:16px;margin-bottom:10px">Order · ${order.length} studio${order.length>1?'s':''}</h3>` + rows
     + percentLine
     + `<div class="sum-row"><span>HST (13%)</span><span>${money(hstSum)}</span></div>`
     + fixedLine
+    + creditLine
     + `<div class="sum-row total"><span>Total due now</span><span>${money(totalSum)}</span></div>`;
   orderTotalDue = totalSum;
   const free = totalSum <= 0;
@@ -958,7 +967,8 @@ async function payNow(){
   const items = order.map(it=>({ room:it.roomId, date:it.date, start:it.start, end:it.end, addons:it.addons, addonOptions:it.addonOpts||{} }));
   const codeToSend = appliedCode ? appliedCode.code : undefined;
   try {
-    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken, code:codeToSend, intake }) });
+    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken, code:codeToSend, intake, token: (CLIENT&&useAcctCredit)?CLIENT.token:undefined, useCredit: !!(CLIENT&&useAcctCredit) }) });
+    if(CLIENT){ useAcctCredit=false; loadClient(); }
     LAST_EMAIL = email;
     const n = d.bookings.length;
     document.getElementById('confirmSub').textContent = `Confirmation ${d.confirmation} — ${n} studio${n>1?'s':''} booked. A receipt has been sent to your email.`;
@@ -975,24 +985,99 @@ async function payNow(){
 }
 
 /* My Account -> real bookings looked up by email (accounts + credit come in Phase 2) */
+/* ---------- client accounts + credit ---------- */
+var CLIENT = null;            // {token, email, name, credit}
+var useAcctCredit = false;    // checkout "apply my credit" toggle
+function saveClient(){ try{ if(CLIENT&&CLIENT.token) localStorage.setItem('vl_client', CLIENT.token); else localStorage.removeItem('vl_client'); }catch(e){} }
+async function loadClient(){
+  var token=null; try{ token=localStorage.getItem('vl_client'); }catch(e){}
+  if(token){
+    try{ var d=await fetchJSON('/api/account?token='+encodeURIComponent(token)); CLIENT={token:token,email:d.email,name:d.name,credit:d.credit}; }
+    catch(e){ CLIENT=null; try{localStorage.removeItem('vl_client');}catch(_){} }
+  }
+  updateAcctNav();
+}
+function updateAcctNav(){
+  var chip=document.getElementById('creditChip');
+  if(chip){ if(CLIENT&&CLIENT.credit>0){ chip.style.display=''; chip.textContent=money(CLIENT.credit)+' credit'; } else chip.style.display='none'; }
+}
+function clientLogout(){ CLIENT=null; useAcctCredit=false; saveClient(); updateAcctNav(); renderAccount(); }
+
 async function renderAccount(){
   const inner = document.getElementById('acctInner');
-  inner.innerHTML = `<div class="card pad"><h3 style="margin-bottom:10px">My bookings</h3>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
-      <div class="field" style="flex:1;min-width:220px"><label>Your email</label><input id="lookupEmail" placeholder="you@email.com" value="${LAST_EMAIL||''}"></div>
-      <button class="btn btn-gold" onclick="lookupBookings()">Find my bookings</button></div>
-    <div id="myList" class="empty">Enter the email you booked with to see your reservations.</div></div>`;
-  if(LAST_EMAIL) lookupBookings();
+  if(!CLIENT){
+    inner.innerHTML = `<div class="card pad" style="max-width:460px;margin:0 auto">
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <button class="btn btn-gold" id="tabLogin" onclick="showAuth('login')" style="flex:1">Log in</button>
+        <button class="btn btn-ghost" id="tabSignup" onclick="showAuth('signup')" style="flex:1">Create account</button>
+      </div>
+      <div id="authBody"></div>
+      <p class="hint" style="margin-top:14px">Your account keeps your upcoming and past bookings, and any cancellation credit for future visits.</p>
+    </div>`;
+    showAuth('login'); return;
+  }
+  let d; try{ d=await fetchJSON('/api/account?token='+encodeURIComponent(CLIENT.token)); }
+  catch(e){ CLIENT=null; saveClient(); return renderAccount(); }
+  CLIENT.credit=d.credit; CLIENT.name=d.name; updateAcctNav();
+  const up = d.upcoming.length ? d.upcoming.map(b=>acctBookingRow(b,true)).join('') : '<div class="empty">No upcoming bookings.</div>';
+  const past = d.past.length ? d.past.map(b=>acctBookingRow(b,false)).join('') : '<div class="empty">Nothing here yet.</div>';
+  inner.innerHTML = `<div class="card pad">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+      <div><h3 style="margin:0">${d.name||'Welcome'}</h3><div class="meta" style="color:var(--muted);font-size:13px">${d.email}</div>
+        <a href="#" onclick="clientLogout();return false" style="color:var(--muted);font-size:13px">Log out</a></div>
+      <div style="text-align:right"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Account credit</div>
+        <div style="font-size:28px;font-family:Georgia,serif;color:var(--green,#2e7d32)">${money(d.credit)}</div></div>
+    </div>
+    <h3 style="font-size:15px;margin:22px 0 8px">Upcoming bookings</h3>${up}
+    <h3 style="font-size:15px;margin:22px 0 8px">Past bookings</h3>${past}
+  </div>`;
 }
-async function lookupBookings(){
-  const email = document.getElementById('lookupEmail').value.trim(); if(!email){ toast('Enter your email'); return; }
-  LAST_EMAIL = email;
-  let d; try { d = await fetchJSON('/api/my-bookings?email=' + encodeURIComponent(email)); } catch(e){ toast('Lookup failed'); return; }
-  const list = document.getElementById('myList');
-  if(!d.bookings.length){ list.className = 'empty'; list.textContent = 'No bookings found for that email yet.'; return; }
-  list.className = '';
-  list.innerHTML = d.bookings.map(b => `<div class="bk"><div><span class="tag ${b.status==='cancelled'?'cx':'up'}">${b.status==='cancelled'?'Cancelled':'Confirmed'}</span> <b style="margin-left:8px">${b.roomName}</b><div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)} · paid ${money(b.total)}</div></div></div>`).join('');
+function acctBookingRow(b, upcoming){
+  const canCancel = upcoming && b.status!=='cancelled';
+  const fullCredit = b.hoursOut>=48;
+  return `<div class="bk"><div><b>${b.roomName}</b>${b.status==='cancelled'?' <span style="color:var(--red);font-size:12px">· Cancelled</span>':''}
+      <div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)}${(b.paid||0)>0?' · paid '+money(b.paid):''}</div></div>
+    ${canCancel?`<button class="btn btn-ghost" style="white-space:nowrap" onclick="cancelMyBooking(${b.id})">Cancel${fullCredit?' · full credit':''}</button>`:''}</div>`;
 }
+function showAuth(which){
+  var tl=document.getElementById('tabLogin'), ts=document.getElementById('tabSignup');
+  tl.className = which==='login'?'btn btn-gold':'btn btn-ghost'; ts.className = which==='signup'?'btn btn-gold':'btn btn-ghost';
+  var body=document.getElementById('authBody');
+  if(which==='login'){
+    body.innerHTML = `<div class="field"><label>Email</label><input id="auEmail" type="email" placeholder="you@email.com"></div>
+      <div class="field" style="margin-top:10px"><label>Password</label><input id="auPass" type="password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <button class="btn btn-gold" style="width:100%;margin-top:16px" onclick="doLogin()">Log in</button>
+      <div id="auMsg" class="hint" style="margin-top:10px"></div>`;
+  } else {
+    body.innerHTML = `<div class="field"><label>Your name</label><input id="auName" placeholder="First & last name"></div>
+      <div class="field" style="margin-top:10px"><label>Email</label><input id="auEmail" type="email" placeholder="you@email.com"></div>
+      <div class="field" style="margin-top:10px"><label>Password</label><input id="auPass" type="password" placeholder="At least 6 characters" onkeydown="if(event.key==='Enter')doSignup()"></div>
+      <button class="btn btn-gold" style="width:100%;margin-top:16px" onclick="doSignup()">Create account</button>
+      <div id="auMsg" class="hint" style="margin-top:10px"></div>`;
+  }
+}
+async function doLogin(){
+  var email=(document.getElementById('auEmail').value||'').trim(), password=document.getElementById('auPass').value||'';
+  var msg=document.getElementById('auMsg');
+  try{ var d=await fetchJSON('/api/account/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:password})});
+    CLIENT={token:d.token,email:d.email,name:d.name,credit:0}; saveClient(); await loadClient(); renderAccount();
+  }catch(e){ msg.style.color='var(--red)'; msg.textContent=(e.body&&e.body.error)||'Could not log in.'; }
+}
+async function doSignup(){
+  var name=(document.getElementById('auName').value||'').trim(), email=(document.getElementById('auEmail').value||'').trim(), password=document.getElementById('auPass').value||'';
+  var msg=document.getElementById('auMsg');
+  try{ var d=await fetchJSON('/api/account/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,email:email,password:password})});
+    CLIENT={token:d.token,email:d.email,name:d.name,credit:0}; saveClient(); await loadClient(); renderAccount();
+  }catch(e){ msg.style.color='var(--red)'; msg.textContent=(e.body&&e.body.error)||'Could not create account.'; }
+}
+async function cancelMyBooking(id){
+  if(!confirm('Cancel this booking? If it is 48 hours or more away, your payment becomes account credit for a future visit.')) return;
+  try{ var d=await fetchJSON('/api/account/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:CLIENT.token,bookingId:id})});
+    toast(d.credited>0 ? ('Cancelled — '+money(d.credited)+' added to your credit') : 'Booking cancelled');
+    renderAccount();
+  }catch(e){ toast((e.body&&e.body.error)||'Could not cancel'); }
+}
+function toggleAcctCredit(){ useAcctCredit=document.getElementById('useCredit').checked; renderReviewSummary(); }
 
 /* ---- add-on helpers: option-priced (backdrop) + room-restricted (bed set-up, swing) ---- */
 function addonUnit(a, opt){ if(a.options && a.options.length){ const o=a.options.find(x=>x.label===opt)||a.options[0]; return o.price; } return a.price||0; }
@@ -1112,11 +1197,10 @@ async function ensureSquareCard(){
   try{ sqCard = await sqPayments.card(); await sqCard.attach('#sq-card'); }catch(e){ sqCard=null; }
 }
 
-/* Phase 1 has guest checkout + email lookup; hide the client-only login/credit chrome */
 (async function apiInit(){
   const ab = document.getElementById('authBtn'); if(ab) ab.style.display = 'none';
-  const cc = document.getElementById('creditChip'); if(cc) cc.style.display = 'none';
   try { const d = await fetchJSON('/api/rooms'); ADDONS = d.addons || []; } catch(e) {}
+  loadClient();   // restore a signed-in client and show their credit chip
   initSquare();
 })();
 </script>

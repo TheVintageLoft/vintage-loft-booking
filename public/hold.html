@@ -586,11 +586,13 @@ function removeHold(id,btn,label){
 }
 
 function cancelBooking(id,btn,label){
-  if(!window.confirm('Are you sure you want to cancel this booking?\n\n'+(label||'')+'\n\nThe customer will lose this reservation.')) return;
+  if(!window.confirm('Are you sure you want to cancel this booking?\n\n'+(label||'')+'\n\nIf it is 48h+ away, the client is automatically issued full account credit.')) return;
   btn.disabled=true; btn.textContent='Cancelling…';
   fetch('/api/admin/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:id})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
-    .then(function(x){ if(!x.ok){btn.disabled=false;btn.textContent='Cancel booking';alert('Could not cancel.');return;} loadCalendar(); })
+    .then(function(x){ if(!x.ok||!x.d.ok){btn.disabled=false;btn.textContent='Cancel booking';alert('Could not cancel.');return;}
+      if(x.d.credited>0) alert('Cancelled. $'+x.d.credited.toFixed(2)+' account credit issued to '+(x.d.email||'the client')+'.');
+      loadCalendar(); })
     .catch(function(err){btn.disabled=false;btn.textContent='Cancel booking';alert('Network error: '+err.message);});
 }
 
@@ -622,6 +624,7 @@ function showClientBookings(name){
   var h=document.createElement('div'); h.style.cssText='font-family:Georgia,serif;font-size:17px;margin:10px 0 4px;color:#3a352f'; h.textContent=name; res.appendChild(h);
   var contact=CLIENTS[name.toLowerCase()];
   if(contact && (contact.phone||contact.email)){ var c=document.createElement('div'); c.className='muted'; c.style.marginBottom='8px'; var pp=[]; if(contact.phone)pp.push('Phone: '+contact.phone); if(contact.email)pp.push('Email: '+contact.email); c.textContent=pp.join('   ·   '); res.appendChild(c); }
+  if(contact && contact.email){ renderClientCredit(res, contact.email); }
   var mine=allEntries().filter(function(it){ return (it.e.label||'').trim().toLowerCase()===name.toLowerCase(); })
     .sort(function(a,b){ return (a.date+String(a.e.start).padStart(6,'0'))<(b.date+String(b.e.start).padStart(6,'0'))?-1:1; });
   if(!mine.length){ var m=document.createElement('div'); m.className='muted'; m.textContent='No bookings found.'; res.appendChild(m); return; }
@@ -637,6 +640,35 @@ function jumpToDay(date){
   var p=date.split('-'); CAL.y=+p[0]; CAL.m=+p[1]-1; CAL.sel=date;
   renderMonth(); selectDay(date);
   try{ document.querySelector('.appcard .cal-head').scrollIntoView({behavior:'smooth', block:'start'}); }catch(e){}
+}
+// staff view of a client's credit balance, with a manual adjust control
+function renderClientCredit(container, email){
+  var box=document.createElement('div'); box.style.cssText='background:#f6f5f3;border-radius:8px;padding:10px 12px;margin:0 0 10px;font-family:Arial,sans-serif;font-size:14px';
+  box.textContent='Loading credit…'; container.appendChild(box);
+  function draw(bal){
+    box.innerHTML='';
+    var line=document.createElement('div'); line.innerHTML='<b>Account credit:</b> $'+(bal||0).toFixed(2); box.appendChild(line);
+    var adj=document.createElement('a'); adj.textContent='Adjust credit'; adj.style.cssText=LINKSTYLE+';display:inline-block;margin-top:6px'; adj.onclick=function(){ edit(bal); }; box.appendChild(adj);
+  }
+  function edit(bal){
+    box.innerHTML='<div style="font-family:Arial,sans-serif;font-size:13px;color:#8a8375;margin-bottom:6px">Add credit (use a minus to remove). Current: $'+(bal||0).toFixed(2)+'</div>';
+    var amt=document.createElement('input'); amt.type='number'; amt.step='0.01'; amt.placeholder='e.g. 50 or -25'; amt.style.cssText='width:120px;font-family:Arial,sans-serif;font-size:14px;padding:8px;border:1px solid #ddd;border-radius:8px;margin-right:8px';
+    var reason=document.createElement('input'); reason.type='text'; reason.placeholder='Reason (optional)'; reason.style.cssText='width:200px;font-family:Arial,sans-serif;font-size:14px;padding:8px;border:1px solid #ddd;border-radius:8px;margin-right:8px';
+    var save=document.createElement('button'); save.className='del'; save.style.margin='0'; save.textContent='Save';
+    var cancel=document.createElement('a'); cancel.textContent='Cancel'; cancel.style.cssText=LINKSTYLE+';margin-left:10px';
+    var row=document.createElement('div'); row.style.cssText='display:flex;flex-wrap:wrap;gap:8px;align-items:center'; row.appendChild(amt); row.appendChild(reason); row.appendChild(save); row.appendChild(cancel); box.appendChild(row);
+    save.onclick=function(){ var v=parseFloat(amt.value); if(!v){ alert('Enter an amount (minus to remove).'); return; } save.disabled=true; save.textContent='Saving…';
+      fetch('/api/admin/adjust-credit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),email:email,amount:v,reason:reason.value})})
+        .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+        .then(function(x){ if(!x.ok){alert((x.d&&x.d.error)||'Could not adjust.');save.disabled=false;save.textContent='Save';return;} draw(x.d.balance); })
+        .catch(function(e){alert('Network error: '+e.message);save.disabled=false;save.textContent='Save';}); };
+    cancel.onclick=function(){ draw(bal); };
+    amt.focus();
+  }
+  fetch('/api/admin/credit?key='+encodeURIComponent(getKey())+'&email='+encodeURIComponent(email))
+    .then(function(r){return r.json();})
+    .then(function(d){ draw(d.balance||0); })
+    .catch(function(){ box.textContent='Could not load credit.'; });
 }
 var _cs=document.getElementById('clientSearch'); if(_cs) _cs.addEventListener('input', renderClientSearch);
 

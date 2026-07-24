@@ -3,6 +3,7 @@
 const express = require('express');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
+const crypto = require('crypto');
 const VL = require('./pricing');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data.db');
@@ -62,6 +63,10 @@ try { db.exec("ALTER TABLE bookings ADD COLUMN pay_link TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN client TEXT"); } catch (_) {}
 // a client directory (imported from Acuity) that powers name autocomplete
 try { db.exec(`CREATE TABLE IF NOT EXISTS clients (name_key TEXT PRIMARY KEY, name TEXT, phone TEXT, email TEXT)`); } catch (_) {}
+// client accounts (email + password), login sessions, and a credit-wallet ledger
+try { db.exec(`CREATE TABLE IF NOT EXISTS client_accounts (email TEXT PRIMARY KEY, name TEXT, pass_salt TEXT, pass_hash TEXT, created_at TEXT)`); } catch (_) {}
+try { db.exec(`CREATE TABLE IF NOT EXISTS client_sessions (token TEXT PRIMARY KEY, email TEXT, created_at TEXT)`); } catch (_) {}
+try { db.exec(`CREATE TABLE IF NOT EXISTS credit_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, amount REAL, reason TEXT, booking_id INTEGER, created_at TEXT)`); } catch (_) {}
 
 /* ---------- one-time clean reset (owner-only, no button) ----------
    Set WIPE_ONCE to any word in the host environment to clear ALL bookings + holds
@@ -267,6 +272,27 @@ function torontoISO(offsetDays = 0) {
   return base.toISOString().slice(0, 10);
 }
 function isoOffset(days) { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); }
+
+/* ---------- client accounts + credit wallet helpers ---------- */
+function hashPassword(pw, salt) { salt = salt || crypto.randomBytes(16).toString('hex'); const hash = crypto.scryptSync(String(pw), salt, 64).toString('hex'); return { salt, hash }; }
+function verifyPassword(pw, salt, hash) { try { const h = crypto.scryptSync(String(pw), salt, 64).toString('hex'); return crypto.timingSafeEqual(Buffer.from(h, 'hex'), Buffer.from(hash, 'hex')); } catch (_) { return false; } }
+function newSession(email) { const token = crypto.randomBytes(24).toString('hex'); db.prepare(`INSERT INTO client_sessions (token,email,created_at) VALUES (?,?,?)`).run(token, email.toLowerCase(), new Date().toISOString()); return token; }
+function emailForToken(token) { if (!token) return null; const r = db.prepare(`SELECT email FROM client_sessions WHERE token=?`).get(String(token)); return r ? r.email : null; }
+function creditBalance(email) { const r = db.prepare(`SELECT COALESCE(SUM(amount),0) bal FROM credit_ledger WHERE email=?`).get((email || '').toLowerCase()); return VL.round2(r.bal || 0); }
+function addCredit(email, amount, reason, bookingId) { db.prepare(`INSERT INTO credit_ledger (email,amount,reason,booking_id,created_at) VALUES (?,?,?,?,?)`).run((email || '').toLowerCase(), VL.round2(amount), reason || '', bookingId || null, new Date().toISOString()); }
+// current America/Toronto UTC offset in hours (e.g. -4 in summer, -5 in winter)
+function torontoOffsetHours() { try { const n = new Date(); const loc = new Date(n.toLocaleString('en-US', { timeZone: 'America/Toronto' })); const utc = new Date(n.toLocaleString('en-US', { timeZone: 'UTC' })); return (loc - utc) / 3600000; } catch (_) { return -5; } }
+// hours from now until a booking's start (date 'YYYY-MM-DD' + decimal start hour, Toronto local)
+function hoursUntil(dateStr, startHour) { const p = (dateStr || '').split('-').map(Number); if (!p[0]) return 0; const off = torontoOffsetHours(); const bookingUTC = Date.UTC(p[0], p[1] - 1, p[2]) + startHour * 3600000 - off * 3600000; return (bookingUTC - Date.now()) / 3600000; }
+// cancel a real booking (bookings table) and issue full account credit if >= 48h before start
+function cancelBookingWithCredit(b) {
+  db.prepare(`UPDATE bookings SET status='cancelled' WHERE id=?`).run(b.id);
+  const hrs = hoursUntil(b.date, b.start);
+  const already = db.prepare(`SELECT 1 FROM credit_ledger WHERE booking_id=? AND amount>0`).get(b.id);
+  let credited = 0;
+  if (hrs >= 48 && !already && (b.paid || 0) > 0 && b.customer_email) { credited = VL.round2(b.paid); addCredit(b.customer_email, credited, 'Cancellation credit', b.id); }
+  return { credited, hoursOut: Math.round(hrs), newBalance: b.customer_email ? creditBalance(b.customer_email) : 0 };
+}
 function validTimes(start, end) {
   if (!(start >= 8 && end <= 20 && end > start)) return 'Outside studio hours (8:00–20:00)';
   if ((end - start) < VL.CONFIG.minHours) return VL.CONFIG.minHours + '-hour minimum';
@@ -491,6 +517,15 @@ app.post('/api/bookings', async (req, res) => {
     db.exec('COMMIT');
   } catch (e) { try { db.exec('ROLLBACK'); } catch (_) {} return res.status(500).json({ error: e.message }); }
 
+  // 1b) Apply the logged-in client's account credit before charging (reduces the card amount).
+  const acctEmail = emailForToken(req.body.token);
+  let creditUsed = 0;
+  if (acctEmail && req.body.useCredit) {
+    const bal = creditBalance(acctEmail);
+    creditUsed = VL.round2(Math.max(0, Math.min(bal, grandTotal)));
+    grandTotal = VL.round2(grandTotal - creditUsed);
+  }
+
   // 2) Charge once for the whole order — unless it's free (owner code / full credit).
   //    Square cannot process a $0.00 amount, so skip the processor entirely when nothing is owed.
   const pay = grandTotal <= 0
@@ -513,11 +548,13 @@ app.post('/api/bookings', async (req, res) => {
   if (codeInfo && !codeInfo.reusable) {
     try { db.prepare('INSERT OR IGNORE INTO code_redemptions (code, confirmation, used_at) VALUES (?,?,?)').run(codeInfo.code, confirmation, nowISO()); } catch (_) {}
   }
+  // Debit the client's wallet for any credit they applied (only now that the booking is confirmed).
+  if (creditUsed > 0 && acctEmail) addCredit(acctEmail, -creditUsed, 'Applied to booking ' + confirmation, reservedIds[0]);
   const discountTotal = VL.round2(finals.reduce((s, f) => s + f.discount, 0));
   const created = reservedIds.map((id, i) => ({ id, room: items[i].room, roomName: quotes[i].roomName, date: items[i].date, start: +items[i].start, end: +items[i].end, total: finals[i].total, paid: finals[i].paid }));
   // Send the confirmation email in the background — never block or fail the booking on an email problem.
   sendConfirmationEmail({ email: customerEmail, name: customerName, confirmation, bookings: created, grandTotal, discountTotal }).catch(e => console.error('[email] confirmation error:', e.message));
-  res.json({ ok: true, confirmation, bookings: created, grandTotal, discountTotal, code: codeInfo ? codeInfo.code : null, paymentMode: pay.mode, paymentRef: pay.ref });
+  res.json({ ok: true, confirmation, bookings: created, grandTotal, discountTotal, creditUsed, code: codeInfo ? codeInfo.code : null, paymentMode: pay.mode, paymentRef: pay.ref });
 });
 
 // Customer's own bookings (simple email lookup; real accounts in Phase 2)
@@ -544,8 +581,66 @@ app.post('/api/admin/blocks', admin, (req, res) => {
   res.json({ ok: true, id: info.lastInsertRowid });
 });
 app.post('/api/admin/cancel', admin, (req, res) => {
-  const info = db.prepare(`UPDATE bookings SET status='cancelled' WHERE id=?`).run(+req.body.id);
-  res.json({ ok: info.changes > 0 });
+  const b = db.prepare(`SELECT * FROM bookings WHERE id=?`).get(+req.body.id);
+  if (!b) return res.json({ ok: false });
+  if (b.status === 'cancelled') return res.json({ ok: true, credited: 0 });
+  const r = cancelBookingWithCredit(b);
+  res.json({ ok: true, credited: r.credited, hoursOut: r.hoursOut, newBalance: r.newBalance, email: b.customer_email });
+});
+// Staff: adjust a client's credit by hand (goodwill, corrections, manual cancellation credit)
+app.post('/api/admin/adjust-credit', admin, (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase();
+  const amount = VL.round2(parseFloat(req.body.amount));
+  const reason = (req.body.reason || 'Manual adjustment').toString().slice(0, 120);
+  if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'A valid client email is required.' });
+  if (!amount || isNaN(amount)) return res.status(400).json({ error: 'Enter an amount (use a minus sign to remove credit).' });
+  addCredit(email, amount, reason, null);
+  res.json({ ok: true, balance: creditBalance(email) });
+});
+app.get('/api/admin/credit', admin, (req, res) => {
+  const email = (req.query.email || '').trim().toLowerCase();
+  if (!email) return res.json({ balance: 0, history: [] });
+  res.json({ balance: creditBalance(email), history: db.prepare(`SELECT amount, reason, created_at FROM credit_ledger WHERE email=? ORDER BY id DESC`).all(email) });
+});
+
+/* ---------- client accounts (email + password) + credit wallet ---------- */
+app.post('/api/account/signup', (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase(), pw = req.body.password || '', name = (req.body.name || '').trim();
+  if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Please enter a valid email.' });
+  if (String(pw).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  if (db.prepare(`SELECT 1 FROM client_accounts WHERE email=?`).get(email)) return res.status(409).json({ error: 'An account with that email already exists — please log in.' });
+  const { salt, hash } = hashPassword(pw);
+  db.prepare(`INSERT INTO client_accounts (email,name,pass_salt,pass_hash,created_at) VALUES (?,?,?,?,?)`).run(email, name, salt, hash, new Date().toISOString());
+  res.json({ ok: true, token: newSession(email), name, email });
+});
+app.post('/api/account/login', (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase(), pw = req.body.password || '';
+  const a = db.prepare(`SELECT * FROM client_accounts WHERE email=?`).get(email);
+  if (!a || !verifyPassword(pw, a.pass_salt, a.pass_hash)) return res.status(401).json({ error: 'That email or password is not right.' });
+  res.json({ ok: true, token: newSession(email), name: a.name, email });
+});
+app.get('/api/account', (req, res) => {
+  const email = emailForToken(req.query.token);
+  if (!email) return res.status(401).json({ error: 'Please log in.' });
+  const a = db.prepare(`SELECT name FROM client_accounts WHERE email=?`).get(email);
+  const rows = db.prepare(`SELECT * FROM bookings WHERE lower(customer_email)=? ORDER BY date, start`).all(email);
+  const today = torontoISO(0); const upcoming = [], past = [];
+  rows.forEach(r => {
+    const item = { id: r.id, roomName: (VL.roomById(r.room_id) || {}).name || r.room_id, date: r.date, start: r.start, end: r.end, paid: r.paid, status: r.status, confirmation: r.confirmation, hoursOut: Math.round(hoursUntil(r.date, r.start)) };
+    if (r.status === 'cancelled') past.push(Object.assign({ cancelled: true }, item));
+    else if (r.date >= today) upcoming.push(item);
+    else past.push(item);
+  });
+  res.json({ ok: true, name: a ? a.name : '', email, credit: creditBalance(email), upcoming, past, cancelWindowHours: 48 });
+});
+app.post('/api/account/cancel', (req, res) => {
+  const email = emailForToken(req.body.token);
+  if (!email) return res.status(401).json({ error: 'Please log in.' });
+  const b = db.prepare(`SELECT * FROM bookings WHERE id=? AND lower(customer_email)=?`).get(+req.body.bookingId, email);
+  if (!b) return res.status(404).json({ error: 'Booking not found on your account.' });
+  if (b.status === 'cancelled') return res.status(400).json({ error: 'That booking is already cancelled.' });
+  const r = cancelBookingWithCredit(b);
+  res.json({ ok: true, credited: r.credited, hoursOut: r.hoursOut, newBalance: r.newBalance });
 });
 
 // Bulk-import blocks (e.g. existing Acuity bookings). Idempotent: identical blocks are skipped,
