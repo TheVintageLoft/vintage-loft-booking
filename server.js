@@ -49,6 +49,8 @@ try { db.exec("ALTER TABLE bookings ADD COLUMN confirmation TEXT"); } catch (_) 
 try { db.exec("ALTER TABLE bookings ADD COLUMN code TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE bookings ADD COLUMN discount REAL NOT NULL DEFAULT 0"); } catch (_) {}
 try { db.exec("ALTER TABLE bookings ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
+// 'kind' tells an imported real booking ('booking') apart from a room blockout ('hold').
+try { db.exec("ALTER TABLE blocks ADD COLUMN kind TEXT NOT NULL DEFAULT 'hold'"); } catch (_) {}
 
 /* ---------- payments: Square Web Payments (test mode) with a stand-in fallback ----------
    Set these environment variables on the host to switch from stand-in to real Square:
@@ -503,14 +505,19 @@ app.post('/api/admin/cancel', admin, (req, res) => {
 // so it's safe to run more than once. Bypasses the booking-time rules since these are real holds.
 app.post('/api/admin/import-blocks', admin, (req, res) => {
   const items = Array.isArray(req.body.blocks) ? req.body.blocks : [];
-  const exists = db.prepare(`SELECT 1 FROM blocks WHERE room_id=? AND date=? AND start=? AND end=?`);
-  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,created_at) VALUES (?,?,?,?,?,?)`);
+  // request-level default kind; each block may override with its own b.kind
+  const defKind = req.body.kind === 'booking' ? 'booking' : 'hold';
+  const exists = db.prepare(`SELECT id FROM blocks WHERE room_id=? AND date=? AND start=? AND end=?`);
+  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,created_at) VALUES (?,?,?,?,?,?,?)`);
+  const retag = db.prepare(`UPDATE blocks SET kind=? WHERE id=?`);
   let inserted = 0, skipped = 0, bad = 0;
   for (const b of items) {
     const room = (b.room || '').toString(), date = (b.date || '').toString(), s = +b.start, e = +b.end;
     if (!VL.roomById(room) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !(e > s)) { bad++; continue; }
-    if (exists.get(room, date, s, e)) { skipped++; continue; }
-    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), nowISO());
+    const kind = (b.kind === 'booking' || b.kind === 'hold') ? b.kind : defKind;
+    const found = exists.get(room, date, s, e);
+    if (found) { retag.run(kind, found.id); skipped++; continue; }   // re-tag existing so labels can be corrected
+    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, nowISO());
     inserted++;
   }
   res.json({ ok: true, total: items.length, inserted, skipped, bad });

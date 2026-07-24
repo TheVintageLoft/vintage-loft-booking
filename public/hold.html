@@ -49,6 +49,9 @@
   .daycard{border-left:4px solid #ccc;background:#faf9f7;border-radius:8px;padding:10px 12px;margin:6px 0;font-family:Arial,sans-serif;font-size:14px}
   .daycard .who{font-weight:bold}
   .daycard .meta{color:#8a8375;font-size:13px;margin-top:2px}
+  .tag{display:inline-block;font-family:Arial,sans-serif;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:.5px;padding:2px 8px;border-radius:20px;margin-left:8px;vertical-align:middle}
+  .tag-booking{background:#e5efe7;color:#2e6b34}
+  .tag-hold{background:#f0e7d6;color:#8a6a2b}
 </style></head><body>
 
 <div id="installbar" style="display:none;max-width:720px;margin:0 auto 16px;background:#7c7268;color:#fff;border-radius:12px;padding:14px 18px;font-family:Arial,sans-serif;font-size:14px;line-height:1.5">
@@ -216,7 +219,7 @@ document.getElementById('go').onclick=function(){
   var blocks=rooms.map(function(r){return {room:r,date:date,start:s,end:e,reason:reason};});
   var btn=this; btn.disabled=true; btn.textContent='Holding…';
   showMsg(msg,'Saving your hold…','info');
-  fetch('/api/admin/import-blocks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,blocks:blocks})})
+  fetch('/api/admin/import-blocks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,blocks:blocks,kind:'hold'})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
     .then(function(x){
       btn.disabled=false; btn.textContent='Hold this time';
@@ -244,8 +247,8 @@ function loadCalendar(){
   ]).then(function(res){
     if((res[0]&&res[0].error)||(res[1]&&res[1].error)){ cm.textContent='Could not load — check your admin key.'; return; }
     var idx={};
-    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({type:'hold',room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id}); });
-    (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({type:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED'}); });
+    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id}); });
+    (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED'}); });
     CAL.items=idx; cm.textContent='';
     renderMonth();
     if(CAL.sel) selectDay(CAL.sel);
@@ -293,12 +296,17 @@ function selectDay(iso){
     var hdr=document.createElement('div'); hdr.className='studiohdr'; hdr.innerHTML='<i style="background:'+RCOLOR[rid]+'"></i>'+r[1]; det.appendChild(hdr);
     list.forEach(function(x){
       var card=document.createElement('div'); card.className='daycard'; card.style.borderLeftColor=RCOLOR[rid];
-      var who=document.createElement('div'); who.className='who'; who.textContent=x.label+(x.sample?' (sample)':'')+(x.type==='hold'?'  ·  hold':''); card.appendChild(who);
+      var who=document.createElement('div'); who.className='who';
+      who.appendChild(document.createTextNode(x.label+(x.sample?' (sample)':'')));
+      var tag=document.createElement('span');
+      if(x.kind==='booking'){ tag.className='tag tag-booking'; tag.textContent='Booking'; }
+      else { tag.className='tag tag-hold'; tag.textContent='Hold'; }
+      who.appendChild(tag); card.appendChild(who);
       var meta=document.createElement('div'); meta.className='meta'; meta.textContent=tLabel(x.start)+' – '+tLabel(x.end); card.appendChild(meta);
       var btn=document.createElement('button'); btn.className='del'; btn.style.marginTop='7px';
       var lbl=fdate(iso)+'  ·  '+r[1]+'  ·  '+tLabel(x.start)+' – '+tLabel(x.end)+'  ·  '+x.label;
-      if(x.type==='hold'){ btn.textContent='Remove hold'; (function(id,lbl,btn){ btn.onclick=function(){ removeHold(id,btn,lbl); }; })(x.id,lbl,btn); }
-      else { btn.textContent='Cancel booking'; (function(id,lbl,btn){ btn.onclick=function(){ cancelBooking(id,btn,lbl); }; })(x.id,lbl,btn); }
+      if(x.source==='booking'){ btn.textContent='Cancel booking'; (function(id,lbl,btn){ btn.onclick=function(){ cancelBooking(id,btn,lbl); }; })(x.id,lbl,btn); }
+      else { btn.textContent=(x.kind==='booking'?'Remove booking':'Remove hold'); (function(id,lbl,btn){ btn.onclick=function(){ removeHold(id,btn,lbl); }; })(x.id,lbl,btn); }
       card.appendChild(btn); det.appendChild(card);
     });
   });

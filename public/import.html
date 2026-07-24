@@ -50,7 +50,7 @@ document.getElementById('go').onclick=function(){
   if(!key){msg.style.background='#fdecea';msg.style.color='#a33';msg.textContent='Please enter your admin key first.';return;}
   var btn=this; btn.disabled=true; btn.textContent='Importing…';
   msg.style.background='#f6f5f3';msg.style.color='#3a352f';msg.textContent='Importing '+BLOCKS.length+' blocks…';
-  fetch('/api/admin/import-blocks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,blocks:BLOCKS})})
+  fetch('/api/admin/import-blocks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:key,blocks:BLOCKS,kind:'booking'})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
     .then(function(x){
       btn.disabled=false;btn.textContent='Import all';
