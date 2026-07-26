@@ -482,6 +482,14 @@ function manualOrder(conf) {
   let client = {}; try { client = JSON.parse(blocks[0].client || '{}'); } catch (_) {}
   return { confirmation: conf, name: blocks[0].reason || '', email: (client.email || ''), bookings, grandTotal: VL.round2(grandTotal), paid: blocks[0].paid, paidAt: blocks[0].paid_at, payUrl: blocks.map(b => b.pay_link).find(Boolean) || null };
 }
+// Give a manual booking that predates the confirmation feature (e.g. the imported bookings) a reference number, so it can be marked paid / receipted.
+function ensureBlockConfirmation(id) {
+  const b = db.prepare(`SELECT confirmation FROM blocks WHERE id=?`).get(id);
+  if (b && b.confirmation) return b.confirmation;
+  const conf = newManualConfirmation();
+  db.prepare(`UPDATE blocks SET confirmation=? WHERE id=?`).run(conf, id);
+  return conf;
+}
 
 // clear any reservations left "pending" by an interrupted checkout on a prior run
 db.exec(`DELETE FROM bookings WHERE status='pending'`);
@@ -1010,7 +1018,7 @@ app.post('/api/admin/payment-link', admin, async (req, res) => {
 app.post('/api/admin/send-reserved', admin, async (req, res) => {
   const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);
   if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
-  if (!b.confirmation) return res.status(400).json({ error: 'This booking has no reference number yet.' });
+  if (!b.confirmation) b.confirmation = ensureBlockConfirmation(b.id);
   const o = manualOrder(b.confirmation);
   if (!o || !o.email) return res.status(400).json({ error: 'No client email is saved on this booking.' });
   const r = await sendEmail({ to: o.email, subject: 'Your studio is reserved — The Vintage Loft', html: reservedEmail({ name: o.name || 'there', confirmation: o.confirmation, bookings: o.bookings, amountDue: o.grandTotal, payUrl: o.payUrl }) });
@@ -1021,7 +1029,7 @@ app.post('/api/admin/send-reserved', admin, async (req, res) => {
 app.post('/api/admin/mark-paid', admin, (req, res) => {
   const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);
   if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
-  if (!b.confirmation) return res.status(400).json({ error: 'This booking has no reference number yet.' });
+  if (!b.confirmation) b.confirmation = ensureBlockConfirmation(b.id);
   if (req.body.unpay) {
     db.prepare(`UPDATE blocks SET paid=NULL, paid_at=NULL WHERE confirmation=? AND kind='booking'`).run(b.confirmation);
     return res.json({ ok: true, paid: null });
@@ -1036,6 +1044,7 @@ app.post('/api/admin/mark-paid', admin, (req, res) => {
 app.post('/api/admin/send-receipt', admin, async (req, res) => {
   const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);
   if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
+  if (!b.confirmation) b.confirmation = ensureBlockConfirmation(b.id);
   const o = manualOrder(b.confirmation);
   if (!o) return res.status(400).json({ error: 'Booking not found.' });
   if (o.paidAt == null) return res.status(400).json({ error: 'Mark this booking as paid first, then send the receipt.' });
