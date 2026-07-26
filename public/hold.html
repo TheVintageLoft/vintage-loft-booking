@@ -148,6 +148,32 @@
       </label>
     </div>
 
+    <div id="intakeFields" style="display:none">
+      <label class="fld">What best describes this booking?</label>
+      <select id="inReason">
+        <option value="">Choose one…</option>
+        <option>Photographer/Videographer hosting my client(s)</option>
+        <option>Client/Content Creator — my photographer/videographer will work with us</option>
+        <option>Client/Content Creator — handy with my own equipment</option>
+        <option>Company hosting a meeting / luncheon / event</option>
+        <option>Bride coming in for Wedding Portraits</option>
+        <option>Client hosting a meeting for up to 8 people</option>
+        <option>Musician — practice / recording / filming</option>
+        <option>Actor recording a self tape</option>
+        <option>Artist showcasing my work</option>
+        <option>None of the above</option>
+      </select>
+
+      <label class="fld">Type of session (choose any)</label>
+      <div id="inSessions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:2px"></div>
+
+      <label class="fld">Photographer</label>
+      <input id="inPhotographer" type="text" placeholder="Photographer's name (optional)">
+
+      <label class="fld">Details / notes for this session</label>
+      <textarea id="inDetails" rows="3" placeholder="Client, styling, inspiration, anything to record…" style="font-family:Arial,sans-serif;font-size:15px;padding:10px 12px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;width:100%;resize:vertical"></textarea>
+    </div>
+
     <div id="addonWrap" style="display:none;margin-top:14px">
       <label class="fld">Add-ons (client booking)</label>
       <div id="addonPick"></div>
@@ -303,7 +329,29 @@ var addonSel={items:{},options:{}};
 function aOK(a,roomId){ if(a.rooms) return a.rooms.indexOf(roomId)>=0; if(a.roomPrices) return a.roomPrices[roomId]!=null; return roomId!=='marilyn'; }
 function aUnit(a,opt,roomId){ if(a.roomPrices && roomId && a.roomPrices[roomId]!=null) return a.roomPrices[roomId]; if(a.options && a.options.length){ var o=null; for(var i=0;i<a.options.length;i++){ if(a.options[i].label===opt){o=a.options[i];break;} } if(!o)o=a.options[0]; return o.price; } return a.price||0; }
 function entryAddons(e){ try{ var j=JSON.parse(e.addons_json||'{}'); return {items:(j.items||{}),options:(j.options||{})}; }catch(_){ return {items:{},options:{}}; } }
+(function(){
+  // build the session-type checkboxes for the manual booking intake
+  var S=['Family','Newborn','Maternity','Engagements','Headshots','Branding/Content','Boudoir','Fashion','Cakesmash','Graduation Portraits','Wedding Portraits','Product Photography'];
+  var box=document.getElementById('inSessions'); if(!box) return;
+  S.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-family:Arial,sans-serif;font-size:13px;display:flex;align-items:center;gap:6px;background:#f6f5f3;border:1px solid #e7e5e2;border-radius:8px;padding:6px 10px;cursor:pointer'; l.innerHTML='<input type="checkbox" value="'+s+'" style="width:auto"> '+s; box.appendChild(l); });
+})();
+function collectIntake(){
+  var reason=(document.getElementById('inReason')||{}).value||'';
+  var sessions=Array.prototype.map.call(document.querySelectorAll('#inSessions input:checked'),function(c){return c.value;});
+  var photographer=((document.getElementById('inPhotographer')||{}).value||'').trim();
+  var details=((document.getElementById('inDetails')||{}).value||'').trim();
+  if(!reason && !sessions.length && !photographer && !details) return null;
+  return {reason:reason, sessions:sessions, photographer:photographer, details:details};
+}
+function clearIntake(){
+  var r=document.getElementById('inReason'); if(r) r.value='';
+  Array.prototype.forEach.call(document.querySelectorAll('#inSessions input:checked'),function(c){c.checked=false;});
+  var p=document.getElementById('inPhotographer'); if(p) p.value='';
+  var d=document.getElementById('inDetails'); if(d) d.value='';
+}
 function renderAddonPicker(){
+  var intakeF=document.getElementById('intakeFields');
+  if(intakeF) intakeF.style.display=(document.getElementById('entrykind').value==='booking')?'block':'none';
   var wrap=document.getElementById('addonWrap'), box=document.getElementById('addonPick');
   if(!wrap||!box) return;
   var kind=document.getElementById('entrykind').value;
@@ -351,6 +399,7 @@ document.getElementById('go').onclick=function(){
   var blocks=rooms.map(function(r){return {room:r,date:date,start:s,end:e,reason:reason,addons:(rooms.length===1?addonSel.items:{}),addonOptions:(rooms.length===1?addonSel.options:{})};});
   var payload={key:key,blocks:blocks,kind:kind};
   if(client) payload.client=client;
+  if(kind==='booking'){ var intake=collectIntake(); if(intake) payload.intake=intake; }
   if(kind==='booking' && email && sendConfirm) payload.sendConfirmation=true;
   var btn=this; btn.disabled=true; btn.textContent='Saving…';
   showMsg(msg,'Saving…','info');
@@ -363,7 +412,7 @@ document.getElementById('go').onclick=function(){
       var word=kind==='booking'?'Booking':'Hold';
       var emailed=(payload.sendConfirmation)?' A confirmation was emailed to the client.':'';
       showMsg(msg,'<b>'+word+' saved.</b> '+added+' studio'+(added===1?'':'s')+' for '+fdate(date)+', '+tLabel(s)+' – '+tLabel(e)+'.'+(skip?' ('+skip+' already on the calendar.)':'')+emailed,'ok');
-      document.getElementById('clientPhone').value=''; document.getElementById('clientEmail').value=''; document.getElementById('reason').value='';
+      document.getElementById('clientPhone').value=''; document.getElementById('clientEmail').value=''; document.getElementById('reason').value=''; clearIntake();
       CAL.sel=date; loadCalendar(); loadClients();
     })
     .catch(function(err){btn.disabled=false;btn.textContent='Add to calendar';showMsg(msg,'Network error: '+err.message,'err');});
@@ -384,7 +433,7 @@ function loadCalendar(){
     fetch('/api/admin/bookings?key='+encodeURIComponent(getKey())).then(chk)
   ]).then(function(res){
     var idx={};
-    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,addons_json:b.addons_json||''}); });
+    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,addons_json:b.addons_json||'',intake:b.intake||''}); });
     (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||''}); });
     CAL.items=idx; cm.textContent='';
     renderMonth();

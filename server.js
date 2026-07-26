@@ -63,6 +63,8 @@ try { db.exec("ALTER TABLE bookings ADD COLUMN pay_link TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN client TEXT"); } catch (_) {}
 // add-ons chosen on a manually-added booking ({items:{id:qty}, options:{id:label}})
 try { db.exec("ALTER TABLE blocks ADD COLUMN addons_json TEXT"); } catch (_) {}
+// client intake form answers on a manually-added booking (reason/sessions/photographer/details)
+try { db.exec("ALTER TABLE blocks ADD COLUMN intake TEXT"); } catch (_) {}
 // manual-booking payment state: a stable confirmation number, amount paid, and when
 try { db.exec("ALTER TABLE blocks ADD COLUMN confirmation TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN paid REAL"); } catch (_) {}
@@ -920,7 +922,10 @@ app.post('/api/admin/import-blocks', admin, (req, res) => {
     ? JSON.stringify({ phone: (req.body.client.phone || '').toString().slice(0, 40), email: (req.body.client.email || '').toString().slice(0, 120) }) : null;
   const exists = db.prepare(`SELECT id FROM blocks WHERE room_id=? AND date=? AND start=? AND end=?`);
   const manualConf = (defKind === 'booking' || items.some(b => b.kind === 'booking')) ? newManualConfirmation() : null;
-  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,client,addons_json,confirmation,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`);
+  // client intake answers, applied to every booking-kind block in this submission
+  const intakeStr = (req.body.intake && typeof req.body.intake === 'object')
+    ? JSON.stringify(req.body.intake).slice(0, 4000) : null;
+  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,client,addons_json,intake,confirmation,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
   const retag = db.prepare(`UPDATE blocks SET kind=? WHERE id=?`);
   let inserted = 0, skipped = 0, bad = 0;
   const madeForEmail = [];
@@ -931,7 +936,7 @@ app.post('/api/admin/import-blocks', admin, (req, res) => {
     const found = exists.get(room, date, s, e);
     if (found) { retag.run(kind, found.id); skipped++; continue; }   // re-tag existing so labels can be corrected
     const addonsStr = JSON.stringify({ items: (b.addons && typeof b.addons === 'object') ? b.addons : {}, options: (b.addonOptions && typeof b.addonOptions === 'object') ? b.addonOptions : {} });
-    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, client, addonsStr, (kind === 'booking' ? manualConf : null), nowISO());
+    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, client, addonsStr, (kind === 'booking' ? intakeStr : null), (kind === 'booking' ? manualConf : null), nowISO());
     inserted++;
     madeForEmail.push({ roomName: (VL.roomById(room) || {}).name || room, date, start: s, end: e });
   }
