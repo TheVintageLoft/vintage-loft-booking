@@ -149,6 +149,55 @@ const payments = {
   }
 };
 
+/* ---------- PayPal (Orders v2 REST API) — turns on when PAYPAL_CLIENT_ID + PAYPAL_SECRET are set ----------
+   Set PAYPAL_ENV='live' for production (else sandbox). The client-id is public (used by the on-page
+   PayPal buttons); the secret stays server-side. All amounts are CAD. */
+const PP = {
+  clientId: process.env.PAYPAL_CLIENT_ID || '',
+  secret: process.env.PAYPAL_SECRET || '',
+  env: (process.env.PAYPAL_ENV || 'sandbox').toLowerCase()
+};
+PP.enabled = !!(PP.clientId && PP.secret);
+PP.apiBase = PP.env === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+async function ppToken() {
+  const auth = Buffer.from(PP.clientId + ':' + PP.secret).toString('base64');
+  const r = await fetch(PP.apiBase + '/v1/oauth2/token', { method: 'POST', headers: { 'Authorization': 'Basic ' + auth, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'grant_type=client_credentials' });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((d && d.error_description) || 'PayPal authentication failed');
+  return d.access_token;
+}
+async function ppCreateOrder(amountCents, desc) {
+  const token = await ppToken();
+  const r = await fetch(PP.apiBase + '/v2/checkout/orders', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ intent: 'CAPTURE', purchase_units: [{ amount: { currency_code: 'CAD', value: (amountCents / 100).toFixed(2) }, description: (desc || 'The Vintage Loft studio booking').slice(0, 127) }] }) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.id) throw new Error((d && d.message) || 'Could not create the PayPal order');
+  return d.id;
+}
+async function ppCaptureOrder(orderId) {
+  try {
+    if (!orderId) return { ok: false, error: 'Missing PayPal order.' };
+    const token = await ppToken();
+    const r = await fetch(PP.apiBase + '/v2/checkout/orders/' + encodeURIComponent(orderId) + '/capture', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' } });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.status === 'COMPLETED') return { ok: true, ref: orderId };
+    return { ok: false, error: (d && d.message) || ('PayPal payment not completed (' + (d && d.status) + ')') };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+// The authoritative order total AFTER any discount code + account credit (mirrors /api/bookings) — so the PayPal order is created for the exact amount owed.
+function orderGrandTotal(items, codeStr, token, useCredit) {
+  let codeInfo = null;
+  if (codeStr && normCode(codeStr)) codeInfo = lookupCode(codeStr);
+  const quotes = items.map(it => VL.priceQuote(it.room, it.date, (+it.end) - (+it.start), it.addons || {}, it.addonOptions || {}));
+  let paidArr;
+  if (codeInfo && codeInfo.type === 'percent') paidArr = quotes.map(q => VL.applyDiscountToQuote(q, codeInfo).total);
+  else if (codeInfo && codeInfo.type === 'fixed') { let remaining = Math.min(codeInfo.amount, VL.round2(quotes.reduce((s, q) => s + q.total, 0))); paidArr = quotes.map(q => { const rc = VL.round2(Math.min(remaining, q.total)); remaining = VL.round2(remaining - rc); return VL.round2(q.total - rc); }); }
+  else paidArr = quotes.map(q => q.total);
+  let grand = VL.round2(paidArr.reduce((s, p) => s + p, 0));
+  const acctEmail = emailForToken(token);
+  if (acctEmail && useCredit) { const bal = creditBalance(acctEmail); const used = VL.round2(Math.max(0, Math.min(bal, grand))); grand = VL.round2(grand - used); }
+  return grand;
+}
+
 /* ---------- email (Resend HTTP API — no npm dependency) ----------
    Set RESEND_API_KEY on the host to turn real sending on. Without it, we log and skip,
    so a booking never fails because of an email problem. From/reply default to info@thevintageloft.ca. */
@@ -541,6 +590,30 @@ app.get('/api/rooms', (_req, res) => res.json({ rooms: VL.ROOMS, addons: VL.ADDO
 
 // Non-secret Square settings for the browser card form (token is NEVER sent here)
 app.get('/api/square-config', (_req, res) => res.json({ enabled: SQ.enabled, appId: SQ.appId || null, locationId: SQ.locationId || null, env: SQ.env }));
+app.get('/api/paypal-config', (_req, res) => res.json({ enabled: PP.enabled, clientId: PP.enabled ? PP.clientId : null, env: PP.env, currency: 'CAD' }));
+
+// PayPal: create an order for the exact (code + credit adjusted) total. The booking is confirmed by /api/bookings after capture.
+app.post('/api/paypal/create-order', async (req, res) => {
+  try {
+    if (!PP.enabled) return res.status(400).json({ error: 'PayPal is not connected yet.' });
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
+    if (!items.length) return res.status(400).json({ error: 'No studios in the booking.' });
+    for (const it of items) {
+      const s = +it.start, e = +it.end, room = VL.roomById(it.room);
+      if (!room || !it.date) return res.status(400).json({ error: 'Invalid booking.' });
+      const terr = validTimes(s, e); if (terr) return res.status(400).json({ error: terr });
+      if (isClosedDay(it.date)) return res.status(400).json({ error: 'The studio is closed on Mondays.' });
+      if (hoursUntil(it.date, s) < LEAD_HOURS) return res.status(400).json({ error: 'Bookings within ' + LEAD_HOURS + ' hours need to be arranged with us directly — please call or text 905-767-2099.' });
+      if (!VL.validDuration(it.room, e - s)) return res.status(400).json({ error: 'That duration is not available for ' + room.name + '.' });
+      const setup = !!(it.addons && it.addons.earlysetup);
+      if (!isFree(it.room, it.date, s, e) || (setup && !isFree(it.room, it.date, s, e, true))) return res.status(409).json({ error: room.name + ' is no longer available for that time.' });
+    }
+    const grand = orderGrandTotal(items, req.body.code, req.body.token, req.body.useCredit);
+    if (!(grand > 0)) return res.status(400).json({ error: 'This order is already fully covered — no PayPal payment needed.' });
+    const orderId = await ppCreateOrder(Math.round(grand * 100), 'The Vintage Loft studio booking');
+    res.json({ ok: true, orderId, amount: grand });
+  } catch (e) { res.status(400).json({ error: e.message || 'Could not start PayPal checkout.' }); }
+});
 
 // Which rooms are open for a date + time window
 app.get('/api/search', (req, res) => {
@@ -706,9 +779,15 @@ app.post('/api/bookings', async (req, res) => {
 
   // 2) Charge once for the whole order — unless it's free (owner code / full credit).
   //    Square cannot process a $0.00 amount, so skip the processor entirely when nothing is owed.
-  const pay = grandTotal <= 0
-    ? { ok: true, ref: 'FREE-' + Date.now().toString(36).toUpperCase(), mode: 'free' }
-    : await payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: paymentToken });
+  let pay;
+  if (grandTotal <= 0) {
+    pay = { ok: true, ref: 'FREE-' + Date.now().toString(36).toUpperCase(), mode: 'free' };
+  } else if (req.body.paymentMethod === 'paypal') {
+    pay = PP.enabled ? await ppCaptureOrder(req.body.paypalOrderId) : { ok: false, error: 'PayPal is not connected.' };
+    if (pay.ok) pay.mode = 'paypal';
+  } else {
+    pay = await payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: paymentToken });
+  }
 
   // 3) Confirm the reservations, or release them if the charge failed
   if (!pay.ok) {

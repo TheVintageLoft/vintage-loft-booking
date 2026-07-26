@@ -317,6 +317,10 @@
           </div>
         </div>
         </div>
+        <div id="paypalWrap" style="display:none;margin-top:14px">
+          <div style="text-align:center;color:var(--muted);font-size:13px;margin:2px 0 10px">&mdash; or pay with PayPal &mdash;</div>
+          <div id="paypal-buttons"></div>
+        </div>
         <div style="display:flex;gap:10px;margin-top:18px">
           <button class="btn btn-ghost" onclick="addAnotherStudio()">+ Add another space</button>
           <button class="btn btn-gold" style="flex:1" id="payBtn" onclick="payNow()">Pay & confirm</button>
@@ -650,7 +654,7 @@ function renderReview(){
     cr.innerHTML=`<label class="chk"><input type="checkbox" id="useCredit" onchange="toggleCredit()">
       <span><b>Apply account credit</b> — you have <b>${money(user.credit)}</b> available</span></label>`;
   } else cr.style.display='none';
-  $('#cxPolicy').innerHTML=`Paid in full today. Free cancellation up to <b>${CONFIG.cancelWindowHours} hrs</b> before your start time — your full payment is returned as account credit for a future booking. `+
+  $('#cxPolicy').innerHTML=`Paid in full today. Cancel or reschedule at least <b>${CONFIG.cancelWindowHours} hrs</b> before your start time for full studio credit toward a future booking. No refunds. `+
     (user?'':'<b>Log in to keep your bookings & cancellation credit.</b>');
   renderReviewSummary();
 }
@@ -915,7 +919,7 @@ function renderReview(){
   });
   document.getElementById('reviewBox').innerHTML = box;
   const cr = document.getElementById('creditRedeem'); if(cr) cr.style.display='none';
-  const cx = document.getElementById('cxPolicy'); if(cx) cx.innerHTML = `Paid in full today. Free cancellation up to <b>${CONFIG.cancelWindowHours} hrs</b> before each start time.`;
+  const cx = document.getElementById('cxPolicy'); if(cx) cx.innerHTML = `Paid in full today. Cancel or reschedule at least <b>${CONFIG.cancelWindowHours} hrs</b> before your start time for full studio credit toward a future booking. No refunds.`;
   renderReviewSummary();
   if(sqPayments) ensureSquareCard();
 }
@@ -954,6 +958,7 @@ function renderReviewSummary(){
   orderTotalDue = totalSum;
   const free = totalSum <= 0;
   const ps=document.getElementById('paymentSection'); if(ps) ps.style.display = free ? 'none' : '';
+  const pw=document.getElementById('paypalWrap'); if(pw){ if(ppReady && !free){ pw.style.display='block'; renderPaypalButtons(); } else pw.style.display='none'; }
   const pb=document.getElementById('payBtn'); if(pb) pb.textContent = free ? 'Confirm booking' : ('Pay ' + money(totalSum) + ' & confirm');
 }
 
@@ -1218,11 +1223,67 @@ async function ensureSquareCard(){
   try{ sqCard = await sqPayments.card(); await sqCard.attach('#sq-card'); }catch(e){ sqCard=null; }
 }
 
+/* ---- shared booking helpers + PayPal checkout ---- */
+function bookingPayloadCheck(){
+  const name = (document.getElementById('custName')||{}).value?.trim();
+  const email = (document.getElementById('custEmail')||{}).value?.trim();
+  if(!name || !email){ toast('Please add your name and email'); return null; }
+  if(!order.length){ toast('Add a studio first'); return null; }
+  const inReason = (document.getElementById('inReason')||{}).value || '';
+  if(!inReason){ toast('Please tell us what best describes your visit'); const r=document.getElementById('inReason'); if(r) r.focus(); return null; }
+  const intake = { reason:inReason, sessions:Array.prototype.map.call(document.querySelectorAll('#inSessions input:checked'),function(c){return c.value;}), photographer:((document.getElementById('inPhotographer')||{}).value||'').trim(), details:((document.getElementById('inDetails')||{}).value||'').trim() };
+  const items = order.map(it=>({ room:it.roomId, date:it.date, start:it.start, end:it.end, addons:it.addons, addonOptions:it.addonOpts||{} }));
+  return { name, email, intake, items, code: appliedCode?appliedCode.code:undefined };
+}
+function finishBooking(d, email){
+  if(CLIENT){ useAcctCredit=false; loadClient(); }
+  LAST_EMAIL = email;
+  const n = d.bookings.length;
+  document.getElementById('confirmSub').textContent = `Confirmation ${d.confirmation} — ${n} studio${n>1?'s':''} booked. A receipt has been sent to your email.`;
+  const savedLine = (d.discountTotal>0) ? `<div class="bk" style="border-color:transparent;color:var(--green,#2e7d32)"><div><b>Savings${d.code?` (${d.code})`:''}</b></div><div style="text-align:right"><b>−${money(d.discountTotal)}</b></div></div>` : '';
+  document.getElementById('confirmDetail').innerHTML =
+    d.bookings.map(b=>`<div class="bk"><div><b>${b.roomName}</b><div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)}</div></div><div style="text-align:right"><b>${money(b.total)}</b></div></div>`).join('')
+    + savedLine
+    + `<div class="bk" style="border-color:transparent"><div><b>${d.grandTotal>0?'Total paid in full':'Total'}</b></div><div style="text-align:right"><b>${money(d.grandTotal)}</b></div></div>`;
+  order = []; cart = null; appliedCode = null; const ci=document.getElementById('codeInput'); if(ci)ci.value=''; const cm=document.getElementById('codeMsg'); if(cm)cm.textContent=''; go('confirm'); toast('Payment complete — booking saved');
+}
+var ppConfig=null, ppReady=false, ppRendered=false;
+async function initPaypal(){
+  try{ ppConfig = await fetchJSON('/api/paypal-config'); }catch(e){ return; }
+  if(!ppConfig || !ppConfig.enabled) return;
+  try{
+    await loadScript('https://www.paypal.com/sdk/js?client-id='+encodeURIComponent(ppConfig.clientId)+'&currency='+(ppConfig.currency||'CAD')+'&intent=capture&disable-funding=card,credit,paylater');
+    ppReady = !!window.paypal;
+    var rv=document.getElementById('view-review');
+    if(ppReady && rv && rv.style.display!=='none') renderReviewSummary();
+  }catch(e){}
+}
+function renderPaypalButtons(){
+  if(ppRendered || !ppReady || !window.paypal) return;
+  var el=document.getElementById('paypal-buttons'); if(!el) return;
+  try{
+    window.paypal.Buttons({
+      style:{ layout:'horizontal', color:'gold', shape:'rect', height:45, tagline:false, label:'paypal' },
+      createOrder: function(){
+        var pp=bookingPayloadCheck(); if(!pp) return Promise.reject(new Error('Please complete the form first.'));
+        return fetchJSON('/api/paypal/create-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:pp.items,code:pp.code,token:(CLIENT&&useAcctCredit)?CLIENT.token:undefined,useCredit:!!(CLIENT&&useAcctCredit)})}).then(function(d){return d.orderId;}).catch(function(err){ toast((err.body&&err.body.error)||err.message||'Could not start PayPal'); throw err; });
+      },
+      onApprove: function(data){
+        var pp=bookingPayloadCheck(); if(!pp) return;
+        return fetchJSON('/api/bookings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:pp.items,customerName:pp.name,customerEmail:pp.email,code:pp.code,intake:pp.intake,paymentMethod:'paypal',paypalOrderId:data.orderID,token:(CLIENT&&useAcctCredit)?CLIENT.token:undefined,useCredit:!!(CLIENT&&useAcctCredit)})}).then(function(d){ finishBooking(d,pp.email); }).catch(function(err){ toast((err.body&&err.body.error)||err.message||'Could not complete booking'); });
+      },
+      onError: function(){ toast('PayPal had a problem. Please try again or pay by card.'); }
+    }).render('#paypal-buttons');
+    ppRendered = true;
+  }catch(e){}
+}
+
 (async function apiInit(){
   const ab = document.getElementById('authBtn'); if(ab) ab.style.display = 'none';
   try { const d = await fetchJSON('/api/rooms'); ADDONS = d.addons || []; } catch(e) {}
   loadClient();   // restore a signed-in client and show their credit chip
   initSquare();
+  initPaypal();
   // Embed / deep-link: if a ?room= is supplied, jump straight into that studio's booking flow.
   try {
     var _rm = new URLSearchParams(location.search).get('room');
