@@ -413,18 +413,40 @@ function isoOffset(days) { const d = new Date(); d.setDate(d.getDate() + days); 
 const OWNER_EMAILS = (process.env.OWNER_EMAILS || 'kelly@thevintageloft.ca,kellylemayphotography@gmail.com')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 function isOwnerEmail(email) { return OWNER_EMAILS.indexOf((email || '').toLowerCase()) >= 0; }
-// Sum the regular studio value of every owner-use booking (pay_mode='owner'), split into this month + this year to date.
-function ownerUsageSummary() {
-  let rows = [];
-  try { rows = db.prepare(`SELECT * FROM blocks WHERE kind='booking' AND pay_mode='owner' ORDER BY date DESC, start DESC`).all(); } catch (_) { return null; }
+function roomNameOf(id) { return (VL.roomById(id) || {}).name || id; }
+// The regular studio value (what a paying client would owe) for a bookings-table row, ignoring any code.
+function bookingRegularValue(b) {
+  let a = { items: {}, options: {} };
+  try { a = JSON.parse(b.addons_json || '{}'); } catch (_) {}
+  try { return VL.priceQuote(b.room_id, b.date, (b.hours || (b.end - b.start)), a.items || {}, a.options || {}).total; } catch (_) { return 0; }
+}
+// Two year-end buckets for the owner: 'owner' (Kelly / Vintage Films own use) and 'comp' (marketing + goodwill).
+// Each pulls from BOTH the Staff-App manual bookings (pay_mode) AND real client checkouts that used an owner/comp code.
+function usageSummaries() {
   const ym = torontoISO(0).slice(0, 7), yr = torontoISO(0).slice(0, 4);
-  let mtd = 0, ytd = 0, all = 0;
-  const sessions = rows.map(b => {
-    let val = 0; try { val = blockQuote(b).total; } catch (_) {}
-    all += val; if ((b.date || '').slice(0, 4) === yr) ytd += val; if ((b.date || '').slice(0, 7) === ym) mtd += val;
-    return { date: b.date, start: b.start, end: b.end, roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, label: b.reason || '', value: VL.round2(val) };
+  const buckets = { owner: [], comp: [] };
+  // 1) manual bookings settled as owner use / comp in the Staff App
+  let brows = [];
+  try { brows = db.prepare(`SELECT * FROM blocks WHERE kind='booking' AND pay_mode IN ('owner','comp')`).all(); } catch (_) {}
+  brows.forEach(b => {
+    let v = 0; try { v = blockQuote(b).total; } catch (_) {}
+    buckets[b.pay_mode].push({ date: b.date, start: b.start, end: b.end, roomName: roomNameOf(b.room_id), client: b.reason || '', code: (b.pay_mode === 'owner' ? 'Owner (manual)' : 'Comp (manual)'), value: VL.round2(v) });
   });
-  return { mtd: VL.round2(mtd), ytd: VL.round2(ytd), all: VL.round2(all), count: rows.length, sessions };
+  // 2) real client checkouts that used an owner or comp code
+  let orows = [];
+  try { orows = db.prepare(`SELECT * FROM bookings WHERE status!='cancelled' AND code IS NOT NULL AND code!=''`).all(); } catch (_) {}
+  orows.forEach(b => {
+    const c = CODES[(b.code || '').toUpperCase()]; if (!c) return;
+    const bucket = c.kind === 'Owner' ? 'owner' : (c.kind === 'Comp' ? 'comp' : null); if (!bucket) return;
+    buckets[bucket].push({ date: b.date, start: b.start, end: b.end, roomName: roomNameOf(b.room_id), client: b.customer_name || '', code: (b.code || '').toUpperCase(), value: VL.round2(bookingRegularValue(b)) });
+  });
+  function summarize(list) {
+    list.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    let mtd = 0, ytd = 0, all = 0;
+    list.forEach(s => { all += s.value; if ((s.date || '').slice(0, 4) === yr) ytd += s.value; if ((s.date || '').slice(0, 7) === ym) mtd += s.value; });
+    return { mtd: VL.round2(mtd), ytd: VL.round2(ytd), all: VL.round2(all), count: list.length, sessions: list };
+  }
+  return { owner: summarize(buckets.owner), comp: summarize(buckets.comp) };
 }
 function hashPassword(pw, salt) { salt = salt || crypto.randomBytes(16).toString('hex'); const hash = crypto.scryptSync(String(pw), salt, 64).toString('hex'); return { salt, hash }; }
 function verifyPassword(pw, salt, hash) { try { const h = crypto.scryptSync(String(pw), salt, 64).toString('hex'); return crypto.timingSafeEqual(Buffer.from(h, 'hex'), Buffer.from(hash, 'hex')); } catch (_) { return false; } }
@@ -553,10 +575,13 @@ const CODES = (() => {
   const emp = { type: 'percent', off: 0.50, scope: 'room', reusable: true, kind: 'Employee' };
   const owner = { type: 'percent', off: 1.00, scope: 'all', reusable: true, kind: 'Owner' };
   const friend = { type: 'percent', off: 0.15, scope: 'room', reusable: true, kind: 'Friends' };
+  // "on the house" — content-creator/marketing comps and goodwill gestures. 100% off, tracked in your Comps year-end total.
+  const comp = { type: 'percent', off: 1.00, scope: 'all', reusable: true, kind: 'Comp' };
   const map = {
     STEVEVIP: vip, KBKVIP: vip, JOSIEVIP: vip,
     ALANNAH50: emp, BRIA50: emp, SHAY50: emp, MACKENZIE50: emp, MIKHELA50: emp, JOELLE50: emp, ROSALIND50: emp,
     KELLY: owner, KAYA: owner,
+    COMP: comp, GOODWILL: comp,
     FRIENDSWITHBENEFITS: friend, ONELOVE15: friend,
     VALERIEVON339: { type: 'fixed', amount: 339, scope: 'total', reusable: false, kind: 'Reschedule credit' }
   };
@@ -566,6 +591,7 @@ const normCode = s => (s || '').toString().toUpperCase().replace(/\s+/g, '');
 // A short, customer-safe label describing what a code does (no other codes revealed).
 function codeLabel(c) {
   if (c.type === 'fixed') return '$' + c.amount.toFixed(2) + ' credit';
+  if (c.kind === 'Comp') return 'On the house';
   if (c.off >= 1) return 'Free (owner)';
   return Math.round(c.off * 100) + '% off the studio';
 }
@@ -920,7 +946,7 @@ app.get('/api/account', (req, res) => {
     else past.push(item);
   });
   const resp = { ok: true, name: a ? a.name : '', email, credit: creditBalance(email), upcoming, past, cancelWindowHours: 48 };
-  if (isOwnerEmail(email)) resp.ownerUsage = ownerUsageSummary();
+  if (isOwnerEmail(email)) { const u = usageSummaries(); resp.ownerUsage = u.owner; resp.compUsage = u.comp; }
   res.json(resp);
 });
 app.post('/api/account/cancel', (req, res) => {
@@ -1064,6 +1090,11 @@ app.post('/api/admin/mark-paid', admin, (req, res) => {
   if (req.body.owner) {
     db.prepare(`UPDATE blocks SET paid=0, paid_at=?, pay_mode='owner' WHERE confirmation=? AND kind='booking'`).run(nowISO(), b.confirmation);
     return res.json({ ok: true, paid: 0, mode: 'owner' });
+  }
+  // Comp "on the house" (marketing / goodwill): settle at $0, tag as comp, tracked in the Comps year-end total.
+  if (req.body.comp) {
+    db.prepare(`UPDATE blocks SET paid=0, paid_at=?, pay_mode='comp' WHERE confirmation=? AND kind='booking'`).run(nowISO(), b.confirmation);
+    return res.json({ ok: true, paid: 0, mode: 'comp' });
   }
   const o = manualOrder(b.confirmation);
   const amt = (req.body.paid != null && req.body.paid !== '') ? VL.round2(parseFloat(req.body.paid)) : (o ? o.grandTotal : 0);

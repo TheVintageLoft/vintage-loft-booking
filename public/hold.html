@@ -52,6 +52,7 @@
   .tag-booking{background:#e5efe7;color:#2e6b34}
   .tag-hold{background:#f0e7d6;color:#8a6a2b}
   .tag-owner{background:#ece4f3;color:#6b4a8a}
+  .tag-comp{background:#d9ece9;color:#1f6b6b}
   #signedbar{max-width:720px;margin:0 auto 12px;display:flex;justify-content:space-between;align-items:baseline;font-family:Arial,sans-serif;font-size:13px;color:#8a8375}
   #signedbar .appname{font-family:Georgia,serif;font-size:20px;color:#3a352f}
   #signedbar a{color:#7c7268;cursor:pointer;text-decoration:underline}
@@ -490,6 +491,7 @@ function selectDay(iso){
       else { tag.className='tag tag-hold'; tag.textContent='Hold'; }
       who.appendChild(tag);
       if(x.pay_mode==='owner'){ var ot=document.createElement('span'); ot.className='tag tag-owner'; ot.textContent='Owner use'; who.appendChild(ot); }
+      else if(x.pay_mode==='comp'){ var ct=document.createElement('span'); ct.className='tag tag-comp'; ct.textContent='Comp'; who.appendChild(ct); }
       card.appendChild(who);
       var meta=document.createElement('div'); meta.className='meta'; meta.textContent=tLabel(x.start)+' – '+tLabel(x.end); card.appendChild(meta);
       // ---- client contact (from a manually-added booking) ----
@@ -627,9 +629,12 @@ function selectDay(iso){
             box.innerHTML='';
             var paid=!!entry.paid_at;
             var owner=entry.pay_mode==='owner';
+            var comp=entry.pay_mode==='comp';
             var head=document.createElement('div'); head.className='meta'; head.style.marginBottom='7px';
             var statusHtml = owner
               ? '<span style="color:#6b4a8a;font-weight:bold">Owner use · Vintage Films (no charge)</span>'
+              : comp
+              ? '<span style="color:#1f6b6b;font-weight:bold">Comp · Marketing / Goodwill (no charge)</span>'
               : (paid ? ('<span style="color:#2e6b34;font-weight:bold">Paid'+(entry.paid!=null?(' $'+Number(entry.paid).toFixed(2)):'')+'</span>') : '<span style="color:#a37b2b;font-weight:bold">Unpaid</span>');
             head.innerHTML='<b>Client emails &amp; payment</b> &nbsp; '+statusHtml;
             box.appendChild(head);
@@ -664,16 +669,19 @@ function selectDay(iso){
               canc.onclick=function(){ render(); };
             }
             function unpay(){ busy('Saving...'); post('/api/admin/mark-paid',{unpay:true}).then(function(x2){ if(x2.ok){ entry.paid=null; entry.paid_at=null; entry.pay_mode=''; render(); loadCalendar(); } else err('Could not update.'); }); }
+            function settle(flag,mode,color){ busy('Saving...'); post('/api/admin/mark-paid',flag).then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=0; entry.paid_at='now'; entry.pay_mode=mode; render(); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not save.'); }); }
             if(owner){ A('Undo owner use', unpay, '#a33'); }
+            else if(comp){ A('Undo comp', unpay, '#a33'); }
             else if(!paid){
               A('Mark as paid', function(){ markPaidForm(); });
-              A('Owner use (no charge)', function(){ busy('Saving...'); post('/api/admin/mark-paid',{owner:true}).then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=0; entry.paid_at='now'; entry.pay_mode='owner'; render(); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not save.'); }); }, '#6b4a8a');
+              A('Owner use (no charge)', function(){ settle({owner:true},'owner'); }, '#6b4a8a');
+              A('Comp (no charge)', function(){ settle({comp:true},'comp'); }, '#1f6b6b');
             }
             else { A('Mark unpaid', unpay, '#a33'); }
-            if(email && !owner){
+            if(email && !owner && !comp){
               if(!paid) A('Send reserved email', function(){ busy('Sending...'); post('/api/admin/send-reserved').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Reserved email sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
               else A('Send receipt', function(){ busy('Sending...'); post('/api/admin/send-receipt').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Receipt sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
-            } else if(!email && !owner){ var n=document.createElement('span'); n.className='meta'; n.textContent='(add a client email to send emails/receipts)'; row.appendChild(n); }
+            } else if(!email && !owner && !comp){ var n=document.createElement('span'); n.className='meta'; n.textContent='(add a client email to send emails/receipts)'; row.appendChild(n); }
             box.appendChild(row); box.appendChild(msg);
           }
           render();

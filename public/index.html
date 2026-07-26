@@ -1051,23 +1051,25 @@ async function renderAccount(){
     </div>
     <h3 style="font-size:15px;margin:22px 0 8px">Upcoming bookings</h3>${up}
     <h3 style="font-size:15px;margin:22px 0 8px">Past bookings</h3>${past}
-  </div>${d.ownerUsage?ownerUsageCard(d.ownerUsage):''}`;
+  </div>${d.ownerUsage?usageCard({title:'Studio use · Vintage Films',blurb:'Your own sessions, settled at no charge. Amounts are the regular studio rate, tracked here for your records.',accent:'#6b4a8a',u:d.ownerUsage,showCode:false,empty:'No owner-use sessions yet. Mark one “Owner use” in the Staff App and it will appear here.'}):''}${d.compUsage?usageCard({title:'Comps · Marketing & Goodwill',blurb:'On-the-house bookings for content creators and goodwill gestures. Amounts are the regular studio rate, tracked here for year end.',accent:'#1f6b6b',u:d.compUsage,showCode:true,empty:'No comps yet. Give out your COMP code, or mark a booking “Comp” in the Staff App, and it will appear here.'}):''}`;
 }
-function ownerUsageCard(u){
-  if(!u) return '';
+function usageCard(o){
+  const u=o.u; if(!u) return '';
   function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
-  const rows=(u.sessions||[]).slice(0,80).map(function(s){
-    return `<div class="bk"><div><b>${esc(s.roomName)}</b><div class="meta">${fmtDate(s.date)} · ${label(s.start)}–${label(s.end)}${s.label?' · '+esc(s.label):''}</div></div><div style="white-space:nowrap;color:#6b4a8a">${money(s.value)}</div></div>`;
+  const rows=(u.sessions||[]).slice(0,120).map(function(s){
+    const who = s.client||s.label||'';
+    const codeTag = (o.showCode && s.code) ? ` · <span style="color:${o.accent}">${esc(s.code)}</span>` : '';
+    return `<div class="bk"><div><b>${esc(s.roomName)}</b><div class="meta">${fmtDate(s.date)} · ${label(s.start)}–${label(s.end)}${who?' · '+esc(who):''}${codeTag}</div></div><div style="white-space:nowrap;color:${o.accent}">${money(s.value)}</div></div>`;
   }).join('');
   return `<div class="card pad" style="margin-top:16px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
-      <div><h3 style="margin:0">Studio use · Vintage Films</h3>
-        <div class="meta" style="color:var(--muted);font-size:13px;max-width:340px">Your own sessions, settled at no charge. Amounts are the regular studio rate, tracked here for your records.</div></div>
+      <div><h3 style="margin:0">${esc(o.title)}</h3>
+        <div class="meta" style="color:var(--muted);font-size:13px;max-width:340px">${esc(o.blurb)}</div></div>
       <div style="text-align:right"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">This year to date</div>
-        <div style="font-size:28px;font-family:Georgia,serif;color:#6b4a8a">${money(u.ytd)}</div>
+        <div style="font-size:28px;font-family:Georgia,serif;color:${o.accent}">${money(u.ytd)}</div>
         <div class="meta" style="font-size:12px">This month ${money(u.mtd)} · ${u.count} session${u.count===1?'':'s'} all-time (${money(u.all)})</div></div>
     </div>
-    ${rows?('<h3 style="font-size:15px;margin:20px 0 8px">Sessions</h3>'+rows):'<div class="empty" style="margin-top:14px">No owner-use sessions yet. Mark one “Owner use” in the Staff App and it will appear here.</div>'}
+    ${rows?('<h3 style="font-size:15px;margin:20px 0 8px">Sessions</h3>'+rows):('<div class="empty" style="margin-top:14px">'+esc(o.empty)+'</div>')}
   </div>`;
 }
 function acctBookingRow(b, upcoming){
