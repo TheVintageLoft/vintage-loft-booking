@@ -168,7 +168,7 @@ async function ppToken() {
 }
 async function ppCreateOrder(amountCents, desc) {
   const token = await ppToken();
-  const r = await fetch(PP.apiBase + '/v2/checkout/orders', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ intent: 'CAPTURE', purchase_units: [{ amount: { currency_code: 'CAD', value: (amountCents / 100).toFixed(2) }, description: (desc || 'The Vintage Loft studio booking').slice(0, 127) }] }) });
+  const r = await fetch(PP.apiBase + '/v2/checkout/orders', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ intent: 'CAPTURE', purchase_units: [{ amount: { currency_code: 'CAD', value: (amountCents / 100).toFixed(2) }, description: (desc || 'The Vintage Loft studio booking').slice(0, 127) }], application_context: { brand_name: 'The Vintage Loft', shipping_preference: 'NO_SHIPPING', user_action: 'PAY_NOW' } }) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok || !d.id) throw new Error((d && d.message) || 'Could not create the PayPal order');
   return d.id;
