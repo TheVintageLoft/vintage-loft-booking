@@ -1073,12 +1073,14 @@ function usageCard(o){
   </div>`;
 }
 function acctBookingRow(b, upcoming){
-  const canCancel = upcoming && b.status!=='cancelled';
+  const canCancel = upcoming && b.status!=='cancelled' && !b.manual;
   const fullCredit = b.hoursOut>=48;
-  const rcpt = (b.confirmation && b.status!=='cancelled') ? `<a href="receipt.html?c=${encodeURIComponent(b.confirmation)}&e=${encodeURIComponent((typeof CLIENT!=='undefined'&&CLIENT&&CLIENT.email)||'')}" target="_blank" rel="noopener" style="font-size:13px;color:var(--gold);text-decoration:underline;white-space:nowrap">Receipt</a>` : '';
+  const showRcpt = b.confirmation && b.status!=='cancelled' && (!b.manual || b.isPaid);
+  const rcpt = showRcpt ? `<a href="receipt.html?c=${encodeURIComponent(b.confirmation)}&e=${encodeURIComponent((typeof CLIENT!=='undefined'&&CLIENT&&CLIENT.email)||'')}" target="_blank" rel="noopener" style="font-size:13px;color:var(--gold);text-decoration:underline;white-space:nowrap">Receipt</a>` : '';
+  const changeHint = (upcoming && b.manual) ? `<span class="meta" style="font-size:12px;color:var(--muted);white-space:nowrap">Call 905-767-2099 to change</span>` : '';
   return `<div class="bk"><div><b>${b.roomName}</b>${b.status==='cancelled'?' <span style="color:var(--red);font-size:12px">· Cancelled</span>':''}
       <div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)}${(b.paid||0)>0?' · paid '+money(b.paid):''}</div></div>
-    <div style="display:flex;gap:14px;align-items:center;white-space:nowrap">${rcpt}${canCancel?`<button class="btn btn-ghost" onclick="cancelMyBooking(${b.id})">Cancel${fullCredit?' · full credit':''}</button>`:''}</div></div>`;
+    <div style="display:flex;gap:14px;align-items:center;white-space:nowrap">${rcpt}${canCancel?`<button class="btn btn-ghost" onclick="cancelMyBooking(${b.id})">Cancel${fullCredit?' · full credit':''}</button>`:changeHint}</div></div>`;
 }
 function showAuth(which){
   var tl=document.getElementById('tabLogin'), ts=document.getElementById('tabSignup');

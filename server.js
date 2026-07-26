@@ -977,11 +977,28 @@ app.get('/api/account', (req, res) => {
   const rows = db.prepare(`SELECT * FROM bookings WHERE lower(customer_email)=? ORDER BY date, start`).all(email);
   const today = torontoISO(0); const upcoming = [], past = [];
   rows.forEach(r => {
-    const item = { id: r.id, roomName: (VL.roomById(r.room_id) || {}).name || r.room_id, date: r.date, start: r.start, end: r.end, paid: r.paid, status: r.status, confirmation: r.confirmation, hoursOut: Math.round(hoursUntil(r.date, r.start)) };
+    const item = { id: r.id, roomName: (VL.roomById(r.room_id) || {}).name || r.room_id, date: r.date, start: r.start, end: r.end, paid: r.paid, status: r.status, confirmation: r.confirmation, hoursOut: Math.round(hoursUntil(r.date, r.start)), manual: false };
     if (r.status === 'cancelled') past.push(Object.assign({ cancelled: true }, item));
     else if (r.date >= today) upcoming.push(item);
     else past.push(item);
   });
+  // also include bookings staff entered manually for this client (they live in the blocks table), matched by email
+  try {
+    const myConfs = new Set();
+    db.prepare(`SELECT DISTINCT confirmation, client FROM blocks WHERE kind='booking' AND confirmation IS NOT NULL AND confirmation!=''`).all().forEach(r => {
+      let cj = {}; try { cj = JSON.parse(r.client || '{}'); } catch (_) {}
+      if (cj.email && cj.email.toLowerCase() === email) myConfs.add(r.confirmation);
+    });
+    myConfs.forEach(conf => {
+      const o = manualOrder(conf); if (!o) return;
+      o.bookings.forEach((ln, i) => {
+        const item = { id: 'm:' + conf + ':' + i, roomName: ln.roomName, date: ln.date, start: ln.start, end: ln.end, paid: (o.paidAt ? VL.round2(ln.total) : 0), status: 'confirmed', confirmation: conf, hoursOut: Math.round(hoursUntil(ln.date, ln.start)), manual: true, isPaid: !!o.paidAt };
+        if (ln.date >= today) upcoming.push(item); else past.push(item);
+      });
+    });
+  } catch (e) { console.error('[account] manual bookings merge error:', e.message); }
+  const byDate = (a, b) => (a.date + String(a.start).padStart(5, '0')).localeCompare(b.date + String(b.start).padStart(5, '0'));
+  upcoming.sort(byDate); past.sort(byDate).reverse();
   const resp = { ok: true, name: a ? a.name : '', email, credit: creditBalance(email), upcoming, past, cancelWindowHours: 48 };
   if (isOwnerEmail(email)) { const u = usageSummaries(); resp.ownerUsage = u.owner; resp.compUsage = u.comp; }
   res.json(resp);
