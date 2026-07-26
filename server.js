@@ -559,7 +559,7 @@ app.get('/api/receipt', (req, res) => {
   res.json({
     confirmation: c, name: rows[0].customer_name, email: rows[0].customer_email,
     paidAt: rows[0].created_at, paymentMode: rows[0].payment_mode,
-    business: { name: 'The Vintage Loft Studios Inc.', address: '207 Dundas St West, Whitby, ON', phone: '905-767-2099', hstNumber: process.env.HST_NUMBER || '' },
+    business: { name: 'The Vintage Loft Studios Inc.', address: '207 Dundas St West, Whitby, ON', phone: '905-767-2099', hstNumber: process.env.HST_NUMBER || '74413-4404 RT0001' },
     items,
     totals: { pre: VL.round2(t.pre), hst: VL.round2(t.hst), total: VL.round2(t.total), paid: VL.round2(t.paid), discount: VL.round2(t.discount) }
   });
