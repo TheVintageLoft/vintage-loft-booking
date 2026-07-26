@@ -67,6 +67,8 @@ try { db.exec("ALTER TABLE blocks ADD COLUMN addons_json TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN intake TEXT"); } catch (_) {}
 // how a booking was settled: null/'paid' = normal paid booking; 'owner' = owner's own studio use (no charge)
 try { db.exec("ALTER TABLE blocks ADD COLUMN pay_mode TEXT"); } catch (_) {}
+// day-before reminder guard for manual bookings (mirrors bookings.reminder_sent)
+try { db.exec("ALTER TABLE blocks ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
 // manual-booking payment state: a stable confirmation number, amount paid, and when
 try { db.exec("ALTER TABLE blocks ADD COLUMN confirmation TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN paid REAL"); } catch (_) {}
@@ -1066,6 +1068,22 @@ app.post('/api/admin/payment-link', admin, async (req, res) => {
   res.json({ ok: true, url: out.url, test: !!out.test });
 });
 
+// The whole manual booking (all studios sharing one confirmation): grand total + the raw line items,
+// so the Staff App can prefill a single payment link / mark-paid amount that covers every studio.
+app.get('/api/admin/order', admin, (req, res) => {
+  const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.query.id);
+  if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
+  const conf = b.confirmation || ensureBlockConfirmation(b.id);
+  const blocks = db.prepare(`SELECT * FROM blocks WHERE confirmation=? AND kind='booking' ORDER BY id`).all(conf);
+  let grand = 0;
+  const items = blocks.map(bl => {
+    let a = { items: {}, options: {} }; try { a = JSON.parse(bl.addons_json || '{}'); } catch (_) {}
+    try { grand += blockQuote(bl).total; } catch (_) {}
+    return { room: bl.room_id, date: bl.date, start: bl.start, end: bl.end, addons: a.items || {}, addonOptions: a.options || {} };
+  });
+  res.json({ ok: true, confirmation: conf, count: blocks.length, grandTotal: VL.round2(grand), items });
+});
+
 // Manual booking: send the "reserved — payment due" email (includes the pay link if one exists).
 app.post('/api/admin/send-reserved', admin, async (req, res) => {
   const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);
@@ -1208,8 +1226,23 @@ async function sendRemindersForTomorrow() {
     if (r.ok) { const mark = db.prepare(`UPDATE bookings SET reminder_sent=1 WHERE id=?`); g.forEach(b => mark.run(b.id)); sent++; }
     else if (!r.skipped) failed++;
   }
+  // Manual bookings (blocks): same day-before reminder, grouped by confirmation so a multi-studio manual order gets one email.
+  let mrows = [];
+  try { mrows = db.prepare(`SELECT * FROM blocks WHERE date=? AND kind='booking' AND reminder_sent=0`).all(target); } catch (_) {}
+  const mgroups = {};
+  for (const r of mrows) { const k = r.confirmation || ('b:' + r.id); (mgroups[k] = mgroups[k] || []).push(r); }
+  for (const k of Object.keys(mgroups)) {
+    const g = mgroups[k]; let email = '', name = '';
+    try { const c = JSON.parse(g[0].client || '{}'); email = c.email || ''; } catch (_) {}
+    name = g[0].reason || 'there';
+    if (!email) { const mark = db.prepare(`UPDATE blocks SET reminder_sent=1 WHERE id=?`); g.forEach(b => mark.run(b.id)); continue; }  // no email: don't retry forever
+    const bookingsForEmail = g.map(b => ({ roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end }));
+    const r = await sendEmail({ to: email, subject: 'See you tomorrow at The Vintage Loft!', html: reminderEmail({ name, confirmation: g[0].confirmation || '', bookings: bookingsForEmail }) });
+    if (r.ok) { const mark = db.prepare(`UPDATE blocks SET reminder_sent=1 WHERE id=?`); g.forEach(b => mark.run(b.id)); sent++; }
+    else if (!r.skipped) failed++;
+  }
   if (sent) console.log('[email] sent ' + sent + ' reminder(s) for ' + target);
-  return { date: target, reservations: Object.keys(groups).length, sent, failed };
+  return { date: target, reservations: Object.keys(groups).length + Object.keys(mgroups).length, sent, failed };
 }
 
 // Manual trigger (handy for testing, or an external cron as a backup). Same logic as the auto-run.

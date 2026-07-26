@@ -181,6 +181,15 @@
       <div id="addonPick"></div>
     </div>
 
+    <div id="pendingWrap" style="display:none;margin-top:18px">
+      <label class="fld">Studios on this booking</label>
+      <div id="pendingList"></div>
+    </div>
+
+    <div style="margin-top:14px">
+      <a id="addLine" style="font-family:Arial,sans-serif;font-size:14px;color:#7c7268;cursor:pointer;text-decoration:underline">+ Add another studio or time to this booking</a>
+    </div>
+
     <button id="go">Add to calendar</button>
     <div id="msg"></div>
   </div>
@@ -383,26 +392,70 @@ function renderAddonPicker(){
   Array.prototype.forEach.call(box.querySelectorAll('select[data-aopt]'),function(sl){ sl.addEventListener('change',function(){ addonSel.options[sl.getAttribute('data-aopt')]=sl.value; renderAddonPicker(); }); });
 }
 
+// ----- multi-studio manual booking: accumulate studio "lines" so several studios (each with its own
+// date/time/add-ons) go onto ONE confirmation, one payment link, one confirmation + reminder. -----
+var pendingLines=[];
+function lineText(l){
+  var extra=''; try{ var ks=Object.keys(l.addons||{}).filter(function(k){return l.addons[k]>0;}); if(ks.length) extra=' · +add-ons'; }catch(e){}
+  return rname(l.room)+' · '+fdate(l.date)+' · '+tLabel(l.start)+' – '+tLabel(l.end)+extra;
+}
+function renderPending(){
+  var wrap=document.getElementById('pendingWrap'), list=document.getElementById('pendingList');
+  if(!wrap||!list) return;
+  if(!pendingLines.length){ wrap.style.display='none'; list.innerHTML=''; return; }
+  wrap.style.display='block'; list.innerHTML='';
+  pendingLines.forEach(function(l,i){
+    var row=document.createElement('div'); row.style.cssText='display:flex;justify-content:space-between;align-items:center;gap:10px;background:#faf9f7;border:1px solid #eee;border-radius:8px;padding:8px 12px;margin:6px 0;font-family:Arial,sans-serif;font-size:14px';
+    var span=document.createElement('span'); span.textContent=lineText(l);
+    var rm=document.createElement('a'); rm.textContent='Remove'; rm.style.cssText=LINKSTYLE+';color:#a33'; rm.onclick=function(){ pendingLines.splice(i,1); renderPending(); };
+    row.appendChild(span); row.appendChild(rm); list.appendChild(row);
+  });
+}
+function currentLines(){
+  var date=document.getElementById('date').value;
+  var rooms=chosenRooms();
+  var s=+document.getElementById('start').value, e=+document.getElementById('end').value;
+  var single=rooms.length===1;
+  return rooms.map(function(r){ return {room:r,date:date,start:s,end:e,addons:single?Object.assign({},addonSel.items):{},addonOptions:single?Object.assign({},addonSel.options):{}}; });
+}
+function validateCurrent(msg){
+  var date=document.getElementById('date').value;
+  var rooms=chosenRooms();
+  var s=+document.getElementById('start').value, e=+document.getElementById('end').value;
+  if(!date){ showMsg(msg,'Please choose a date.','err'); return false; }
+  if(!rooms.length){ showMsg(msg,'Please choose at least one studio.','err'); return false; }
+  if(!(e>s)){ showMsg(msg,'The end time must be after the start time.','err'); return false; }
+  return true;
+}
+document.getElementById('addLine').onclick=function(){
+  var msg=document.getElementById('msg');
+  if(!validateCurrent(msg)) return;
+  currentLines().forEach(function(l){ pendingLines.push(l); });
+  renderPending();
+  setAll(false); addonSel={items:{},options:{}}; renderAddonPicker();
+  showMsg(msg,'Added to this booking. Pick the next studio and time, then click <b>Add to calendar</b> to save them all on one confirmation.','info');
+};
+
 document.getElementById('go').onclick=function(){
   var msg=document.getElementById('msg');
   var key=getKey();
   var kind=document.getElementById('entrykind').value==='booking'?'booking':'hold';
-  var date=document.getElementById('date').value;
-  var rooms=chosenRooms();
-  var s=+document.getElementById('start').value, e=+document.getElementById('end').value;
   var reason=document.getElementById('reason').value.trim()||(kind==='booking'?'Booking':'Private hold');
   var phone=(document.getElementById('clientPhone').value||'').trim();
   var email=(document.getElementById('clientEmail').value||'').trim();
   var sendConfirm=document.getElementById('sendConfirm').checked;
-  if(!date) return showMsg(msg,'Please choose a date.','err');
-  if(!rooms.length) return showMsg(msg,'Please choose at least one studio.','err');
-  if(!(e>s)) return showMsg(msg,'The end time must be after the start time.','err');
+  // combine any already-added studios with the one currently on the form
+  var lines=pendingLines.slice();
+  var curRooms=chosenRooms();
+  if(curRooms.length){ if(!validateCurrent(msg)) return; currentLines().forEach(function(l){ lines.push(l); }); }
+  if(!lines.length){ return showMsg(msg,'Please choose at least one studio (or add one above).','err'); }
   var client=(phone||email)?{phone:phone,email:email}:null;
-  var blocks=rooms.map(function(r){return {room:r,date:date,start:s,end:e,reason:reason,addons:(rooms.length===1?addonSel.items:{}),addonOptions:(rooms.length===1?addonSel.options:{})};});
+  var blocks=lines.map(function(l){ return {room:l.room,date:l.date,start:l.start,end:l.end,reason:reason,addons:l.addons,addonOptions:l.addonOptions}; });
   var payload={key:key,blocks:blocks,kind:kind};
   if(client) payload.client=client;
   if(kind==='booking'){ var intake=collectIntake(); if(intake) payload.intake=intake; }
   if(kind==='booking' && email && sendConfirm) payload.sendConfirmation=true;
+  var lastDate=lines[lines.length-1].date;
   var btn=this; btn.disabled=true; btn.textContent='Saving…';
   showMsg(msg,'Saving…','info');
   fetch('/api/admin/import-blocks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
@@ -413,9 +466,12 @@ document.getElementById('go').onclick=function(){
       var added=x.d.inserted, skip=x.d.skipped;
       var word=kind==='booking'?'Booking':'Hold';
       var emailed=(payload.sendConfirmation)?' A confirmation was emailed to the client.':'';
-      showMsg(msg,'<b>'+word+' saved.</b> '+added+' studio'+(added===1?'':'s')+' for '+fdate(date)+', '+tLabel(s)+' – '+tLabel(e)+'.'+(skip?' ('+skip+' already on the calendar.)':'')+emailed,'ok');
+      var oneConf=(kind==='booking'&&added>1)?' All on one confirmation.':'';
+      showMsg(msg,'<b>'+word+' saved.</b> '+added+' studio'+(added===1?'':'s')+' booked.'+oneConf+(skip?' ('+skip+' already on the calendar.)':'')+emailed,'ok');
+      pendingLines=[]; renderPending();
       document.getElementById('clientPhone').value=''; document.getElementById('clientEmail').value=''; document.getElementById('reason').value=''; clearIntake();
-      CAL.sel=date; loadCalendar(); loadClients();
+      setAll(false); addonSel={items:{},options:{}}; renderAddonPicker();
+      CAL.sel=lastDate; loadCalendar(); loadClients();
     })
     .catch(function(err){btn.disabled=false;btn.textContent='Add to calendar';showMsg(msg,'Network error: '+err.message,'err');});
 };
@@ -586,21 +642,28 @@ function selectDay(iso){
             crow.appendChild(clab); crow.appendChild(code); crow.appendChild(applyBtn); crow.appendChild(cmsg);
             pw.appendChild(crow);
             var calc=document.createElement('div'); calc.className='meta'; calc.style.marginTop='6px'; pw.appendChild(calc);
+            var plItems=null, plCount=1, plGrand=null;
+            function ensurePlOrder(cb){
+              if(plItems){ cb(); return; }
+              fetch('/api/admin/order?key='+encodeURIComponent(getKey())+'&id='+entry.id).then(function(r){return r.json();}).then(function(o){
+                if(o&&o.ok&&o.items&&o.items.length){ plItems=o.items; plCount=o.count||o.items.length; plGrand=o.grandTotal; }
+                else { plItems=[{room:entry.room,date:iso,start:entry.start,end:entry.end,addons:entryAddons(entry).items,addonOptions:entryAddons(entry).options}]; plCount=1; }
+                cb();
+              }).catch(function(){ plItems=[{room:entry.room,date:iso,start:entry.start,end:entry.end,addons:entryAddons(entry).items,addonOptions:entryAddons(entry).options}]; plCount=1; cb(); });
+            }
             function recalcBase(){
               calc.textContent='Calculating price…';
-              fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:entry.room,date:iso,start:entry.start,end:entry.end,addons:entryAddons(entry).items,addonOptions:entryAddons(entry).options})})
-                .then(function(r){return r.json();})
-                .then(function(q){
-                  if(q&&typeof q.total==='number'){ amt.value=q.total.toFixed(2);
-                    calc.innerHTML=esc(rname(entry.room))+' · '+hrsTxt(entry.end-entry.start)+' → $'+q.roomTotal.toFixed(2)+' + HST $'+q.hst.toFixed(2)+' = <b>$'+q.total.toFixed(2)+'</b>. Edit if you need to add anything.';
-                  } else { calc.textContent='Enter the amount to charge.'; }
-                }).catch(function(){ calc.textContent='Enter the amount to charge.'; });
+              ensurePlOrder(function(){
+                if(plGrand!=null){ amt.value=plGrand.toFixed(2); calc.innerHTML=(plCount>1?(plCount+' studios'):esc(rname(entry.room)))+' → <b>$'+plGrand.toFixed(2)+'</b> (incl HST)'+(plCount>1?' for the whole booking':'')+'. Edit if you need to.'; return; }
+                fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:entry.room,date:iso,start:entry.start,end:entry.end,addons:entryAddons(entry).items,addonOptions:entryAddons(entry).options})}).then(function(r){return r.json();}).then(function(q){ if(q&&typeof q.total==='number'){ amt.value=q.total.toFixed(2); calc.innerHTML=esc(rname(entry.room))+' · '+hrsTxt(entry.end-entry.start)+' → <b>$'+q.total.toFixed(2)+'</b>. Edit if you need to add anything.'; } else { calc.textContent='Enter the amount to charge.'; } }).catch(function(){ calc.textContent='Enter the amount to charge.'; });
+              });
             }
             applyBtn.onclick=function(){
               var cv=code.value.trim();
               if(!cv){ cmsg.textContent=''; entry._code=null; entry._codeTotal=null; recalcBase(); return; }
               cmsg.style.color='#8a8375'; cmsg.textContent='Checking…';
-              fetch('/api/apply-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:cv,items:[{room:entry.room,date:iso,start:entry.start,end:entry.end,addons:entryAddons(entry).items,addonOptions:entryAddons(entry).options}]})})
+              ensurePlOrder(function(){
+              fetch('/api/apply-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:cv,items:plItems})})
                 .then(function(r){return r.json().then(function(dd){return{ok:r.ok,d:dd};});})
                 .then(function(x){
                   if(!x.ok){ cmsg.style.color='#a33'; cmsg.textContent=(x.d&&x.d.error)||'Invalid code'; return; }
@@ -609,9 +672,10 @@ function selectDay(iso){
                     amt.value=bd.grandTotal.toFixed(2);
                     entry._code=cv.toUpperCase(); entry._codeTotal=bd.grandTotal;
                     cmsg.style.color='#2e6b34'; cmsg.textContent='Applied · saved $'+(bd.discountTotal||0).toFixed(2);
-                    calc.innerHTML=esc(rname(entry.room))+' · '+hrsTxt(entry.end-entry.start)+' with <b>'+esc(cv.toUpperCase())+'</b> → <b>$'+bd.grandTotal.toFixed(2)+'</b> (incl HST).';
+                    calc.innerHTML=(plCount>1?(plCount+' studios'):esc(rname(entry.room)))+' with <b>'+esc(cv.toUpperCase())+'</b> → <b>$'+bd.grandTotal.toFixed(2)+'</b> (incl HST).';
                   } else { cmsg.style.color='#2e6b34'; cmsg.textContent='Code valid'; }
                 }).catch(function(){ cmsg.style.color='#a33'; cmsg.textContent='Network error'; });
+              });
             };
             code.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); applyBtn.onclick(); } });
             recalcBase();
@@ -659,8 +723,20 @@ function selectDay(iso){
               crow.appendChild(clab); crow.appendChild(cin); crow.appendChild(capply);
               box.insertBefore(crow, msg);
               var aj=entryAddons(entry);
-              function fillFull(){ busy('Getting the full price...'); fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:entry.room,date:iso,start:entry.start,end:entry.end,addons:aj.items,addonOptions:aj.options})}).then(function(r){return r.json();}).then(function(q){ if(q&&typeof q.total==='number'){ inp.value=q.total.toFixed(2); busy('Full price is $'+q.total.toFixed(2)+' - change it if they paid a different amount (e.g. a discount).'); } else { msg.textContent=''; } inp.focus(); }).catch(function(){ msg.textContent=''; inp.focus(); }); }
-              function applyFormCode(){ var cv=cin.value.trim(); if(!cv){ entry._code=null; entry._codeTotal=null; fillFull(); return; } busy('Checking '+cv.toUpperCase()+'…'); fetch('/api/apply-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:cv,items:[{room:entry.room,date:iso,start:entry.start,end:entry.end,addons:aj.items,addonOptions:aj.options}]})}).then(function(r){return r.json().then(function(dd){return{ok:r.ok,d:dd};});}).then(function(x){ if(!x.ok){ err((x.d&&x.d.error)||'That code isn\'t valid.'); return; } var bd=x.d.breakdown; if(bd&&typeof bd.grandTotal==='number'){ inp.value=bd.grandTotal.toFixed(2); entry._code=cv.toUpperCase(); entry._codeTotal=bd.grandTotal; okm(cv.toUpperCase()+' applied · they pay $'+bd.grandTotal.toFixed(2)+' (saved $'+(bd.discountTotal||0).toFixed(2)+'). Change the amount if needed.'); } else { okm('Code valid.'); } }).catch(function(){ err('Network error'); }); }
+              var orderItems=null, orderCount=1, orderGrand=null;
+              function ensureOrder(cb){
+                if(orderItems){ cb(); return; }
+                fetch('/api/admin/order?key='+encodeURIComponent(getKey())+'&id='+entry.id).then(function(r){return r.json();}).then(function(o){
+                  if(o&&o.ok&&o.items&&o.items.length){ orderItems=o.items; orderCount=o.count||o.items.length; orderGrand=o.grandTotal; }
+                  else { orderItems=[{room:entry.room,date:iso,start:entry.start,end:entry.end,addons:aj.items,addonOptions:aj.options}]; orderCount=1; }
+                  cb();
+                }).catch(function(){ orderItems=[{room:entry.room,date:iso,start:entry.start,end:entry.end,addons:aj.items,addonOptions:aj.options}]; orderCount=1; cb(); });
+              }
+              function fillFull(){ busy('Getting the full price...'); ensureOrder(function(){
+                if(orderGrand!=null){ inp.value=orderGrand.toFixed(2); busy((orderCount>1?('Full price for all '+orderCount+' studios is $'):'Full price is $')+orderGrand.toFixed(2)+' - change it if they paid a different amount (e.g. a discount).'); inp.focus(); return; }
+                fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:entry.room,date:iso,start:entry.start,end:entry.end,addons:aj.items,addonOptions:aj.options})}).then(function(r){return r.json();}).then(function(q){ if(q&&typeof q.total==='number'){ inp.value=q.total.toFixed(2); busy('Full price is $'+q.total.toFixed(2)+' - change it if they paid a different amount (e.g. a discount).'); } else { msg.textContent=''; } inp.focus(); }).catch(function(){ msg.textContent=''; inp.focus(); });
+              }); }
+              function applyFormCode(){ var cv=cin.value.trim(); if(!cv){ entry._code=null; entry._codeTotal=null; fillFull(); return; } busy('Checking '+cv.toUpperCase()+'…'); ensureOrder(function(){ fetch('/api/apply-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:cv,items:orderItems})}).then(function(r){return r.json().then(function(dd){return{ok:r.ok,d:dd};});}).then(function(x){ if(!x.ok){ err((x.d&&x.d.error)||'That code isn\'t valid.'); return; } var bd=x.d.breakdown; if(bd&&typeof bd.grandTotal==='number'){ inp.value=bd.grandTotal.toFixed(2); entry._code=cv.toUpperCase(); entry._codeTotal=bd.grandTotal; okm(cv.toUpperCase()+' applied · '+(orderCount>1?('all '+orderCount+' studios: $'):'they pay $')+bd.grandTotal.toFixed(2)+' (saved $'+(bd.discountTotal||0).toFixed(2)+'). Change the amount if needed.'); } else { okm('Code valid.'); } }).catch(function(){ err('Network error'); }); }); }
               capply.onclick=applyFormCode;
               cin.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); applyFormCode(); } });
               if(entry._code && typeof entry._codeTotal==='number'){ cin.value=entry._code; inp.value=entry._codeTotal.toFixed(2); okm('Prefilled the '+entry._code+' price $'+entry._codeTotal.toFixed(2)+'. Just click Confirm paid, or change the amount.'); inp.focus(); }
