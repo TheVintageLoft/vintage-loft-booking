@@ -1040,6 +1040,19 @@ app.post('/api/admin/mark-paid', admin, (req, res) => {
   res.json({ ok: true, paid: amt });
 });
 
+// One-time pre-launch helper: mark every currently-unpaid manual booking as paid at its full computed price.
+app.post('/api/admin/mark-all-paid', admin, (req, res) => {
+  const rows = db.prepare(`SELECT id, room_id, date, start, end, addons_json FROM blocks WHERE kind='booking' AND paid_at IS NULL`).all();
+  let marked = 0;
+  for (const b of rows) {
+    const conf = ensureBlockConfirmation(b.id);
+    let total = 0; try { total = blockQuote(b).total; } catch (_) {}
+    db.prepare(`UPDATE blocks SET paid=?, paid_at=? WHERE confirmation=? AND kind='booking'`).run(VL.round2(total), nowISO(), conf);
+    marked++;
+  }
+  res.json({ ok: true, marked });
+});
+
 // Manual booking: email the paid receipt (only once marked paid).
 app.post('/api/admin/send-receipt', admin, async (req, res) => {
   const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);

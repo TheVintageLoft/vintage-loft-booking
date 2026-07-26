@@ -165,6 +165,10 @@
     <p class="muted" style="margin-top:0">Remove the built-in sample bookings and the maintenance block the system created during setup. Safe: it only touches demo data, not real bookings or your holds.</p>
     <button id="cleardemo" style="margin-top:4px">Remove demo / sample data</button>
     <div id="demomsg" class="muted" style="margin-top:10px"></div>
+    <hr style="border:0;border-top:1px solid #eee;margin:18px 0">
+    <p class="muted" style="margin-top:0">Mark <b>every existing booking</b> as paid at its full price (for bookings already paid before go-live). Do this once, then just edit the few that had a discount. Holds are not touched.</p>
+    <button id="markallpaid" style="margin-top:4px">Mark all bookings as paid</button>
+    <div id="markallmsg" class="muted" style="margin-top:10px"></div>
   </div>
 </div>
 
@@ -572,20 +576,31 @@ function selectDay(iso){
             var head=document.createElement('div'); head.className='meta'; head.style.marginBottom='7px';
             head.innerHTML='<b>Client emails &amp; payment</b> &nbsp; '+(paid?('<span style="color:#2e6b34;font-weight:bold">Paid'+(entry.paid!=null?(' $'+Number(entry.paid).toFixed(2)):'')+'</span>'):'<span style="color:#a37b2b;font-weight:bold">Unpaid</span>');
             box.appendChild(head);
-            if(!email){ var n=document.createElement('div'); n.className='meta'; n.textContent='Add a client email (Edit the booking) to send emails or a receipt.'; box.appendChild(n); return; }
             var row=document.createElement('div'); row.style.cssText='display:flex;gap:16px;flex-wrap:wrap;align-items:center';
             var msg=document.createElement('div'); msg.className='meta'; msg.style.marginTop='6px';
             function busy(t){ msg.style.color='#8a8375'; msg.textContent=t; }
             function okm(t){ msg.style.color='#2e6b34'; msg.textContent=t; }
             function err(t){ msg.style.color='#a33'; msg.textContent=t; }
             function A(label,fn,color){ var a=document.createElement('a'); a.textContent=label; a.style.cssText=LINKSTYLE+(color?(';color:'+color):''); a.onclick=fn; row.appendChild(a); }
-            A('Send reserved email', function(){ busy('Sending...'); post('/api/admin/send-reserved').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Reserved email sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
-            if(!paid){
-              A('Mark as paid', function(){ busy('Saving...'); post('/api/admin/mark-paid').then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=x2.d.paid; entry.paid_at='now'; render(); } else err((x2.d&&x2.d.error)||'Could not save.'); }); });
-            } else {
-              A('Send receipt', function(){ busy('Sending...'); post('/api/admin/send-receipt').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Receipt sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
-              A('Mark unpaid', function(){ busy('Saving...'); post('/api/admin/mark-paid',{unpay:true}).then(function(x2){ if(x2.ok){ entry.paid=null; entry.paid_at=null; render(); } else err('Could not update.'); }); }, '#a33');
+            function markPaidForm(){
+              row.innerHTML='';
+              var d=document.createElement('span'); d.className='meta'; d.textContent='Amount paid $';
+              var inp=document.createElement('input'); inp.type='number'; inp.step='0.01'; inp.min='0'; inp.placeholder='0.00'; inp.style.cssText='width:110px;font-family:Arial,sans-serif;font-size:14px;padding:7px 9px;border:1px solid #ddd;border-radius:8px';
+              var conf=document.createElement('button'); conf.className='del'; conf.style.margin='0'; conf.textContent='Confirm paid';
+              var canc=document.createElement('a'); canc.textContent='Cancel'; canc.style.cssText=LINKSTYLE;
+              row.appendChild(d); row.appendChild(inp); row.appendChild(conf); row.appendChild(canc);
+              busy('Getting the full price...');
+              var aj={items:{},options:{}}; try{ aj=JSON.parse(entry.addons_json||'{}'); }catch(e){}
+              fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:entry.room,date:iso,start:entry.start,end:entry.end,addons:aj.items||{},addonOptions:aj.options||{}})}).then(function(r){return r.json();}).then(function(q){ if(q&&typeof q.total==='number'){ inp.value=q.total.toFixed(2); busy('Full price is $'+q.total.toFixed(2)+' - change it if they paid a different amount (e.g. a discount).'); } else { msg.textContent=''; } inp.focus(); }).catch(function(){ msg.textContent=''; inp.focus(); });
+              conf.onclick=function(){ var v=parseFloat(inp.value); if(!(v>=0)){ err('Enter a dollar amount.'); return; } busy('Saving...'); post('/api/admin/mark-paid',{paid:v}).then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=x2.d.paid; entry.paid_at='now'; render(); } else err((x2.d&&x2.d.error)||'Could not save.'); }); };
+              canc.onclick=function(){ render(); };
             }
+            if(!paid){ A('Mark as paid', function(){ markPaidForm(); }); }
+            else { A('Mark unpaid', function(){ busy('Saving...'); post('/api/admin/mark-paid',{unpay:true}).then(function(x2){ if(x2.ok){ entry.paid=null; entry.paid_at=null; render(); } else err('Could not update.'); }); }, '#a33'); }
+            if(email){
+              if(!paid) A('Send reserved email', function(){ busy('Sending...'); post('/api/admin/send-reserved').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Reserved email sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
+              else A('Send receipt', function(){ busy('Sending...'); post('/api/admin/send-receipt').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Receipt sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
+            } else { var n=document.createElement('span'); n.className='meta'; n.textContent='(add a client email to send emails/receipts)'; row.appendChild(n); }
             box.appendChild(row); box.appendChild(msg);
           }
           render();
@@ -788,6 +803,19 @@ document.getElementById('cleardemo').onclick=function(){
       loadCalendar();
     })
     .catch(function(err){btn.disabled=false;btn.textContent='Remove demo / sample data';dm.textContent='Network error: '+err.message;});
+};
+document.getElementById('markallpaid').onclick=function(){
+  var mm=document.getElementById('markallmsg'); var btn=this;
+  if(btn.getAttribute('data-armed')!=='1'){ btn.setAttribute('data-armed','1'); btn.textContent='Click again to confirm'; mm.style.color='#a37b2b'; mm.textContent='This marks every unpaid booking as paid at full price.'; setTimeout(function(){ if(btn.getAttribute('data-armed')==='1'){ btn.setAttribute('data-armed',''); btn.textContent='Mark all bookings as paid'; mm.textContent=''; } },4000); return; }
+  btn.setAttribute('data-armed',''); btn.disabled=true; btn.textContent='Marking...'; mm.style.color='#8a8375'; mm.textContent='';
+  fetch('/api/admin/mark-all-paid',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey()})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(x){ btn.disabled=false; btn.textContent='Mark all bookings as paid';
+      if(!x.ok){ mm.style.color='#a33'; mm.textContent=(x.d&&x.d.error)||'Could not update.'; return; }
+      mm.innerHTML='<b style="color:#2e6b34">Done.</b> Marked '+x.d.marked+' booking'+(x.d.marked===1?'':'s')+' as paid. Now open any that had a discount and edit the amount.';
+      loadCalendar();
+    })
+    .catch(function(err){ btn.disabled=false; btn.textContent='Mark all bookings as paid'; mm.style.color='#a33'; mm.textContent='Network error: '+err.message; });
 };
 
 
