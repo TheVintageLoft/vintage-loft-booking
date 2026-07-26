@@ -380,7 +380,7 @@ function loadCalendar(){
     fetch('/api/admin/bookings?key='+encodeURIComponent(getKey())).then(chk)
   ]).then(function(res){
     var idx={};
-    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||''}); });
+    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,addons_json:b.addons_json||''}); });
     (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||''}); });
     CAL.items=idx; cm.textContent='';
     renderMonth();
@@ -559,6 +559,37 @@ function selectDay(iso){
             amt.focus();
           }
           draw(); card.appendChild(pw);
+        })(x);
+      }
+      if(x.source==='block' && x.kind==='booking'){
+        (function(entry){
+          var email=''; try{ var cc=JSON.parse(entry.client||'{}'); email=cc.email||''; }catch(e){}
+          var box=document.createElement('div'); box.style.cssText='margin-top:10px;padding-top:10px;border-top:1px solid #f0eeeb';
+          function post(url,body){ return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({key:getKey(),id:entry.id},body||{}))}).then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});}); }
+          function render(){
+            box.innerHTML='';
+            var paid=!!entry.paid_at;
+            var head=document.createElement('div'); head.className='meta'; head.style.marginBottom='7px';
+            head.innerHTML='<b>Client emails &amp; payment</b> &nbsp; '+(paid?('<span style="color:#2e6b34;font-weight:bold">Paid'+(entry.paid!=null?(' $'+Number(entry.paid).toFixed(2)):'')+'</span>'):'<span style="color:#a37b2b;font-weight:bold">Unpaid</span>');
+            box.appendChild(head);
+            if(!email){ var n=document.createElement('div'); n.className='meta'; n.textContent='Add a client email (Edit the booking) to send emails or a receipt.'; box.appendChild(n); return; }
+            var row=document.createElement('div'); row.style.cssText='display:flex;gap:16px;flex-wrap:wrap;align-items:center';
+            var msg=document.createElement('div'); msg.className='meta'; msg.style.marginTop='6px';
+            function busy(t){ msg.style.color='#8a8375'; msg.textContent=t; }
+            function okm(t){ msg.style.color='#2e6b34'; msg.textContent=t; }
+            function err(t){ msg.style.color='#a33'; msg.textContent=t; }
+            function A(label,fn,color){ var a=document.createElement('a'); a.textContent=label; a.style.cssText=LINKSTYLE+(color?(';color:'+color):''); a.onclick=fn; row.appendChild(a); }
+            A('Send reserved email', function(){ busy('Sending...'); post('/api/admin/send-reserved').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Reserved email sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
+            if(!paid){
+              A('Mark as paid', function(){ busy('Saving...'); post('/api/admin/mark-paid').then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=x2.d.paid; entry.paid_at='now'; render(); } else err((x2.d&&x2.d.error)||'Could not save.'); }); });
+            } else {
+              A('Send receipt', function(){ busy('Sending...'); post('/api/admin/send-receipt').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Receipt sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
+              A('Mark unpaid', function(){ busy('Saving...'); post('/api/admin/mark-paid',{unpay:true}).then(function(x2){ if(x2.ok){ entry.paid=null; entry.paid_at=null; render(); } else err('Could not update.'); }); }, '#a33');
+            }
+            box.appendChild(row); box.appendChild(msg);
+          }
+          render();
+          card.appendChild(box);
         })(x);
       }
       var lbl=fdate(iso)+'  ·  '+r[1]+'  ·  '+tLabel(x.start)+' – '+tLabel(x.end)+'  ·  '+x.label;

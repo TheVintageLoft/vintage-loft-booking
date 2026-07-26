@@ -63,6 +63,10 @@ try { db.exec("ALTER TABLE bookings ADD COLUMN pay_link TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN client TEXT"); } catch (_) {}
 // add-ons chosen on a manually-added booking ({items:{id:qty}, options:{id:label}})
 try { db.exec("ALTER TABLE blocks ADD COLUMN addons_json TEXT"); } catch (_) {}
+// manual-booking payment state: a stable confirmation number, amount paid, and when
+try { db.exec("ALTER TABLE blocks ADD COLUMN confirmation TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE blocks ADD COLUMN paid REAL"); } catch (_) {}
+try { db.exec("ALTER TABLE blocks ADD COLUMN paid_at TEXT"); } catch (_) {}
 // a client directory (imported from Acuity) that powers name autocomplete
 try { db.exec(`CREATE TABLE IF NOT EXISTS clients (name_key TEXT PRIMARY KEY, name TEXT, phone TEXT, email TEXT)`); } catch (_) {}
 // client accounts (email + password), login sessions, and a credit-wallet ledger
@@ -284,6 +288,27 @@ function confirmationEmail({ name, confirmation, bookings, grandTotal, discountT
   return emailShell(inner);
 }
 
+// Sent for a manual booking BEFORE payment: reserved + a Pay-now button, no receipt.
+function reservedEmail({ name, confirmation, bookings, amountDue, payUrl }) {
+  const payBtn = payUrl ? `<div style="text-align:center;margin:0 0 20px"><a href="${payUrl}" style="display:inline-block;background:#7c7268;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;padding:13px 30px;border-radius:8px">Pay now &middot; ${emMoney(amountDue)}</a></div>` : '';
+  const inner = `
+    <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(name)},</p>
+    <p style="margin:0 0 14px;line-height:1.6">Your studio time at The Vintage Loft is <b>reserved</b>. To confirm your booking, please complete payment${payUrl ? ' using the button below' : ' with the link we\'ll send you'}.</p>
+    <div style="background:#f6f5f3;border-radius:10px;padding:16px 18px;margin:0 0 18px">
+      <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#9a938a;font-family:Arial,sans-serif;margin-bottom:10px">Your reservation &middot; ${confirmation}</div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="font-size:15px">
+        ${bookingRowsHtml(bookings)}
+        <tr><td style="padding:10px 0 0"><b>Amount due</b></td><td align="right" style="padding:10px 0 0"><b>${emMoney(amountDue)}</b></td></tr>
+      </table>
+    </div>
+    ${payBtn}
+    <p style="margin:0 0 18px;line-height:1.6;font-family:Arial,sans-serif;font-size:14px;color:#6b6459">Once your payment is received, we'll email your receipt. Questions? Call or text 905-767-2099.</p>
+    <div style="background:#f6f5f3;border:1px solid #eae8e4;border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.6;color:#6b6459;font-family:Arial,sans-serif">
+      <b>Cancellation policy:</b> We do not give refunds for bookings, however we give full studio credit if cancelled or rescheduled with 48 hours or more notice. (Special holiday sets have a different cancellation policy.)
+    </div>`;
+  return emailShell(inner);
+}
+
 function reminderEmail({ name, confirmation, bookings }) {
   const resBox = (bookings && bookings.length) ? `
     <div style="background:#f6f5f3;border-radius:10px;padding:16px 18px;margin:0 0 18px">
@@ -386,6 +411,28 @@ function addSetupBlock(bookingId, room, date, start) {
     .run(room, date, VL.round2(start - BUFFER), start, 'Early arrival setup', 'hold', bookingId, nowISO());
 }
 function removeSetupBlocks(bookingId) { db.prepare(`DELETE FROM blocks WHERE booking_id=?`).run(bookingId); }
+
+// ---- manual (staff) bookings: confirmation, price, and paid state (stored on the block rows) ----
+function newManualConfirmation() {
+  const prefix = 'VLM-' + torontoDateCode() + '-';
+  const n = (db.prepare(`SELECT COUNT(DISTINCT confirmation) c FROM blocks WHERE confirmation LIKE ?`).get(prefix + '%').c) || 0;
+  return prefix + (n + 1);
+}
+function blockQuote(b) {
+  let a = { items: {}, options: {} };
+  try { a = JSON.parse(b.addons_json || '{}'); } catch (_) {}
+  return VL.priceQuote(b.room_id, b.date, (b.end - b.start), a.items || {}, a.options || {});
+}
+// Gather all booking-kind block rows sharing a confirmation into one order (for reserved/receipt emails + /api/receipt).
+function manualOrder(conf) {
+  if (!conf) return null;
+  const blocks = db.prepare(`SELECT * FROM blocks WHERE confirmation=? AND kind='booking' ORDER BY id`).all(conf);
+  if (!blocks.length) return null;
+  let grandTotal = 0;
+  const bookings = blocks.map(b => { const q = blockQuote(b); grandTotal += q.total; return { roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end, hours: b.end - b.start, total: q.total, pre: q.pre, hst: q.hst, addonItems: q.addonItems }; });
+  let client = {}; try { client = JSON.parse(blocks[0].client || '{}'); } catch (_) {}
+  return { confirmation: conf, name: blocks[0].reason || '', email: (client.email || ''), bookings, grandTotal: VL.round2(grandTotal), paid: blocks[0].paid, paidAt: blocks[0].paid_at, payUrl: blocks.map(b => b.pay_link).find(Boolean) || null };
+}
 
 // clear any reservations left "pending" by an interrupted checkout on a prior run
 db.exec(`DELETE FROM bookings WHERE status='pending'`);
@@ -536,7 +583,24 @@ app.get('/api/receipt', (req, res) => {
   const e = String(req.query.e || '').trim().toLowerCase();
   if (!c) return res.status(400).json({ error: 'Missing confirmation number.' });
   const rows = db.prepare(`SELECT * FROM bookings WHERE confirmation=? AND status!='cancelled'`).all(c);
-  if (!rows.length) return res.status(404).json({ error: 'That receipt could not be found.' });
+  if (!rows.length) {
+    // Manually-added (staff) booking? Those live in the blocks table with a computed price.
+    const o = manualOrder(c);
+    if (!o) return res.status(404).json({ error: 'That receipt could not be found.' });
+    if (o.email && e && o.email.toLowerCase() !== e) return res.status(403).json({ error: 'This receipt is not available with that link.' });
+    const mitems = o.bookings.map(bk => {
+      const addons = (bk.addonItems || []).map(a => ({ name: a.name, option: a.option, qty: a.qty, amount: a.amount }));
+      const addonTotal = addons.reduce((s, a) => s + a.amount, 0);
+      return { roomName: bk.roomName, date: bk.date, start: bk.start, end: bk.end, hours: bk.hours, roomCharge: VL.round2(bk.pre - addonTotal), addons, pre: bk.pre, hst: bk.hst, total: bk.total, paid: bk.total, discount: 0 };
+    });
+    const mt = mitems.reduce((a, i) => ({ pre: a.pre + i.pre, hst: a.hst + i.hst, total: a.total + i.total }), { pre: 0, hst: 0, total: 0 });
+    return res.json({
+      confirmation: c, name: o.name, email: o.email, paidAt: o.paidAt, paymentMode: 'link',
+      business: { name: 'The Vintage Loft Studios Inc.', address: '207 Dundas St West, Whitby, ON', phone: '905-767-2099', hstNumber: process.env.HST_NUMBER || '74413-4404 RT0001' },
+      items: mitems,
+      totals: { pre: VL.round2(mt.pre), hst: VL.round2(mt.hst), total: VL.round2(mt.total), paid: (o.paid != null ? o.paid : VL.round2(mt.total)), discount: 0 }
+    });
+  }
   if (rows[0].customer_email && e && rows[0].customer_email.toLowerCase() !== e) return res.status(403).json({ error: 'This receipt is not available with that link.' });
   const items = rows.map(r => {
     const addons = []; let addonTotal = 0;
@@ -768,7 +832,8 @@ app.post('/api/admin/import-blocks', admin, (req, res) => {
   const client = req.body.client && (req.body.client.phone || req.body.client.email)
     ? JSON.stringify({ phone: (req.body.client.phone || '').toString().slice(0, 40), email: (req.body.client.email || '').toString().slice(0, 120) }) : null;
   const exists = db.prepare(`SELECT id FROM blocks WHERE room_id=? AND date=? AND start=? AND end=?`);
-  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,client,addons_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)`);
+  const manualConf = (defKind === 'booking' || items.some(b => b.kind === 'booking')) ? newManualConfirmation() : null;
+  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,client,addons_json,confirmation,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`);
   const retag = db.prepare(`UPDATE blocks SET kind=? WHERE id=?`);
   let inserted = 0, skipped = 0, bad = 0;
   const madeForEmail = [];
@@ -779,23 +844,21 @@ app.post('/api/admin/import-blocks', admin, (req, res) => {
     const found = exists.get(room, date, s, e);
     if (found) { retag.run(kind, found.id); skipped++; continue; }   // re-tag existing so labels can be corrected
     const addonsStr = JSON.stringify({ items: (b.addons && typeof b.addons === 'object') ? b.addons : {}, options: (b.addonOptions && typeof b.addonOptions === 'object') ? b.addonOptions : {} });
-    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, client, addonsStr, nowISO());
+    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, client, addonsStr, (kind === 'booking' ? manualConf : null), nowISO());
     inserted++;
     madeForEmail.push({ roomName: (VL.roomById(room) || {}).name || room, date, start: s, end: e });
   }
 
-  // Optionally email the client a confirmation (only for manually-added bookings with an email).
+  // Optionally email the client a "reserved — payment due" note (manual bookings only; the receipt is sent later, after payment).
   const email = req.body.client && req.body.client.email;
-  if (req.body.sendConfirmation && email && defKind === 'booking' && madeForEmail.length) {
+  if (req.body.sendConfirmation && email && defKind === 'booking' && manualConf) {
     try {
-      let grandTotal = 0;
-      items.forEach(b => { const r = VL.roomById((b.room || '').toString()); if (r) { try { grandTotal += VL.priceQuote(r.id, (b.date || '').toString(), (+b.end) - (+b.start), b.addons || {}, b.addonOptions || {}).total; } catch (_) {} } });
-      grandTotal = VL.round2(grandTotal);
-      const name = (req.body.blocks[0] && req.body.blocks[0].reason) || 'there';
-      const confirmation = 'VL-' + ((madeForEmail[0].date || '').replace(/-/g, '').slice(2)) + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
-      sendConfirmationEmail({ email, name, confirmation, bookings: madeForEmail, grandTotal, discountTotal: 0 })
-        .catch(e => console.error('[email] manual confirmation error:', e.message));
-    } catch (e) { console.error('[email] manual confirmation build error:', e.message); }
+      const o = manualOrder(manualConf);
+      if (o) {
+        sendEmail({ to: email, subject: 'Your studio is reserved — The Vintage Loft', html: reservedEmail({ name: o.name || 'there', confirmation: manualConf, bookings: o.bookings, amountDue: o.grandTotal, payUrl: o.payUrl }) })
+          .catch(e => console.error('[email] reserved email error:', e.message));
+      }
+    } catch (e) { console.error('[email] reserved build error:', e.message); }
   }
 
   res.json({ ok: true, total: items.length, inserted, skipped, bad });
@@ -862,6 +925,44 @@ app.post('/api/admin/payment-link', admin, async (req, res) => {
     try { db.prepare(`UPDATE ${table} SET pay_link=? WHERE id=?`).run(out.url, +req.body.id); } catch (_) {}
   }
   res.json({ ok: true, url: out.url, test: !!out.test });
+});
+
+// Manual booking: send the "reserved — payment due" email (includes the pay link if one exists).
+app.post('/api/admin/send-reserved', admin, async (req, res) => {
+  const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);
+  if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
+  if (!b.confirmation) return res.status(400).json({ error: 'This booking has no reference number yet.' });
+  const o = manualOrder(b.confirmation);
+  if (!o || !o.email) return res.status(400).json({ error: 'No client email is saved on this booking.' });
+  const r = await sendEmail({ to: o.email, subject: 'Your studio is reserved — The Vintage Loft', html: reservedEmail({ name: o.name || 'there', confirmation: o.confirmation, bookings: o.bookings, amountDue: o.grandTotal, payUrl: o.payUrl }) });
+  res.json({ ok: r.ok, sentTo: o.email, error: r.ok ? undefined : (r.error || 'Email could not be sent (is email set up on the server?).') });
+});
+
+// Manual booking: mark paid (or un-pay) — records the amount + time on every room in the order.
+app.post('/api/admin/mark-paid', admin, (req, res) => {
+  const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);
+  if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
+  if (!b.confirmation) return res.status(400).json({ error: 'This booking has no reference number yet.' });
+  if (req.body.unpay) {
+    db.prepare(`UPDATE blocks SET paid=NULL, paid_at=NULL WHERE confirmation=? AND kind='booking'`).run(b.confirmation);
+    return res.json({ ok: true, paid: null });
+  }
+  const o = manualOrder(b.confirmation);
+  const amt = (req.body.paid != null && req.body.paid !== '') ? VL.round2(parseFloat(req.body.paid)) : (o ? o.grandTotal : 0);
+  db.prepare(`UPDATE blocks SET paid=?, paid_at=? WHERE confirmation=? AND kind='booking'`).run(amt, nowISO(), b.confirmation);
+  res.json({ ok: true, paid: amt });
+});
+
+// Manual booking: email the paid receipt (only once marked paid).
+app.post('/api/admin/send-receipt', admin, async (req, res) => {
+  const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);
+  if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
+  const o = manualOrder(b.confirmation);
+  if (!o) return res.status(400).json({ error: 'Booking not found.' });
+  if (o.paidAt == null) return res.status(400).json({ error: 'Mark this booking as paid first, then send the receipt.' });
+  if (!o.email) return res.status(400).json({ error: 'No client email is saved on this booking.' });
+  const r = await sendEmail({ to: o.email, subject: 'Your receipt — The Vintage Loft', html: confirmationEmail({ name: o.name || 'there', confirmation: o.confirmation, bookings: o.bookings, grandTotal: (o.paid != null ? o.paid : o.grandTotal), discountTotal: 0, email: o.email }) });
+  res.json({ ok: r.ok, sentTo: o.email, error: r.ok ? undefined : (r.error || 'Email could not be sent.') });
 });
 
 // Edit an entry's studio / date / time (when a client calls to change). Re-checks availability,
