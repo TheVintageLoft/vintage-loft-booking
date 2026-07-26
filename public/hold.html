@@ -593,7 +593,7 @@ function selectDay(iso){
             }
             applyBtn.onclick=function(){
               var cv=code.value.trim();
-              if(!cv){ cmsg.textContent=''; recalcBase(); return; }
+              if(!cv){ cmsg.textContent=''; entry._code=null; entry._codeTotal=null; recalcBase(); return; }
               cmsg.style.color='#8a8375'; cmsg.textContent='Checking…';
               fetch('/api/apply-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:cv,items:[{room:entry.room,date:iso,start:entry.start,end:entry.end,addons:entryAddons(entry).items,addonOptions:entryAddons(entry).options}]})})
                 .then(function(r){return r.json().then(function(dd){return{ok:r.ok,d:dd};});})
@@ -602,6 +602,7 @@ function selectDay(iso){
                   var bd=x.d.breakdown;
                   if(bd&&typeof bd.grandTotal==='number'){
                     amt.value=bd.grandTotal.toFixed(2);
+                    entry._code=cv.toUpperCase(); entry._codeTotal=bd.grandTotal;
                     cmsg.style.color='#2e6b34'; cmsg.textContent='Applied · saved $'+(bd.discountTotal||0).toFixed(2);
                     calc.innerHTML=esc(rname(entry.room))+' · '+hrsTxt(entry.end-entry.start)+' with <b>'+esc(cv.toUpperCase())+'</b> → <b>$'+bd.grandTotal.toFixed(2)+'</b> (incl HST).';
                   } else { cmsg.style.color='#2e6b34'; cmsg.textContent='Code valid'; }
@@ -638,9 +639,20 @@ function selectDay(iso){
               var conf=document.createElement('button'); conf.className='del'; conf.style.margin='0'; conf.textContent='Confirm paid';
               var canc=document.createElement('a'); canc.textContent='Cancel'; canc.style.cssText=LINKSTYLE;
               row.appendChild(d); row.appendChild(inp); row.appendChild(conf); row.appendChild(canc);
-              busy('Getting the full price...');
-              var aj={items:{},options:{}}; try{ aj=JSON.parse(entry.addons_json||'{}'); }catch(e){}
-              fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:entry.room,date:iso,start:entry.start,end:entry.end,addons:aj.items||{},addonOptions:aj.options||{}})}).then(function(r){return r.json();}).then(function(q){ if(q&&typeof q.total==='number'){ inp.value=q.total.toFixed(2); busy('Full price is $'+q.total.toFixed(2)+' - change it if they paid a different amount (e.g. a discount).'); } else { msg.textContent=''; } inp.focus(); }).catch(function(){ msg.textContent=''; inp.focus(); });
+              // optional discount code, applied right here — prefills the amount with the discounted price
+              var crow=document.createElement('div'); crow.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;width:100%';
+              var clab=document.createElement('span'); clab.className='meta'; clab.textContent='Discount code';
+              var cin=document.createElement('input'); cin.type='text'; cin.placeholder='optional'; cin.style.cssText='width:150px;font-family:Arial,sans-serif;font-size:14px;padding:7px 9px;border:1px solid #ddd;border-radius:8px;text-transform:uppercase';
+              var capply=document.createElement('a'); capply.textContent='Apply'; capply.style.cssText=LINKSTYLE;
+              crow.appendChild(clab); crow.appendChild(cin); crow.appendChild(capply);
+              box.insertBefore(crow, msg);
+              var aj=entryAddons(entry);
+              function fillFull(){ busy('Getting the full price...'); fetch('/api/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:entry.room,date:iso,start:entry.start,end:entry.end,addons:aj.items,addonOptions:aj.options})}).then(function(r){return r.json();}).then(function(q){ if(q&&typeof q.total==='number'){ inp.value=q.total.toFixed(2); busy('Full price is $'+q.total.toFixed(2)+' - change it if they paid a different amount (e.g. a discount).'); } else { msg.textContent=''; } inp.focus(); }).catch(function(){ msg.textContent=''; inp.focus(); }); }
+              function applyFormCode(){ var cv=cin.value.trim(); if(!cv){ entry._code=null; entry._codeTotal=null; fillFull(); return; } busy('Checking '+cv.toUpperCase()+'…'); fetch('/api/apply-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:cv,items:[{room:entry.room,date:iso,start:entry.start,end:entry.end,addons:aj.items,addonOptions:aj.options}]})}).then(function(r){return r.json().then(function(dd){return{ok:r.ok,d:dd};});}).then(function(x){ if(!x.ok){ err((x.d&&x.d.error)||'That code isn\'t valid.'); return; } var bd=x.d.breakdown; if(bd&&typeof bd.grandTotal==='number'){ inp.value=bd.grandTotal.toFixed(2); entry._code=cv.toUpperCase(); entry._codeTotal=bd.grandTotal; okm(cv.toUpperCase()+' applied · they pay $'+bd.grandTotal.toFixed(2)+' (saved $'+(bd.discountTotal||0).toFixed(2)+'). Change the amount if needed.'); } else { okm('Code valid.'); } }).catch(function(){ err('Network error'); }); }
+              capply.onclick=applyFormCode;
+              cin.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); applyFormCode(); } });
+              if(entry._code && typeof entry._codeTotal==='number'){ cin.value=entry._code; inp.value=entry._codeTotal.toFixed(2); okm('Prefilled the '+entry._code+' price $'+entry._codeTotal.toFixed(2)+'. Just click Confirm paid, or change the amount.'); inp.focus(); }
+              else { fillFull(); }
               conf.onclick=function(){ var v=parseFloat(inp.value); if(!(v>=0)){ err('Enter a dollar amount.'); return; } busy('Saving...'); post('/api/admin/mark-paid',{paid:v}).then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=x2.d.paid; entry.paid_at='now'; render(); } else err((x2.d&&x2.d.error)||'Could not save.'); }); };
               canc.onclick=function(){ render(); };
             }
