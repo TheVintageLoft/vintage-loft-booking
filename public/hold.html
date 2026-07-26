@@ -755,6 +755,28 @@ function selectDay(iso){
             }
             function unpay(){ busy('Saving...'); post('/api/admin/mark-paid',{unpay:true}).then(function(x2){ if(x2.ok){ entry.paid=null; entry.paid_at=null; entry.pay_mode=''; render(); loadCalendar(); } else err('Could not update.'); }); }
             function settle(flag,mode,color){ busy('Saving...'); post('/api/admin/mark-paid',flag).then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=0; entry.paid_at='now'; entry.pay_mode=mode; render(); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not save.'); }); }
+            // If a PAID booking was edited so its total no longer matches what was paid, offer to bill the balance or credit the difference.
+            function checkAdjust(){
+              fetch('/api/admin/order?key='+encodeURIComponent(getKey())+'&id='+entry.id).then(function(r){return r.json();}).then(function(o){
+                if(!o||!o.ok||typeof o.grandTotal!=='number') return;
+                var cur=o.grandTotal, paidAmt=Number(entry.paid||0), diff=Math.round((cur-paidAmt)*100)/100;
+                if(Math.abs(diff)<0.01) return;
+                var adj=document.createElement('div'); adj.className='meta'; adj.style.cssText='margin-top:8px;background:#f6f5f3;border-radius:8px;padding:9px 11px;line-height:1.5';
+                if(diff>0){
+                  adj.innerHTML='This booking is now <b>$'+cur.toFixed(2)+'</b>; they’ve paid <b>$'+paidAmt.toFixed(2)+'</b>, so <b>$'+diff.toFixed(2)+'</b> is still owing.<br>';
+                  var a=document.createElement('a'); a.textContent='Email a payment link for the $'+diff.toFixed(2)+' balance'; a.style.cssText=LINKSTYLE;
+                  a.onclick=function(){ busy('Creating the balance link…'); post('/api/admin/balance-link').then(function(x2){ if(x2.ok&&x2.d.ok!==false){ okm('Balance link for $'+diff.toFixed(2)+' emailed to '+email+'. When they pay, click “Mark as paid” to close it out at the full amount.'); } else err((x2.d&&x2.d.error)||'Could not send.'); }); };
+                  adj.appendChild(a);
+                } else {
+                  var credit=(-diff).toFixed(2);
+                  adj.innerHTML='This booking is now <b>$'+cur.toFixed(2)+'</b>; they paid <b>$'+paidAmt.toFixed(2)+'</b>.<br>';
+                  var a=document.createElement('a'); a.textContent='Credit the $'+credit+' difference to their account'; a.style.cssText=LINKSTYLE+';color:#2e6b34';
+                  a.onclick=function(){ busy('Adding the credit…'); post('/api/admin/credit-difference').then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=x2.d.newPaid; okm('$'+credit+' added to '+(x2.d.email||email)+'’s account credit. Booking now shows paid $'+Number(x2.d.newPaid).toFixed(2)+'.'); render(); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not credit.'); }); };
+                  adj.appendChild(a);
+                }
+                box.appendChild(adj);
+              }).catch(function(){});
+            }
             if(owner){ A('Undo owner use', unpay, '#a33'); }
             else if(comp){ A('Undo comp', unpay, '#a33'); }
             else if(!paid){
@@ -764,10 +786,11 @@ function selectDay(iso){
             }
             else { A('Mark unpaid', unpay, '#a33'); }
             if(email && !owner && !comp){
-              if(!paid) A('Send reserved email', function(){ busy('Sending...'); post('/api/admin/send-reserved').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Reserved email sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
+              if(!paid) A('Email reservation + payment link', function(){ busy('Creating a fresh payment link and sending…'); post('/api/admin/send-reserved').then(function(x2){ if(x2.ok&&x2.d.ok!==false){ okm(x2.d.payLinkIncluded?('Sent to '+email+' with an updated payment link.'):('Reservation email sent to '+email+'.')); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not send.'); }); });
               else A('Send receipt', function(){ busy('Sending...'); post('/api/admin/send-receipt').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Receipt sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
             } else if(!email && !owner && !comp){ var n=document.createElement('span'); n.className='meta'; n.textContent='(add a client email to send emails/receipts)'; row.appendChild(n); }
             box.appendChild(row); box.appendChild(msg);
+            if(paid && !owner && !comp) checkAdjust();
           }
           render();
           card.appendChild(box);

@@ -345,6 +345,29 @@ function confirmationEmail({ name, confirmation, bookings, grandTotal, discountT
   return emailShell(inner);
 }
 
+// Sent when a client extends an already-paid manual booking: shows the updated booking, what they've
+// already paid, and a Pay-now button for just the balance owed.
+function balanceEmail({ name, confirmation, bookings, alreadyPaid, balanceDue, payUrl }) {
+  const payBtn = payUrl ? `<div style="text-align:center;margin:0 0 20px"><a href="${payUrl}" style="display:inline-block;background:#7c7268;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;padding:13px 30px;border-radius:8px">Pay the balance &middot; ${emMoney(balanceDue)}</a></div>` : '';
+  const inner = `
+    <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(name)},</p>
+    <p style="margin:0 0 14px;line-height:1.6">Your booking at The Vintage Loft has been updated. Here are the new details and the balance still owing.</p>
+    <div style="background:#f6f5f3;border-radius:10px;padding:16px 18px;margin:0 0 18px">
+      <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#9a938a;font-family:Arial,sans-serif;margin-bottom:10px">Your reservation &middot; ${confirmation}</div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="font-size:15px">
+        ${bookingRowsHtml(bookings)}
+        <tr><td style="padding:8px 0 0;color:#6b6459">Already paid</td><td align="right" style="padding:8px 0 0;color:#6b6459">&minus;${emMoney(alreadyPaid)}</td></tr>
+        <tr><td style="padding:10px 0 0"><b>Balance due</b></td><td align="right" style="padding:10px 0 0"><b>${emMoney(balanceDue)}</b></td></tr>
+      </table>
+    </div>
+    ${payBtn}
+    <p style="margin:0 0 18px;line-height:1.6;font-family:Arial,sans-serif;font-size:14px;color:#6b6459">Once your payment is received, we'll email your updated receipt. Questions? Call or text 905-767-2099.</p>
+    <div style="background:#f6f5f3;border:1px solid #eae8e4;border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.6;color:#6b6459;font-family:Arial,sans-serif">
+      <b>Cancellation policy:</b> We do not give refunds for bookings, however we give full studio credit if cancelled or rescheduled with 48 hours or more notice. (Special holiday sets have a different cancellation policy.)
+    </div>`;
+  return emailShell(inner);
+}
+
 // Sent for a manual booking BEFORE payment: reserved + a Pay-now button, no receipt.
 function reservedEmail({ name, confirmation, bookings, amountDue, discountTotal, payUrl }) {
   const payBtn = payUrl ? `<div style="text-align:center;margin:0 0 20px"><a href="${payUrl}" style="display:inline-block;background:#7c7268;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;padding:13px 30px;border-radius:8px">Pay now &middot; ${emMoney(amountDue)}</a></div>` : '';
@@ -1110,15 +1133,60 @@ app.get('/api/admin/order', admin, (req, res) => {
   res.json({ ok: true, confirmation: conf, count: blocks.length, grandTotal: o ? o.grandTotal : 0, code: o ? o.code : null, items });
 });
 
-// Manual booking: send the "reserved — payment due" email (includes the pay link if one exists).
+// Manual booking: (re)send the "reserved — please pay" email. Regenerates a FRESH payment link for the
+// booking's current total first, so after an edit (e.g. the client added an hour) the emailed link is correct.
 app.post('/api/admin/send-reserved', admin, async (req, res) => {
   const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);
   if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
   if (!b.confirmation) b.confirmation = ensureBlockConfirmation(b.id);
-  const o = manualOrder(b.confirmation);
+  let o = manualOrder(b.confirmation);
   if (!o || !o.email) return res.status(400).json({ error: 'No client email is saved on this booking.' });
-  const r = await sendEmail({ to: o.email, subject: 'Your studio is reserved — The Vintage Loft', html: reservedEmail({ name: o.name || 'there', confirmation: o.confirmation, bookings: o.bookings, amountDue: o.grandTotal, payUrl: o.payUrl }) });
-  res.json({ ok: r.ok, sentTo: o.email, error: r.ok ? undefined : (r.error || 'Email could not be sent (is email set up on the server?).') });
+  let payLinkIncluded = false;
+  if (o.grandTotal > 0) {
+    try {
+      const link = await payments.createLink({ amountCents: Math.round(o.grandTotal * 100), name: 'The Vintage Loft — studio booking' });
+      if (link.ok && link.url) { db.prepare(`UPDATE blocks SET pay_link=? WHERE confirmation=? AND kind='booking'`).run(link.url, o.confirmation); payLinkIncluded = true; }
+    } catch (e) { console.error('[paylink] resend re-create error:', e.message); }
+    o = manualOrder(b.confirmation);   // re-read for the fresh payUrl
+  }
+  const r = await sendEmail({ to: o.email, subject: 'Your studio is reserved — The Vintage Loft', html: reservedEmail({ name: o.name || 'there', confirmation: o.confirmation, bookings: o.bookings, amountDue: o.grandTotal, discountTotal: o.discountTotal, payUrl: o.payUrl }) });
+  res.json({ ok: r.ok, sentTo: o.email, payLinkIncluded, error: r.ok ? undefined : (r.error || 'Email could not be sent (is email set up on the server?).') });
+});
+
+// Client EXTENDED an already-paid booking: email a payment link for ONLY the balance owed (new total minus what they already paid).
+app.post('/api/admin/balance-link', admin, async (req, res) => {
+  const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);
+  if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
+  if (!b.confirmation) b.confirmation = ensureBlockConfirmation(b.id);
+  let o = manualOrder(b.confirmation);
+  if (!o || o.paidAt == null) return res.status(400).json({ error: 'This booking is not marked paid yet — just use “Email reservation + payment link” for the full amount.' });
+  const alreadyPaid = VL.round2(o.paid || 0);
+  const balance = VL.round2(o.grandTotal - alreadyPaid);
+  if (balance <= 0) return res.status(400).json({ error: 'There is no extra balance owing on this booking.' });
+  if (!o.email) return res.status(400).json({ error: 'No client email is saved on this booking.' });
+  let payUrl = null;
+  try {
+    const link = await payments.createLink({ amountCents: Math.round(balance * 100), name: 'The Vintage Loft — balance for added time' });
+    if (link.ok && link.url) { payUrl = link.url; db.prepare(`UPDATE blocks SET pay_link=? WHERE confirmation=? AND kind='booking'`).run(payUrl, o.confirmation); }
+  } catch (e) { console.error('[paylink] balance-link error:', e.message); }
+  const r = await sendEmail({ to: o.email, subject: 'Your updated booking — balance due — The Vintage Loft', html: balanceEmail({ name: o.name || 'there', confirmation: o.confirmation, bookings: o.bookings, alreadyPaid, balanceDue: balance, payUrl }) });
+  res.json({ ok: r.ok, sentTo: o.email, balance, payLinkIncluded: !!payUrl, error: r.ok ? undefined : (r.error || 'Email could not be sent (is email set up on the server?).') });
+});
+
+// Client SHORTENED an already-paid booking: put the overpaid difference into their account credit, and set the booking paid to the new (lower) total.
+app.post('/api/admin/credit-difference', admin, (req, res) => {
+  const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);
+  if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
+  if (!b.confirmation) b.confirmation = ensureBlockConfirmation(b.id);
+  const o = manualOrder(b.confirmation);
+  if (!o || o.paidAt == null) return res.status(400).json({ error: 'This booking is not marked paid yet, so there is nothing to credit.' });
+  const alreadyPaid = VL.round2(o.paid || 0);
+  const diff = VL.round2(alreadyPaid - o.grandTotal);
+  if (diff <= 0) return res.status(400).json({ error: 'The booking total is not lower than what they paid, so there is no difference to credit.' });
+  if (!o.email) return res.status(400).json({ error: 'No client email is saved on this booking, so credit can’t be applied. Add their email first.' });
+  addCredit(o.email, diff, 'Credit for shortened booking ' + o.confirmation);
+  db.prepare(`UPDATE blocks SET paid=? WHERE confirmation=? AND kind='booking'`).run(o.grandTotal, o.confirmation);
+  res.json({ ok: true, credited: diff, newPaid: o.grandTotal, balance: creditBalance(o.email), email: o.email });
 });
 
 // Manual booking: mark paid (or un-pay) — records the amount + time on every room in the order.
