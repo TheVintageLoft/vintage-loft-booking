@@ -69,6 +69,8 @@ try { db.exec("ALTER TABLE blocks ADD COLUMN intake TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN pay_mode TEXT"); } catch (_) {}
 // day-before reminder guard for manual bookings (mirrors bookings.reminder_sent)
 try { db.exec("ALTER TABLE blocks ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
+// discount / coupon code applied to a manual booking (so the reserved email, pay link + receipt all reflect it)
+try { db.exec("ALTER TABLE blocks ADD COLUMN code TEXT"); } catch (_) {}
 // manual-booking payment state: a stable confirmation number, amount paid, and when
 try { db.exec("ALTER TABLE blocks ADD COLUMN confirmation TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN paid REAL"); } catch (_) {}
@@ -344,8 +346,9 @@ function confirmationEmail({ name, confirmation, bookings, grandTotal, discountT
 }
 
 // Sent for a manual booking BEFORE payment: reserved + a Pay-now button, no receipt.
-function reservedEmail({ name, confirmation, bookings, amountDue, payUrl }) {
+function reservedEmail({ name, confirmation, bookings, amountDue, discountTotal, payUrl }) {
   const payBtn = payUrl ? `<div style="text-align:center;margin:0 0 20px"><a href="${payUrl}" style="display:inline-block;background:#7c7268;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;padding:13px 30px;border-radius:8px">Pay now &middot; ${emMoney(amountDue)}</a></div>` : '';
+  const savings = (discountTotal > 0) ? `<tr><td style="padding:6px 0;color:#2e7d32">Discount</td><td align="right" style="padding:6px 0;color:#2e7d32">&minus;${emMoney(discountTotal)}</td></tr>` : '';
   const inner = `
     <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(name)},</p>
     <p style="margin:0 0 14px;line-height:1.6">Your studio time at The Vintage Loft is <b>reserved</b>. To confirm your booking, please complete payment${payUrl ? ' using the button below' : ' with the link we\'ll send you'}.</p>
@@ -353,6 +356,7 @@ function reservedEmail({ name, confirmation, bookings, amountDue, payUrl }) {
       <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#9a938a;font-family:Arial,sans-serif;margin-bottom:10px">Your reservation &middot; ${confirmation}</div>
       <table width="100%" cellpadding="0" cellspacing="0" style="font-size:15px">
         ${bookingRowsHtml(bookings)}
+        ${savings}
         <tr><td style="padding:10px 0 0"><b>Amount due</b></td><td align="right" style="padding:10px 0 0"><b>${emMoney(amountDue)}</b></td></tr>
       </table>
     </div>
@@ -522,10 +526,18 @@ function manualOrder(conf) {
   if (!conf) return null;
   const blocks = db.prepare(`SELECT * FROM blocks WHERE confirmation=? AND kind='booking' ORDER BY id`).all(conf);
   if (!blocks.length) return null;
-  let grandTotal = 0;
-  const bookings = blocks.map(b => { const q = blockQuote(b); grandTotal += q.total; return { roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end, hours: b.end - b.start, total: q.total, pre: q.pre, hst: q.hst, addonItems: q.addonItems }; });
+  const codeInfo = blocks[0].code ? lookupCode(blocks[0].code) : null;
+  let grandTotal = 0, discountTotal = 0, subtotalPre = 0;
+  const bookings = blocks.map(b => {
+    let q = blockQuote(b);
+    subtotalPre += q.pre;
+    if (codeInfo && codeInfo.type === 'percent') { q = VL.applyDiscountToQuote(q, codeInfo); discountTotal += (q.discount || 0); }
+    grandTotal += q.total;
+    return { roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end, hours: b.end - b.start, total: q.total, pre: q.pre, hst: q.hst, addonItems: q.addonItems };
+  });
+  if (codeInfo && codeInfo.type === 'fixed') { const credit = Math.min(codeInfo.amount, grandTotal); discountTotal += credit; grandTotal = VL.round2(grandTotal - credit); }
   let client = {}; try { client = JSON.parse(blocks[0].client || '{}'); } catch (_) {}
-  return { confirmation: conf, name: blocks[0].reason || '', email: (client.email || ''), bookings, grandTotal: VL.round2(grandTotal), paid: blocks[0].paid, paidAt: blocks[0].paid_at, payUrl: blocks.map(b => b.pay_link).find(Boolean) || null };
+  return { confirmation: conf, name: blocks[0].reason || '', email: (client.email || ''), bookings, grandTotal: VL.round2(grandTotal), discountTotal: VL.round2(discountTotal), subtotalPre: VL.round2(subtotalPre), code: codeInfo ? codeInfo.code : null, paid: blocks[0].paid, paidAt: blocks[0].paid_at, payUrl: blocks.map(b => b.pay_link).find(Boolean) || null };
 }
 // Give a manual booking that predates the confirmation feature (e.g. the imported bookings) a reference number, so it can be marked paid / receipted.
 function ensureBlockConfirmation(id) {
@@ -723,12 +735,12 @@ app.get('/api/receipt', (req, res) => {
       const addonTotal = addons.reduce((s, a) => s + a.amount, 0);
       return { roomName: bk.roomName, date: bk.date, start: bk.start, end: bk.end, hours: bk.hours, roomCharge: VL.round2(bk.pre - addonTotal), addons, pre: bk.pre, hst: bk.hst, total: bk.total, paid: bk.total, discount: 0 };
     });
-    const mt = mitems.reduce((a, i) => ({ pre: a.pre + i.pre, hst: a.hst + i.hst, total: a.total + i.total }), { pre: 0, hst: 0, total: 0 });
+    const mt = mitems.reduce((a, i) => ({ hst: a.hst + i.hst, total: a.total + i.total }), { hst: 0, total: 0 });
     return res.json({
       confirmation: c, name: o.name, email: o.email, paidAt: o.paidAt, paymentMode: 'link',
       business: { name: 'The Vintage Loft Studios Inc.', address: '207 Dundas St West, Whitby, ON', phone: '905-767-2099', hstNumber: process.env.HST_NUMBER || '74413-4404 RT0001' },
       items: mitems,
-      totals: { pre: VL.round2(mt.pre), hst: VL.round2(mt.hst), total: VL.round2(mt.total), paid: (o.paid != null ? o.paid : VL.round2(mt.total)), discount: 0 }
+      totals: { pre: VL.round2(o.subtotalPre != null ? o.subtotalPre : mt.total), hst: VL.round2(mt.hst), total: VL.round2(o.grandTotal), paid: (o.paid != null ? o.paid : VL.round2(o.grandTotal)), discount: VL.round2(o.discountTotal || 0) }
     });
   }
   if (rows[0].customer_email && e && rows[0].customer_email.toLowerCase() !== e) return res.status(403).json({ error: 'This receipt is not available with that link.' });
@@ -963,7 +975,7 @@ app.post('/api/account/cancel', (req, res) => {
 
 // Bulk-import blocks (e.g. existing Acuity bookings). Idempotent: identical blocks are skipped,
 // so it's safe to run more than once. Bypasses the booking-time rules since these are real holds.
-app.post('/api/admin/import-blocks', admin, (req, res) => {
+app.post('/api/admin/import-blocks', admin, async (req, res) => {
   const items = Array.isArray(req.body.blocks) ? req.body.blocks : [];
   // request-level default kind; each block may override with its own b.kind
   const defKind = req.body.kind === 'booking' ? 'booking' : 'hold';
@@ -974,7 +986,12 @@ app.post('/api/admin/import-blocks', admin, (req, res) => {
   // client intake answers, applied to every booking-kind block in this submission
   const intakeStr = (req.body.intake && typeof req.body.intake === 'object')
     ? JSON.stringify(req.body.intake).slice(0, 4000) : null;
-  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,client,addons_json,intake,confirmation,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+  // optional coupon / discount code entered at booking time (validated up front)
+  const codeStr = (req.body.code || '').toString().trim();
+  let codeInfo = null;
+  if (codeStr) { codeInfo = lookupCode(codeStr); if (!codeInfo) return res.status(400).json({ error: 'That discount code is not valid.' }); }
+  const codeToStore = codeInfo ? codeInfo.code : null;
+  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,client,addons_json,intake,code,confirmation,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
   const retag = db.prepare(`UPDATE blocks SET kind=? WHERE id=?`);
   let inserted = 0, skipped = 0, bad = 0;
   const madeForEmail = [];
@@ -985,24 +1002,34 @@ app.post('/api/admin/import-blocks', admin, (req, res) => {
     const found = exists.get(room, date, s, e);
     if (found) { retag.run(kind, found.id); skipped++; continue; }   // re-tag existing so labels can be corrected
     const addonsStr = JSON.stringify({ items: (b.addons && typeof b.addons === 'object') ? b.addons : {}, options: (b.addonOptions && typeof b.addonOptions === 'object') ? b.addonOptions : {} });
-    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, client, addonsStr, (kind === 'booking' ? intakeStr : null), (kind === 'booking' ? manualConf : null), nowISO());
+    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, client, addonsStr, (kind === 'booking' ? intakeStr : null), (kind === 'booking' ? codeToStore : null), (kind === 'booking' ? manualConf : null), nowISO());
     inserted++;
     madeForEmail.push({ roomName: (VL.roomById(room) || {}).name || room, date, start: s, end: e });
   }
 
-  // Optionally email the client a "reserved — payment due" note (manual bookings only; the receipt is sent later, after payment).
+  // Optionally email the client ONE "reserved — please pay" email that already includes the payment link
+  // (like Acuity: enter the code, save, and the client gets the info + a Pay-now button in the same email).
   const email = req.body.client && req.body.client.email;
+  let payLinkIncluded = false, emailSent = false;
   if (req.body.sendConfirmation && email && defKind === 'booking' && manualConf) {
     try {
-      const o = manualOrder(manualConf);
-      if (o) {
-        sendEmail({ to: email, subject: 'Your studio is reserved — The Vintage Loft', html: reservedEmail({ name: o.name || 'there', confirmation: manualConf, bookings: o.bookings, amountDue: o.grandTotal, payUrl: o.payUrl }) })
-          .catch(e => console.error('[email] reserved email error:', e.message));
+      let o = manualOrder(manualConf);
+      // generate the payment link now, for the discounted grand total, so it rides along in the same email
+      if (o && o.grandTotal > 0) {
+        try {
+          const link = await payments.createLink({ amountCents: Math.round(o.grandTotal * 100), name: 'The Vintage Loft — studio booking' });
+          if (link.ok && link.url) { db.prepare(`UPDATE blocks SET pay_link=? WHERE confirmation=? AND kind='booking'`).run(link.url, manualConf); payLinkIncluded = true; }
+        } catch (e) { console.error('[paylink] auto-create error:', e.message); }
+        o = manualOrder(manualConf);   // re-read so payUrl is picked up
       }
-    } catch (e) { console.error('[email] reserved build error:', e.message); }
+      if (o) {
+        await sendEmail({ to: email, subject: 'Your studio is reserved — The Vintage Loft', html: reservedEmail({ name: o.name || 'there', confirmation: manualConf, bookings: o.bookings, amountDue: o.grandTotal, discountTotal: o.discountTotal, payUrl: o.payUrl }) });
+        emailSent = true;
+      }
+    } catch (e) { console.error('[email] reserved+link error:', e.message); }
   }
 
-  res.json({ ok: true, total: items.length, inserted, skipped, bad });
+  res.json({ ok: true, total: items.length, inserted, skipped, bad, emailSent, payLinkIncluded });
 });
 
 // Known clients (for autocomplete): the imported directory + names from bookings/manual entries
@@ -1075,13 +1102,12 @@ app.get('/api/admin/order', admin, (req, res) => {
   if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
   const conf = b.confirmation || ensureBlockConfirmation(b.id);
   const blocks = db.prepare(`SELECT * FROM blocks WHERE confirmation=? AND kind='booking' ORDER BY id`).all(conf);
-  let grand = 0;
   const items = blocks.map(bl => {
     let a = { items: {}, options: {} }; try { a = JSON.parse(bl.addons_json || '{}'); } catch (_) {}
-    try { grand += blockQuote(bl).total; } catch (_) {}
     return { room: bl.room_id, date: bl.date, start: bl.start, end: bl.end, addons: a.items || {}, addonOptions: a.options || {} };
   });
-  res.json({ ok: true, confirmation: conf, count: blocks.length, grandTotal: VL.round2(grand), items });
+  const o = manualOrder(conf);   // code-aware grand total (reflects any coupon saved on the booking)
+  res.json({ ok: true, confirmation: conf, count: blocks.length, grandTotal: o ? o.grandTotal : 0, code: o ? o.code : null, items });
 });
 
 // Manual booking: send the "reserved — payment due" email (includes the pay link if one exists).

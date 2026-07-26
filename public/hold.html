@@ -146,8 +146,14 @@
         <div><span class="muted">Email (optional)</span><input id="clientEmail" type="email" placeholder="Client email"></div>
       </div>
       <label style="font-family:Arial,sans-serif;font-size:13px;color:#3a352f;display:flex;align-items:center;gap:7px;margin-top:12px;cursor:pointer">
-        <input id="sendConfirm" type="checkbox" checked style="width:auto"> Email a confirmation to the client
+        <input id="sendConfirm" type="checkbox" checked style="width:auto"> Email them the reservation <b>with a payment link</b>
       </label>
+    </div>
+
+    <div id="couponWrap" style="display:none">
+      <label class="fld">Coupon / discount code (optional)</label>
+      <input id="couponCode" type="text" placeholder="e.g. STEVEVIP" autocomplete="off" style="text-transform:uppercase">
+      <div class="muted" style="margin-top:6px">Applied to the whole booking, so the emailed payment link and receipt already reflect it. Leave blank for full price.</div>
     </div>
 
     <div id="intakeFields" style="display:none">
@@ -361,8 +367,11 @@ function clearIntake(){
   var d=document.getElementById('inDetails'); if(d) d.value='';
 }
 function renderAddonPicker(){
+  var isBooking=(document.getElementById('entrykind').value==='booking');
   var intakeF=document.getElementById('intakeFields');
-  if(intakeF) intakeF.style.display=(document.getElementById('entrykind').value==='booking')?'block':'none';
+  if(intakeF) intakeF.style.display=isBooking?'block':'none';
+  var couponW=document.getElementById('couponWrap');
+  if(couponW) couponW.style.display=isBooking?'block':'none';
   var wrap=document.getElementById('addonWrap'), box=document.getElementById('addonPick');
   if(!wrap||!box) return;
   var kind=document.getElementById('entrykind').value;
@@ -453,7 +462,7 @@ document.getElementById('go').onclick=function(){
   var blocks=lines.map(function(l){ return {room:l.room,date:l.date,start:l.start,end:l.end,reason:reason,addons:l.addons,addonOptions:l.addonOptions}; });
   var payload={key:key,blocks:blocks,kind:kind};
   if(client) payload.client=client;
-  if(kind==='booking'){ var intake=collectIntake(); if(intake) payload.intake=intake; }
+  if(kind==='booking'){ var intake=collectIntake(); if(intake) payload.intake=intake; var cc=(document.getElementById('couponCode').value||'').trim(); if(cc) payload.code=cc; }
   if(kind==='booking' && email && sendConfirm) payload.sendConfirmation=true;
   var lastDate=lines[lines.length-1].date;
   var btn=this; btn.disabled=true; btn.textContent='Saving…';
@@ -465,11 +474,11 @@ document.getElementById('go').onclick=function(){
       if(!x.ok){return showMsg(msg,(x.d&&x.d.error)||'Could not save — please try again.','err');}
       var added=x.d.inserted, skip=x.d.skipped;
       var word=kind==='booking'?'Booking':'Hold';
-      var emailed=(payload.sendConfirmation)?' A confirmation was emailed to the client.':'';
+      var emailed = payload.sendConfirmation ? (x.d.payLinkIncluded ? ' A reservation email with a payment link was sent to the client.' : (x.d.emailSent ? ' A reservation email was sent to the client.' : '')) : '';
       var oneConf=(kind==='booking'&&added>1)?' All on one confirmation.':'';
       showMsg(msg,'<b>'+word+' saved.</b> '+added+' studio'+(added===1?'':'s')+' booked.'+oneConf+(skip?' ('+skip+' already on the calendar.)':'')+emailed,'ok');
       pendingLines=[]; renderPending();
-      document.getElementById('clientPhone').value=''; document.getElementById('clientEmail').value=''; document.getElementById('reason').value=''; clearIntake();
+      document.getElementById('clientPhone').value=''; document.getElementById('clientEmail').value=''; document.getElementById('reason').value=''; var cc2=document.getElementById('couponCode'); if(cc2) cc2.value=''; clearIntake();
       setAll(false); addonSel={items:{},options:{}}; renderAddonPicker();
       CAL.sel=lastDate; loadCalendar(); loadClients();
     })
