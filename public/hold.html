@@ -765,8 +765,12 @@ function selectDay(iso){
                 if(diff>0){
                   adj.innerHTML='This booking is now <b>$'+cur.toFixed(2)+'</b>; they’ve paid <b>$'+paidAmt.toFixed(2)+'</b>, so <b>$'+diff.toFixed(2)+'</b> is still owing.<br>';
                   var a=document.createElement('a'); a.textContent='Email a payment link for the $'+diff.toFixed(2)+' balance'; a.style.cssText=LINKSTYLE;
-                  a.onclick=function(){ busy('Creating the balance link…'); post('/api/admin/balance-link').then(function(x2){ if(x2.ok&&x2.d.ok!==false){ okm('Balance link for $'+diff.toFixed(2)+' emailed to '+email+'. When they pay, click “Mark as paid” to close it out at the full amount.'); } else err((x2.d&&x2.d.error)||'Could not send.'); }); };
+                  a.onclick=function(){ busy('Creating the balance link…'); post('/api/admin/balance-link').then(function(x2){ if(x2.ok&&x2.d.ok!==false){ okm('Balance link for $'+diff.toFixed(2)+' emailed to '+email+'. When they pay it, click “Mark the $'+diff.toFixed(2)+' balance as paid” right here to close it out.'); } else err((x2.d&&x2.d.error)||'Could not send.'); }); };
                   adj.appendChild(a);
+                  var sep=document.createElement('span'); sep.className='muted'; sep.textContent='   ·   '; adj.appendChild(sep);
+                  var a2=document.createElement('a'); a2.textContent='Mark the $'+diff.toFixed(2)+' balance as paid'; a2.style.cssText=LINKSTYLE;
+                  a2.onclick=function(){ busy('Recording payment in full…'); post('/api/admin/mark-paid',{paid:cur}).then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=x2.d.paid; entry.paid_at='now'; okm('Recorded paid in full · $'+cur.toFixed(2)+'.'); render(); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not update.'); }); };
+                  adj.appendChild(a2);
                 } else {
                   var credit=(-diff).toFixed(2);
                   adj.innerHTML='This booking is now <b>$'+cur.toFixed(2)+'</b>; they paid <b>$'+paidAmt.toFixed(2)+'</b>.<br>';
