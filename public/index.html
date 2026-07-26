@@ -1248,7 +1248,7 @@ function finishBooking(d, email){
     + `<div class="bk" style="border-color:transparent"><div><b>${d.grandTotal>0?'Total paid in full':'Total'}</b></div><div style="text-align:right"><b>${money(d.grandTotal)}</b></div></div>`;
   order = []; cart = null; appliedCode = null; const ci=document.getElementById('codeInput'); if(ci)ci.value=''; const cm=document.getElementById('codeMsg'); if(cm)cm.textContent=''; go('confirm'); toast('Payment complete — booking saved');
 }
-var ppConfig=null, ppReady=false, ppRendered=false;
+var ppConfig=null, ppReady=false, ppRendered=false, ppSuppressError=false;
 async function initPaypal(){
   try{ ppConfig = await fetchJSON('/api/paypal-config'); }catch(e){ return; }
   if(!ppConfig || !ppConfig.enabled) return;
@@ -1265,15 +1265,20 @@ function renderPaypalButtons(){
   try{
     window.paypal.Buttons({
       style:{ layout:'horizontal', color:'gold', shape:'rect', height:45, tagline:false, label:'paypal' },
+      onClick: function(data, actions){
+        var pp=bookingPayloadCheck();   // shows exactly what's missing (name, email, or description) if incomplete
+        if(!pp){ return actions.reject(); }
+        return actions.resolve();
+      },
       createOrder: function(){
         var pp=bookingPayloadCheck(); if(!pp) return Promise.reject(new Error('Please complete the form first.'));
-        return fetchJSON('/api/paypal/create-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:pp.items,code:pp.code,token:(CLIENT&&useAcctCredit)?CLIENT.token:undefined,useCredit:!!(CLIENT&&useAcctCredit)})}).then(function(d){return d.orderId;}).catch(function(err){ toast((err.body&&err.body.error)||err.message||'Could not start PayPal'); throw err; });
+        return fetchJSON('/api/paypal/create-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:pp.items,code:pp.code,token:(CLIENT&&useAcctCredit)?CLIENT.token:undefined,useCredit:!!(CLIENT&&useAcctCredit)})}).then(function(d){return d.orderId;}).catch(function(err){ ppSuppressError=true; setTimeout(function(){ppSuppressError=false;},1500); toast((err.body&&err.body.error)||err.message||'Could not start PayPal'); throw err; });
       },
       onApprove: function(data){
         var pp=bookingPayloadCheck(); if(!pp) return;
         return fetchJSON('/api/bookings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:pp.items,customerName:pp.name,customerEmail:pp.email,code:pp.code,intake:pp.intake,paymentMethod:'paypal',paypalOrderId:data.orderID,token:(CLIENT&&useAcctCredit)?CLIENT.token:undefined,useCredit:!!(CLIENT&&useAcctCredit)})}).then(function(d){ finishBooking(d,pp.email); }).catch(function(err){ toast((err.body&&err.body.error)||err.message||'Could not complete booking'); });
       },
-      onError: function(){ toast('PayPal had a problem. Please try again or pay by card.'); }
+      onError: function(){ if(ppSuppressError){ ppSuppressError=false; return; } toast('PayPal had a problem. Please try again or pay by card.'); }
     }).render('#paypal-buttons');
     ppRendered = true;
   }catch(e){}
