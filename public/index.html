@@ -486,6 +486,7 @@ function startOfWeek(d){const x=new Date(d);x.setHours(12,0,0,0);x.setDate(x.get
 function openRoomCal(id){rcRoomId=id;rcSel=null;rcWeekStart=startOfWeek(new Date());go('room');}
 function shiftWeek(n){const w=new Date(rcWeekStart);w.setDate(w.getDate()+7*n);if(startOfWeek(w)<startOfWeek(new Date()))return;rcWeekStart=w;rcSel=null;renderRoomCal();}
 function slotAvailable(room,ds,h){
+  if(new Date(ds+'T12:00:00').getDay()===1) return false;       // closed Mondays
   if(hoursUntil(ds,h) < (CONFIG.leadHours||12)) return false;   // past, or inside the 12-hr online-booking cutoff
   const end=h+CONFIG.minHours;
   if(end>20) return false;                        // no room for the 1-hr minimum before close
@@ -503,7 +504,7 @@ function renderRoomCal(){
   let html='';
   days.forEach(d=>{
     const ds=ymd(d);
-    html+=`<div><div class="dayhead">${d.toLocaleDateString('en-CA',{weekday:'short'})}<br>${d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})}</div>`;
+    html+=`<div><div class="dayhead">${d.toLocaleDateString('en-CA',{weekday:'short'})}<br>${d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})}${d.getDay()===1?'<br><span style="font-size:10px;color:var(--muted)">Closed</span>':''}</div>`;
     for(let h=8;h<=19.75;h+=0.25){          // 15-minute start-time slots
       const ok=slotAvailable(room,ds,h);
       const sel=rcSel && rcSel.date===ds && rcSel.start===h;
