@@ -1,0 +1,81 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Receipt &middot; The Vintage Loft</title>
+<style>
+  :root{--ink:#3a352f;--muted:#8a8375;--line:#e7e5e2;--gold:#7c7268;--bg:#eeedec}
+  *{box-sizing:border-box}
+  body{font-family:Georgia,'Times New Roman',serif;color:var(--ink);background:var(--bg);margin:0;padding:24px}
+  .actions{max-width:640px;margin:0 auto 14px;display:flex;gap:10px;justify-content:flex-end}
+  .btn{font-family:Arial,sans-serif;font-size:14px;font-weight:bold;border:0;border-radius:8px;padding:10px 18px;cursor:pointer}
+  .btn.gold{background:var(--gold);color:#fff}
+  .btn.ghost{background:#fff;color:var(--gold);border:1px solid var(--line)}
+  .sheet{max-width:640px;margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:12px;padding:34px 38px}
+  .lhead{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-bottom:2px solid var(--gold);padding-bottom:16px;margin-bottom:20px}
+  .lhead .biz{font-size:13px;font-family:Arial,sans-serif;color:var(--muted);line-height:1.55}
+  .lhead h1{margin:0 0 4px;font-size:22px;font-weight:normal}
+  .rtitle{font-family:Arial,sans-serif;text-transform:uppercase;letter-spacing:3px;font-size:13px;color:var(--muted);text-align:right;white-space:nowrap}
+  .meta{font-family:Arial,sans-serif;font-size:13px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin:14px 0}
+  th{font-family:Arial,sans-serif;text-transform:uppercase;font-size:11px;letter-spacing:.5px;color:var(--muted);text-align:left;font-weight:normal;padding:6px 0;border-bottom:1px solid var(--line)}
+  th.r,td.r{text-align:right;white-space:nowrap}
+  td{padding:8px 0;border-bottom:1px solid #f0eeeb;vertical-align:top}
+  tr.sub td{border:0;padding:4px 0}
+  tr.grand td{border-top:2px solid var(--gold);padding-top:10px;font-weight:bold;font-size:16px}
+  .paid{display:inline-block;margin-top:10px;font-family:Arial,sans-serif;font-size:12px;color:#2e6b34;border:1px solid #bfe0c5;background:#eaf5ec;border-radius:20px;padding:5px 14px}
+  .foot{font-family:Arial,sans-serif;font-size:12px;color:var(--muted);margin-top:24px;line-height:1.6}
+  @media print{ body{background:#fff;padding:0} .actions{display:none} .sheet{border:0;border-radius:0;max-width:none;padding:16px} }
+</style></head><body>
+<div class="actions">
+  <button class="btn gold" id="dl">Download PDF</button>
+  <button class="btn ghost" onclick="window.print()">Print</button>
+</div>
+<div class="sheet" id="sheet"><p class="meta">Loading your receipt&hellip;</p></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script>
+function q(k){return new URLSearchParams(location.search).get(k)||'';}
+function money(n){return '$'+Number(n||0).toFixed(2);}
+function tlabel(t){var h=Math.floor(t),m=Math.round((t-h)*60),ap=h<12?'AM':'PM',hh=h%12||12;return hh+':'+String(m).padStart(2,'0')+' '+ap;}
+function fdate(iso){var p=(iso||'').split('-'),M=['January','February','March','April','May','June','July','August','September','October','November','December'];if(!p[0])return iso;return M[+p[1]-1]+' '+(+p[2])+', '+p[0];}
+function esc(s){return (''+s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+(function(){
+  var c=q('c'), e=q('e');
+  var sheet=document.getElementById('sheet');
+  if(!c){ sheet.innerHTML='<p class="meta">This receipt link is missing its reference number.</p>'; return; }
+  fetch('/api/receipt?c='+encodeURIComponent(c)+'&e='+encodeURIComponent(e))
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(x){
+      if(!x.ok){ sheet.innerHTML='<p class="meta">'+esc((x.d&&x.d.error)||'Receipt not found.')+'</p>'; return; }
+      var d=x.d, b=d.business||{}, t=d.totals||{};
+      var rows='';
+      (d.items||[]).forEach(function(it){
+        rows+='<tr><td><b>'+esc(it.roomName)+'</b><br><span class="meta">'+esc(fdate(it.date))+' &middot; '+tlabel(it.start)+'&ndash;'+tlabel(it.end)+' &middot; '+it.hours+' hr</span></td><td class="r">'+money(it.roomCharge)+'</td></tr>';
+        (it.addons||[]).forEach(function(a){
+          rows+='<tr><td style="padding-left:16px" class="meta">+ '+esc(a.name)+(a.option?' ('+esc(a.option)+')':'')+(a.qty>1?(' &times;'+a.qty):'')+'</td><td class="r">'+money(a.amount)+'</td></tr>';
+        });
+      });
+      var disc = t.discount>0 ? '<tr class="sub"><td style="color:#2e7d32">Discount</td><td class="r" style="color:#2e7d32">&minus;'+money(t.discount)+'</td></tr>' : '';
+      var hstNo = b.hstNumber ? '<div>HST/GST #: '+esc(b.hstNumber)+'</div>' : '';
+      var paidAt = '';
+      try{ if(d.paidAt) paidAt = new Date(d.paidAt).toLocaleDateString('en-CA',{year:'numeric',month:'long',day:'numeric'}); }catch(_){}
+      var method = d.paymentMode==='free' ? 'Studio credit / comp' : 'Credit card';
+      sheet.innerHTML =
+        '<div class="lhead"><div><h1>The Vintage Loft</h1><div class="biz">'+esc(b.name||'')+'<br>'+esc(b.address||'')+'<br>'+esc(b.phone||'')+hstNo+'</div></div>'
+        +'<div class="rtitle">Receipt<div class="meta" style="letter-spacing:0;margin-top:8px">'+esc(d.confirmation)+'</div>'+(paidAt?'<div class="meta" style="letter-spacing:0">'+esc(paidAt)+'</div>':'')+'</div></div>'
+        +'<div class="meta" style="margin-bottom:6px"><b>Billed to:</b> '+esc(d.name||'')+(d.email?(' &middot; '+esc(d.email)):'')+'</div>'
+        +'<table><thead><tr><th>Description</th><th class="r">Amount</th></tr></thead><tbody>'+rows
+        +'<tr class="sub"><td>Subtotal</td><td class="r">'+money(t.pre)+'</td></tr>'
+        +disc
+        +'<tr class="sub"><td>HST (13%)</td><td class="r">'+money(t.hst)+'</td></tr>'
+        +'<tr class="grand"><td>Total</td><td class="r">'+money(t.total)+'</td></tr>'
+        +'</tbody></table>'
+        +'<div class="paid">&#10003; Paid '+money(t.paid)+' &middot; '+esc(method)+'</div>'
+        +'<div class="foot">Thank you for booking with The Vintage Loft. This receipt confirms payment for the reservation above.<br>Questions about your booking? Call or text 905-767-2099.</div>';
+    })
+    .catch(function(){ sheet.innerHTML='<p class="meta">Could not load this receipt right now. Please try again in a moment.</p>'; });
+})();
+document.getElementById('dl').onclick=function(){
+  var el=document.getElementById('sheet');
+  if(window.html2pdf){
+    html2pdf().set({margin:10,filename:'VintageLoft-Receipt-'+(q('c')||'')+'.pdf',image:{type:'jpeg',quality:0.98},html2canvas:{scale:2,backgroundColor:'#ffffff'},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}}).from(el).save();
+  } else { window.print(); }
+};
+</script></body></html>

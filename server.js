@@ -252,8 +252,9 @@ function bookingRowsHtml(bookings) {
     </tr>`).join('');
 }
 
-function confirmationEmail({ name, confirmation, bookings, grandTotal, discountTotal }) {
+function confirmationEmail({ name, confirmation, bookings, grandTotal, discountTotal, email }) {
   const savings = discountTotal > 0 ? `<tr><td style="padding:6px 0;color:#2e7d32">Savings</td><td align="right" style="padding:6px 0;color:#2e7d32">&minus;${emMoney(discountTotal)}</td></tr>` : '';
+  const receiptUrl = PUBLIC_URL + '/receipt.html?c=' + encodeURIComponent(confirmation) + (email ? '&e=' + encodeURIComponent(email) : '');
   const inner = `
     <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(name)},</p>
     <p style="margin:0 0 14px;line-height:1.6">Thanks for booking at The Vintage Loft Studios! We look forward to having you come in. You'll receive a reminder email the day before your booking.</p>
@@ -262,8 +263,12 @@ function confirmationEmail({ name, confirmation, bookings, grandTotal, discountT
       <table width="100%" cellpadding="0" cellspacing="0" style="font-size:15px">
         ${bookingRowsHtml(bookings)}
         ${savings}
-        <tr><td style="padding:10px 0 0"><b>Total</b></td><td align="right" style="padding:10px 0 0"><b>${emMoney(grandTotal)}</b></td></tr>
+        <tr><td style="padding:10px 0 0"><b>Total paid</b><br><span style="font-size:11px;color:#9a938a;font-family:Arial,sans-serif">HST included</span></td><td align="right" style="padding:10px 0 0;vertical-align:top"><b>${emMoney(grandTotal)}</b></td></tr>
       </table>
+    </div>
+    <div style="text-align:center;margin:0 0 22px">
+      <a href="${receiptUrl}" style="display:inline-block;background:#7c7268;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;padding:12px 28px;border-radius:8px">Download your receipt (PDF)</a>
+      <div style="font-family:Arial,sans-serif;font-size:12px;color:#9a938a;margin-top:8px">A printable, itemized receipt for your records &mdash; HST included.</div>
     </div>
     <p style="margin:0 0 10px;font-weight:bold">Arrival information</p>
     <img src="${ARRIVAL_URL}" alt="How to find The Vintage Loft — 207 Dundas St West, Whitby. Enter through the awning-covered door on the ground level." width="540" style="width:100%;max-width:540px;height:auto;border:1px solid #eae8e4;border-radius:10px;display:block;margin:0 0 14px">
@@ -301,7 +306,7 @@ function reminderEmail({ name, confirmation, bookings }) {
 
 async function sendConfirmationEmail({ email, name, confirmation, bookings, grandTotal, discountTotal }) {
   if (!email) return;
-  const r = await sendEmail({ to: email, subject: "You're booked at The Vintage Loft!", html: confirmationEmail({ name, confirmation, bookings, grandTotal, discountTotal }) });
+  const r = await sendEmail({ to: email, subject: "You're booked at The Vintage Loft!", html: confirmationEmail({ name, confirmation, bookings, grandTotal, discountTotal, email }) });
   if (r.ok) console.log('[email] confirmation sent for', confirmation, '->', email);
 }
 
@@ -522,6 +527,42 @@ app.post('/api/quote', (req, res) => {
     const { room, start, end, addons } = req.body;
     res.json(VL.priceQuote(room, req.body.date, end - start, addons || {}, req.body.addonOptions || {}));
   } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Itemized receipt for a confirmation number. Public but requires the client's email to match,
+// so receipts can't be enumerated. Powers the downloadable/printable /receipt.html page.
+app.get('/api/receipt', (req, res) => {
+  const c = String(req.query.c || '').trim();
+  const e = String(req.query.e || '').trim().toLowerCase();
+  if (!c) return res.status(400).json({ error: 'Missing confirmation number.' });
+  const rows = db.prepare(`SELECT * FROM bookings WHERE confirmation=? AND status!='cancelled'`).all(c);
+  if (!rows.length) return res.status(404).json({ error: 'That receipt could not be found.' });
+  if (rows[0].customer_email && e && rows[0].customer_email.toLowerCase() !== e) return res.status(403).json({ error: 'This receipt is not available with that link.' });
+  const items = rows.map(r => {
+    const addons = []; let addonTotal = 0;
+    try {
+      const aj = JSON.parse(r.addons_json || '{}'); const it = aj.items || {}, opts = aj.options || {};
+      for (const id in it) {
+        if (it[id] > 0) {
+          const a = (VL.ADDONS || []).find(x => x.id === id); if (!a) continue;
+          const qty = a.boolean ? 1 : it[id];
+          const unit = VL.addonUnitPrice(a, opts[id], r.room_id);
+          const amt = VL.round2(unit * qty); addonTotal += amt;
+          addons.push({ name: a.name, option: opts[id] || null, qty, amount: amt });
+        }
+      }
+    } catch (_) {}
+    return { roomName: (VL.roomById(r.room_id) || {}).name || r.room_id, date: r.date, start: r.start, end: r.end, hours: r.hours,
+      roomCharge: VL.round2((r.pre || 0) - addonTotal), addons, pre: r.pre, hst: r.hst, total: r.total, paid: r.paid, discount: r.discount || 0 };
+  });
+  const t = items.reduce((a, i) => ({ pre: a.pre + (i.pre || 0), hst: a.hst + (i.hst || 0), total: a.total + (i.total || 0), paid: a.paid + (i.paid || 0), discount: a.discount + (i.discount || 0) }), { pre: 0, hst: 0, total: 0, paid: 0, discount: 0 });
+  res.json({
+    confirmation: c, name: rows[0].customer_name, email: rows[0].customer_email,
+    paidAt: rows[0].created_at, paymentMode: rows[0].payment_mode,
+    business: { name: 'The Vintage Loft Studios Inc.', address: '207 Dundas St West, Whitby, ON', phone: '905-767-2099', hstNumber: process.env.HST_NUMBER || '' },
+    items,
+    totals: { pre: VL.round2(t.pre), hst: VL.round2(t.hst), total: VL.round2(t.total), paid: VL.round2(t.paid), discount: VL.round2(t.discount) }
+  });
 });
 
 // Create a reservation of ONE OR MORE studios/rooms. Reserve the slots atomically,

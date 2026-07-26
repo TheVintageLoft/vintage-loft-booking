@@ -464,6 +464,7 @@ function hoursUntil(dateStr,startH){const now=new Date();const dt=new Date(dateS
 
 /* ---------- VIEW ROUTING ---------- */
 function go(v){
+  if(window.VL_LOCK && v==='search'){ v='room'; }   // single-studio embed: never fall back to the all-rooms search
   ['search','room','addons','review','confirm','account'].forEach(x=>{
     $('#view-'+x).style.display = (x===v)?'block':'none';
   });
@@ -1221,6 +1222,14 @@ async function ensureSquareCard(){
   try { const d = await fetchJSON('/api/rooms'); ADDONS = d.addons || []; } catch(e) {}
   loadClient();   // restore a signed-in client and show their credit chip
   initSquare();
+  // Embed / deep-link: if a ?room= is supplied, jump straight into that studio's booking flow.
+  try {
+    var _rm = new URLSearchParams(location.search).get('room');
+    if (_rm && ROOMS.some(function(r){ return r.id === _rm; })) {
+      window.VL_LOCK = true; openRoomCal(_rm);
+      document.querySelectorAll('button').forEach(function(bt){ var oc=bt.getAttribute('onclick')||''; if(oc.indexOf("go('search')")>=0 || oc.indexOf('addAnotherStudio')>=0) bt.style.display='none'; });
+    }
+  } catch(e){}
 })();
 </script>
 <script>
@@ -1231,6 +1240,7 @@ async function ensureSquareCard(){
   if (window.parent === window) return; // only when embedded
   // Hide the app's own logo header/nav when embedded — the host website already has its header.
   try { var _h = document.querySelector('header'); if (_h) _h.style.display = 'none'; } catch(e){}
+  try { var _bn = document.querySelector('.banner'); if (_bn) _bn.style.display = 'none'; } catch(e){}
   var last = 0;
   function contentHeight(){
     var max = 0, kids = document.body.children;
