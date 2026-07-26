@@ -51,6 +51,7 @@
   .tag{display:inline-block;font-family:Arial,sans-serif;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:.5px;padding:2px 8px;border-radius:20px;margin-left:8px;vertical-align:middle}
   .tag-booking{background:#e5efe7;color:#2e6b34}
   .tag-hold{background:#f0e7d6;color:#8a6a2b}
+  .tag-owner{background:#ece4f3;color:#6b4a8a}
   #signedbar{max-width:720px;margin:0 auto 12px;display:flex;justify-content:space-between;align-items:baseline;font-family:Arial,sans-serif;font-size:13px;color:#8a8375}
   #signedbar .appname{font-family:Georgia,serif;font-size:20px;color:#3a352f}
   #signedbar a{color:#7c7268;cursor:pointer;text-decoration:underline}
@@ -433,7 +434,7 @@ function loadCalendar(){
     fetch('/api/admin/bookings?key='+encodeURIComponent(getKey())).then(chk)
   ]).then(function(res){
     var idx={};
-    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,addons_json:b.addons_json||'',intake:b.intake||''}); });
+    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,pay_mode:b.pay_mode||'',addons_json:b.addons_json||'',intake:b.intake||''}); });
     (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||''}); });
     CAL.items=idx; cm.textContent='';
     renderMonth();
@@ -487,7 +488,9 @@ function selectDay(iso){
       var tag=document.createElement('span');
       if(x.kind==='booking'){ tag.className='tag tag-booking'; tag.textContent='Booking'; }
       else { tag.className='tag tag-hold'; tag.textContent='Hold'; }
-      who.appendChild(tag); card.appendChild(who);
+      who.appendChild(tag);
+      if(x.pay_mode==='owner'){ var ot=document.createElement('span'); ot.className='tag tag-owner'; ot.textContent='Owner use'; who.appendChild(ot); }
+      card.appendChild(who);
       var meta=document.createElement('div'); meta.className='meta'; meta.textContent=tLabel(x.start)+' – '+tLabel(x.end); card.appendChild(meta);
       // ---- client contact (from a manually-added booking) ----
       if(x.client){
@@ -623,8 +626,12 @@ function selectDay(iso){
           function render(){
             box.innerHTML='';
             var paid=!!entry.paid_at;
+            var owner=entry.pay_mode==='owner';
             var head=document.createElement('div'); head.className='meta'; head.style.marginBottom='7px';
-            head.innerHTML='<b>Client emails &amp; payment</b> &nbsp; '+(paid?('<span style="color:#2e6b34;font-weight:bold">Paid'+(entry.paid!=null?(' $'+Number(entry.paid).toFixed(2)):'')+'</span>'):'<span style="color:#a37b2b;font-weight:bold">Unpaid</span>');
+            var statusHtml = owner
+              ? '<span style="color:#6b4a8a;font-weight:bold">Owner use · Vintage Films (no charge)</span>'
+              : (paid ? ('<span style="color:#2e6b34;font-weight:bold">Paid'+(entry.paid!=null?(' $'+Number(entry.paid).toFixed(2)):'')+'</span>') : '<span style="color:#a37b2b;font-weight:bold">Unpaid</span>');
+            head.innerHTML='<b>Client emails &amp; payment</b> &nbsp; '+statusHtml;
             box.appendChild(head);
             var row=document.createElement('div'); row.style.cssText='display:flex;gap:16px;flex-wrap:wrap;align-items:center';
             var msg=document.createElement('div'); msg.className='meta'; msg.style.marginTop='6px';
@@ -656,12 +663,17 @@ function selectDay(iso){
               conf.onclick=function(){ var v=parseFloat(inp.value); if(!(v>=0)){ err('Enter a dollar amount.'); return; } busy('Saving...'); post('/api/admin/mark-paid',{paid:v}).then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=x2.d.paid; entry.paid_at='now'; render(); } else err((x2.d&&x2.d.error)||'Could not save.'); }); };
               canc.onclick=function(){ render(); };
             }
-            if(!paid){ A('Mark as paid', function(){ markPaidForm(); }); }
-            else { A('Mark unpaid', function(){ busy('Saving...'); post('/api/admin/mark-paid',{unpay:true}).then(function(x2){ if(x2.ok){ entry.paid=null; entry.paid_at=null; render(); } else err('Could not update.'); }); }, '#a33'); }
-            if(email){
+            function unpay(){ busy('Saving...'); post('/api/admin/mark-paid',{unpay:true}).then(function(x2){ if(x2.ok){ entry.paid=null; entry.paid_at=null; entry.pay_mode=''; render(); loadCalendar(); } else err('Could not update.'); }); }
+            if(owner){ A('Undo owner use', unpay, '#a33'); }
+            else if(!paid){
+              A('Mark as paid', function(){ markPaidForm(); });
+              A('Owner use (no charge)', function(){ busy('Saving...'); post('/api/admin/mark-paid',{owner:true}).then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=0; entry.paid_at='now'; entry.pay_mode='owner'; render(); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not save.'); }); }, '#6b4a8a');
+            }
+            else { A('Mark unpaid', unpay, '#a33'); }
+            if(email && !owner){
               if(!paid) A('Send reserved email', function(){ busy('Sending...'); post('/api/admin/send-reserved').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Reserved email sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
               else A('Send receipt', function(){ busy('Sending...'); post('/api/admin/send-receipt').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Receipt sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
-            } else { var n=document.createElement('span'); n.className='meta'; n.textContent='(add a client email to send emails/receipts)'; row.appendChild(n); }
+            } else if(!email && !owner){ var n=document.createElement('span'); n.className='meta'; n.textContent='(add a client email to send emails/receipts)'; row.appendChild(n); }
             box.appendChild(row); box.appendChild(msg);
           }
           render();

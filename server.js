@@ -65,6 +65,8 @@ try { db.exec("ALTER TABLE blocks ADD COLUMN client TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN addons_json TEXT"); } catch (_) {}
 // client intake form answers on a manually-added booking (reason/sessions/photographer/details)
 try { db.exec("ALTER TABLE blocks ADD COLUMN intake TEXT"); } catch (_) {}
+// how a booking was settled: null/'paid' = normal paid booking; 'owner' = owner's own studio use (no charge)
+try { db.exec("ALTER TABLE blocks ADD COLUMN pay_mode TEXT"); } catch (_) {}
 // manual-booking payment state: a stable confirmation number, amount paid, and when
 try { db.exec("ALTER TABLE blocks ADD COLUMN confirmation TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN paid REAL"); } catch (_) {}
@@ -407,6 +409,23 @@ function torontoISO(offsetDays = 0) {
 function isoOffset(days) { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); }
 
 /* ---------- client accounts + credit wallet helpers ---------- */
+// Owner logins: accounts that see the "studio use" (Vintage Films) running total. Comma-separated env, sensible defaults.
+const OWNER_EMAILS = (process.env.OWNER_EMAILS || 'kelly@thevintageloft.ca,kellylemayphotography@gmail.com')
+  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+function isOwnerEmail(email) { return OWNER_EMAILS.indexOf((email || '').toLowerCase()) >= 0; }
+// Sum the regular studio value of every owner-use booking (pay_mode='owner'), split into this month + this year to date.
+function ownerUsageSummary() {
+  let rows = [];
+  try { rows = db.prepare(`SELECT * FROM blocks WHERE kind='booking' AND pay_mode='owner' ORDER BY date DESC, start DESC`).all(); } catch (_) { return null; }
+  const ym = torontoISO(0).slice(0, 7), yr = torontoISO(0).slice(0, 4);
+  let mtd = 0, ytd = 0, all = 0;
+  const sessions = rows.map(b => {
+    let val = 0; try { val = blockQuote(b).total; } catch (_) {}
+    all += val; if ((b.date || '').slice(0, 4) === yr) ytd += val; if ((b.date || '').slice(0, 7) === ym) mtd += val;
+    return { date: b.date, start: b.start, end: b.end, roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, label: b.reason || '', value: VL.round2(val) };
+  });
+  return { mtd: VL.round2(mtd), ytd: VL.round2(ytd), all: VL.round2(all), count: rows.length, sessions };
+}
 function hashPassword(pw, salt) { salt = salt || crypto.randomBytes(16).toString('hex'); const hash = crypto.scryptSync(String(pw), salt, 64).toString('hex'); return { salt, hash }; }
 function verifyPassword(pw, salt, hash) { try { const h = crypto.scryptSync(String(pw), salt, 64).toString('hex'); return crypto.timingSafeEqual(Buffer.from(h, 'hex'), Buffer.from(hash, 'hex')); } catch (_) { return false; } }
 function newSession(email) { const token = crypto.randomBytes(24).toString('hex'); db.prepare(`INSERT INTO client_sessions (token,email,created_at) VALUES (?,?,?)`).run(token, email.toLowerCase(), new Date().toISOString()); return token; }
@@ -900,7 +919,9 @@ app.get('/api/account', (req, res) => {
     else if (r.date >= today) upcoming.push(item);
     else past.push(item);
   });
-  res.json({ ok: true, name: a ? a.name : '', email, credit: creditBalance(email), upcoming, past, cancelWindowHours: 48 });
+  const resp = { ok: true, name: a ? a.name : '', email, credit: creditBalance(email), upcoming, past, cancelWindowHours: 48 };
+  if (isOwnerEmail(email)) resp.ownerUsage = ownerUsageSummary();
+  res.json(resp);
 });
 app.post('/api/account/cancel', (req, res) => {
   const email = emailForToken(req.body.token);
@@ -1036,13 +1057,18 @@ app.post('/api/admin/mark-paid', admin, (req, res) => {
   if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
   if (!b.confirmation) b.confirmation = ensureBlockConfirmation(b.id);
   if (req.body.unpay) {
-    db.prepare(`UPDATE blocks SET paid=NULL, paid_at=NULL WHERE confirmation=? AND kind='booking'`).run(b.confirmation);
-    return res.json({ ok: true, paid: null });
+    db.prepare(`UPDATE blocks SET paid=NULL, paid_at=NULL, pay_mode=NULL WHERE confirmation=? AND kind='booking'`).run(b.confirmation);
+    return res.json({ ok: true, paid: null, mode: null });
+  }
+  // Owner's own studio use (Vintage Films): settle at $0 so staff don't see "unpaid", tag it as owner use, no studio income recorded.
+  if (req.body.owner) {
+    db.prepare(`UPDATE blocks SET paid=0, paid_at=?, pay_mode='owner' WHERE confirmation=? AND kind='booking'`).run(nowISO(), b.confirmation);
+    return res.json({ ok: true, paid: 0, mode: 'owner' });
   }
   const o = manualOrder(b.confirmation);
   const amt = (req.body.paid != null && req.body.paid !== '') ? VL.round2(parseFloat(req.body.paid)) : (o ? o.grandTotal : 0);
-  db.prepare(`UPDATE blocks SET paid=?, paid_at=? WHERE confirmation=? AND kind='booking'`).run(amt, nowISO(), b.confirmation);
-  res.json({ ok: true, paid: amt });
+  db.prepare(`UPDATE blocks SET paid=?, paid_at=?, pay_mode='paid' WHERE confirmation=? AND kind='booking'`).run(amt, nowISO(), b.confirmation);
+  res.json({ ok: true, paid: amt, mode: 'paid' });
 });
 
 // One-time pre-launch helper: mark every currently-unpaid manual booking as paid at its full computed price.
