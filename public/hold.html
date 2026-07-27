@@ -926,6 +926,14 @@ function selectDay(iso){
         (function(id,toKind){ flip.onclick=function(){ setKind(id,toKind); }; })(x.id,toKind);
         actions.appendChild(flip);
       }
+      // Quiet delete: remove a manual booking with NO email (for entries the client was never told about)
+      if(x.source==='block' && x.kind==='booking'){
+        var del=document.createElement('a');
+        del.style.cssText='font-family:Arial,sans-serif;font-size:13px;color:#a49d92;cursor:pointer;text-decoration:underline;margin-left:6px';
+        del.textContent='Delete (no email)';
+        (function(id,lbl){ del.onclick=function(){ deleteQuiet(id,lbl); }; })(x.id,lbl);
+        actions.appendChild(del);
+      }
       card.appendChild(actions); body.appendChild(card);
     });
   });
@@ -977,6 +985,14 @@ function removeHold(id,btn,label){
     .catch(function(err){btn.disabled=false;btn.textContent='Remove';alert('Network error: '+err.message);});
 }
 
+// Silently remove a manual booking the client was never notified about — no cancellation email is sent.
+function deleteQuiet(id,label){
+  if(!window.confirm('Delete this booking with NO email to the client?\n\n'+(label||'')+'\n\nUse this only for bookings the client was never told about (e.g. ones entered from the old schedule). The studio frees up and nothing is sent to them.')) return;
+  fetch('/api/admin/cancel-manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:id,credit:false,notify:false})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(x){ if(!x.ok||!x.d.ok){ alert((x.d&&x.d.error)||'Could not delete.'); return; } loadCalendar(); })
+    .catch(function(err){ alert('Network error: '+err.message); });
+}
 function cancelManualBooking(id,btn,label,withCredit){
   var origText=btn.textContent;
   var msg = withCredit
