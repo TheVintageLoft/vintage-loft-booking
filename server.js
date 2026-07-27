@@ -583,8 +583,12 @@ const BUFFER = (VL.CONFIG.bufferMin || 15) / 60;
 // Clients must book online at least this many hours ahead; anything sooner routes to staff (call/text).
 const LEAD_HOURS = VL.CONFIG.leadHours || 12;
 function busyIntervals(roomId, date) {
-  const b = db.prepare(`SELECT start,end FROM bookings WHERE room_id=? AND date=? AND status!='cancelled'`).all(roomId, date);
-  const k = db.prepare(`SELECT start,end FROM blocks WHERE room_id=? AND date=?`).all(roomId, date);
+  // A composite wing (North Wing) and its member rooms (Grand, Dream) share availability:
+  // booking any one of them marks the others busy so nothing double-books.
+  const rooms = VL.roomConflicts(roomId);
+  const ph = rooms.map(() => '?').join(',');
+  const b = db.prepare(`SELECT start,end FROM bookings WHERE room_id IN (${ph}) AND date=? AND status!='cancelled'`).all(...rooms, date);
+  const k = db.prepare(`SELECT start,end FROM blocks WHERE room_id IN (${ph}) AND date=?`).all(...rooms, date);
   return [...b, ...k];
 }
 // Free if the requested window keeps at least the 15-min buffer from every existing entry.
@@ -804,8 +808,10 @@ app.get('/api/search', (req, res) => {
 app.get('/api/busy', (req, res) => {
   const { room, from, to } = req.query;
   if (!VL.roomById(room)) return res.status(400).json({ error: 'unknown room' });
-  const b = db.prepare(`SELECT date,start,end FROM bookings WHERE room_id=? AND date BETWEEN ? AND ? AND status!='cancelled'`).all(room, from, to);
-  const k = db.prepare(`SELECT date,start,end FROM blocks WHERE room_id=? AND date BETWEEN ? AND ?`).all(room, from, to);
+  const rooms = VL.roomConflicts(room);   // include member/wing rooms so the calendar greys out shared time
+  const ph = rooms.map(() => '?').join(',');
+  const b = db.prepare(`SELECT date,start,end FROM bookings WHERE room_id IN (${ph}) AND date BETWEEN ? AND ? AND status!='cancelled'`).all(...rooms, from, to);
+  const k = db.prepare(`SELECT date,start,end FROM blocks WHERE room_id IN (${ph}) AND date BETWEEN ? AND ?`).all(...rooms, from, to);
   res.json({ room, busy: [...b, ...k] });
 });
 
@@ -1140,9 +1146,11 @@ app.post('/api/sign-contract', (req, res) => {
 /* ---------- client self-service EDIT a booking (change studio/date/time in place, pay any difference) ---------- */
 // Availability for the new slot, ignoring the booking being edited itself (so it doesn't block against its own time).
 function isFreeForEdit(roomId, date, start, end, exclude) {
-  const bk = db.prepare(`SELECT id,start,end FROM bookings WHERE room_id=? AND date=? AND status!='cancelled'`).all(roomId, date)
+  const rooms = VL.roomConflicts(roomId);
+  const ph = rooms.map(() => '?').join(',');
+  const bk = db.prepare(`SELECT id,start,end FROM bookings WHERE room_id IN (${ph}) AND date=? AND status!='cancelled'`).all(...rooms, date)
     .filter(r => !(exclude.bookingId && r.id === exclude.bookingId));
-  const bl = db.prepare(`SELECT id,confirmation,start,end FROM blocks WHERE room_id=? AND date=?`).all(roomId, date)
+  const bl = db.prepare(`SELECT id,confirmation,start,end FROM blocks WHERE room_id IN (${ph}) AND date=?`).all(...rooms, date)
     .filter(r => !(exclude.confirmation && r.confirmation === exclude.confirmation) && !(exclude.blockId && r.id === exclude.blockId));
   return ![...bk, ...bl].some(iv => VL.overlaps(start, end, iv.start - BUFFER, iv.end + BUFFER));
 }
@@ -1522,10 +1530,12 @@ app.post('/api/admin/edit-entry', admin, (req, res) => {
   if (!VL.roomById(room)) return res.status(400).json({ error: 'Unknown studio.' });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Please choose a valid date.' });
   if (!(e > s)) return res.status(400).json({ error: 'The end time must be after the start time.' });
-  // collision check against everything in that room/date except this same entry
+  // collision check against everything in that room/date (plus any linked wing/member room) except this same entry
+  const rooms = VL.roomConflicts(room);
+  const ph = rooms.map(() => '?').join(',');
   const others = [
-    ...db.prepare(`SELECT id,start,end FROM bookings WHERE room_id=? AND date=? AND status!='cancelled'`).all(room, date).map(x => ({ t: 'booking', id: x.id, start: x.start, end: x.end, bid: null })),
-    ...db.prepare(`SELECT id,start,end,booking_id FROM blocks WHERE room_id=? AND date=?`).all(room, date).map(x => ({ t: 'block', id: x.id, start: x.start, end: x.end, bid: x.booking_id }))
+    ...db.prepare(`SELECT id,start,end FROM bookings WHERE room_id IN (${ph}) AND date=? AND status!='cancelled'`).all(...rooms, date).map(x => ({ t: 'booking', id: x.id, start: x.start, end: x.end, bid: null })),
+    ...db.prepare(`SELECT id,start,end,booking_id FROM blocks WHERE room_id IN (${ph}) AND date=?`).all(...rooms, date).map(x => ({ t: 'block', id: x.id, start: x.start, end: x.end, bid: x.booking_id }))
   ];
   const clash = others.some(iv => {
     if (iv.t === source && iv.id === id) return false;                            // ignore the entry itself

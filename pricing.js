@@ -34,12 +34,23 @@
 
   // Room catalog (config). Bookings/blocks live in the database and reference these ids.
   const ROOMS = [
+    { id: 'northwing', name: 'North Wing',   cap: 'Grand + Dream + shared space', reg: 150, xmas: 250, color: '#6b5b73', tags: 'Our whole north side: the Grand, the Dream, and the open space between them', members: ['grand', 'dream'] },
     { id: 'grand',    name: 'Grand Room',   cap: '900 sq ft',      reg: 100, xmas: 150, color: '#857a6d', tags: 'Natural light · high ceilings' },
+    { id: 'dream',    name: 'Dream Room',   cap: '200 sq ft',      reg: 50,  xmas: 100, color: '#a98f8c', tags: 'Dreamy · cloud-soft couch · olive greens & natural light', special: 'dream' },
     { id: 'gatsby',   name: 'The Gatsby',   cap: '600 sq ft',      reg: 80,  xmas: 120, color: '#99855f', tags: 'Bedroom & office suite · calm, textured neutrals' },
     { id: 'carnegie', name: 'The Carnegie', cap: 'Kitchen studio', reg: 80,  xmas: 120, color: '#728175', tags: 'Kitchen · natural light' },
-    { id: 'dream',    name: 'Dream Room',   cap: '200 sq ft',      reg: 50,  xmas: 100, color: '#a98f8c', tags: 'Dreamy · cloud-soft couch · olive greens & natural light', special: 'dream' },
     { id: 'marilyn',  name: 'The Marilyn',  cap: 'Makeup room',    reg: 25,  xmas: 25,  color: '#b8917a', tags: 'Hair & makeup station · Hollywood mirrors', type: 'makeup' }
   ];
+
+  // Composite rooms: booking one reserves its member rooms too (and vice versa), so nothing double-books.
+  const ROOM_GROUPS = { northwing: ['grand', 'dream'] };
+  // Every room id whose calendar a booking of `roomId` must respect (itself, its members, and any group it belongs to).
+  function roomConflicts(roomId) {
+    const set = {}; set[roomId] = 1;
+    (ROOM_GROUPS[roomId] || []).forEach(function (m) { set[m] = 1; });          // a wing blocks its member rooms
+    for (const g in ROOM_GROUPS) if (ROOM_GROUPS[g].indexOf(roomId) >= 0) set[g] = 1; // a member room blocks its wing
+    return Object.keys(set);
+  }
 
   const ADDONS = [
     { id: 'backdrop',  name: 'Seamless backdrop', unit: 'each', desc: 'Professional seamless paper backdrop',
@@ -49,10 +60,10 @@
     { id: 'cakesmash', name: 'Cake Smash Set',  price: 35, unit: 'set',   desc: 'Complete cake smash setup' },
     { id: 'wardrobe',  name: 'Dress rental',    price: 50, unit: 'dress', desc: 'A styled dress from our collection' },
     { id: 'bedsetup',  name: 'Bed set-up',      price: 25, unit: 'set',   desc: 'Queen bed with fresh linens', rooms: ['gatsby'], priority: 1 },
-    { id: 'swing',     name: 'Macramé swing',   price: 15, unit: 'each',  desc: 'Hanging macramé swing', rooms: ['grand', 'dream'] },
+    { id: 'swing',     name: 'Macramé swing',   price: 15, unit: 'each',  desc: 'Hanging macramé swing', rooms: ['grand', 'dream', 'northwing'] },
     { id: 'earlysetup', name: '15 min early arrival (setup)', unit: 'setup', boolean: true, priority: 2,
       desc: 'Arrive 15 minutes before your session to set up. Your time starts 15 minutes early and that window is reserved for you (a 9:00 booking begins at 8:45).',
-      roomPrices: { grand: 25, gatsby: 20, carnegie: 20, dream: 15, marilyn: 7 } },
+      roomPrices: { northwing: 25, grand: 25, gatsby: 20, carnegie: 20, dream: 15, marilyn: 7 } },
     { id: 'petfee', name: 'Pet fee', price: 25, unit: 'family', boolean: true, priority: 3,
       desc: 'Bringing a furry friend? Covers up to 2 pets per family. We prep a pet couch, water bowl and treats, and sterilize the space afterward. Pets must be leashed or held except while being photographed.' }
   ];
@@ -148,7 +159,7 @@
     return Object.assign({}, q, { discount, pre, hst, total });
   }
 
-  return { CONFIG, ROOMS, ADDONS, roomById, tierFor, isWeekend, isChristmas, rateFor,
+  return { CONFIG, ROOMS, ADDONS, ROOM_GROUPS, roomById, roomConflicts, tierFor, isWeekend, isChristmas, rateFor,
     roomBaseFor, roomTotalFor, priceQuote, validDuration, overlaps, round2, applyDiscountToQuote,
     addonUnitPrice, addonAllowed };
 });

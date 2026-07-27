@@ -216,7 +216,7 @@
 </div>
 
 <script>
-var ROOMS=[["grand","Grand Room"],["gatsby","The Gatsby"],["carnegie","The Carnegie"],["dream","Dream Room"],["marilyn","The Marilyn"]];
+var ROOMS=[["northwing","North Wing"],["grand","Grand Room"],["dream","Dream Room"],["gatsby","The Gatsby"],["carnegie","The Carnegie"],["marilyn","The Marilyn"]];
 function pad(n){return String(n).padStart(2,'0');}
 function tLabel(d){var h=Math.floor(d),m=Math.round((d-h)*60),ap=h<12?'AM':'PM',hh=h%12||12;return hh+':'+pad(m)+' '+ap;}
 function fdate(iso){var p=iso.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return M[+p[1]-1]+' '+(+p[2])+', '+p[0];}
