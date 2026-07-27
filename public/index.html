@@ -338,6 +338,7 @@
       <h1 style="font-size:26px;margin:6px 0">You're booked!</h1>
       <p style="color:var(--muted)" id="confirmSub"></p>
       <div id="confirmDetail" style="text-align:left;margin:18px 0"></div>
+      <div id="confirmContract" style="text-align:left;margin:18px 0"></div>
       <div style="display:flex;gap:10px;justify-content:center">
         <button class="btn btn-ghost" onclick="go('account')">View my bookings</button>
         <button class="btn btn-ink" onclick="go('search')">Book another room</button>
@@ -569,6 +570,43 @@ function runSearch(){
   window.scrollTo({top:260,behavior:'smooth'});
 }
 function fmtDate(d){return new Date(d+'T12:00:00').toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'});}
+/* Holiday-weekend cancellation window: Sat/Sun, Nov 7–Dec 21 get a 7-day cutoff instead of 48h. */
+function xmasWeekend(dateStr){ var p=(dateStr||'').split('-').map(Number); if(!p[0])return false; var dow=new Date(Date.UTC(p[0],p[1]-1,p[2])).getUTCDay(); if(dow!==0&&dow!==6)return false; var md=p[1]*100+p[2]; return md>=1107&&md<=1221; }
+var CONTRACT_URL='https://www.thevintageloft.ca/rental-contract';
+function escAttr(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+// Render the "studio policies & rental contract" + sign box into a container, for a given client email.
+function renderContractSection(containerId, email, conf){
+  var el=document.getElementById(containerId); if(!el) return;
+  el.innerHTML='<div class="card pad" style="margin-top:4px"><div style="font-weight:bold;margin-bottom:6px">Studio policies &amp; rental contract</div><div class="meta" style="color:var(--muted);margin-bottom:10px">Checking…</div></div>';
+  fetch('/api/contract-status?e='+encodeURIComponent(email||'')).then(function(r){return r.json();}).then(function(d){
+    CONTRACT_URL=d.contractUrl||CONTRACT_URL;
+    var body;
+    if(d.signed){
+      body='<div class="meta" style="color:var(--green,#2e7d32)">✓ You signed the rental contract'+(d.name?(' as <b>'+escAttr(d.name)+'</b>'):'')+'. Thank you!</div>'
+        +'<div style="margin-top:8px"><a href="'+escAttr(CONTRACT_URL)+'" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:underline;font-size:14px">Read the studio policies &amp; rental contract</a></div>';
+    } else {
+      body='<div class="meta" style="color:var(--muted);margin-bottom:10px">Please review our policies and sign the rental contract before your session.</div>'
+        +'<div style="margin-bottom:10px"><a href="'+escAttr(CONTRACT_URL)+'" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:underline;font-weight:bold">Open the studio policies &amp; rental contract →</a></div>'
+        +'<label class="chk" style="display:flex;gap:8px;align-items:flex-start;font-size:14px;cursor:pointer;margin-bottom:10px"><input type="checkbox" id="sigAgree" style="margin-top:3px"> <span>I have read and agree to the rental contract &amp; studio policies.</span></label>'
+        +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input id="sigName" placeholder="Type your full name to sign" style="flex:1;min-width:200px;padding:10px 12px;border:1px solid var(--line);border-radius:10px"><button class="btn btn-gold" id="sigBtn">Sign</button></div>'
+        +'<div id="sigMsg" class="meta" style="margin-top:8px"></div>';
+    }
+    el.innerHTML='<div class="card pad" style="margin-top:4px"><div style="font-weight:bold;margin-bottom:8px">Studio policies &amp; rental contract</div>'+body+'</div>';
+    var btn=document.getElementById('sigBtn');
+    if(btn) btn.onclick=function(){
+      var agree=document.getElementById('sigAgree').checked, nm=(document.getElementById('sigName').value||'').trim(), m=document.getElementById('sigMsg');
+      if(!agree){ m.style.color='var(--red)'; m.textContent='Please check the box to agree first.'; return; }
+      if(nm.length<2){ m.style.color='var(--red)'; m.textContent='Please type your full name to sign.'; return; }
+      btn.disabled=true; btn.textContent='Signing…';
+      fetch('/api/sign-contract',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({e:email,name:nm,c:conf||''})})
+        .then(function(r){return r.json().then(function(x){return{ok:r.ok,d:x};});})
+        .then(function(x){ if(!x.ok||x.d.error){ btn.disabled=false; btn.textContent='Sign'; m.style.color='var(--red)'; m.textContent=(x.d&&x.d.error)||'Could not save your signature.'; return; } renderContractSection(containerId, email, conf); toast('Thank you — your rental contract is signed.'); });
+    };
+  }).catch(function(){ el.innerHTML='<div class="card pad" style="margin-top:4px"><a href="'+escAttr(CONTRACT_URL)+'" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:underline">Read the studio policies &amp; rental contract</a></div>'; });
+}
+function cancelPolicyText(dates){ return (dates||[]).some(xmasWeekend)
+  ? 'Paid in full today. These are holiday-weekend dates, so cancel or reschedule at least <b>7 days</b> before your start time for full studio credit toward a future booking. No refunds.'
+  : 'Paid in full today. Cancel or reschedule at least <b>48 hrs</b> before your start time for full studio credit toward a future booking. No refunds. Holiday-weekend dates (Nov–Dec Sat/Sun) need 7 days.'; }
 
 function selectRoom(roomId){
   const r=ROOMS.find(x=>x.id===roomId);
@@ -920,7 +958,7 @@ function renderReview(){
   });
   document.getElementById('reviewBox').innerHTML = box;
   const cr = document.getElementById('creditRedeem'); if(cr) cr.style.display='none';
-  const cx = document.getElementById('cxPolicy'); if(cx) cx.innerHTML = `Paid in full today. Cancel or reschedule at least <b>${CONFIG.cancelWindowHours} hrs</b> before your start time for full studio credit toward a future booking. No refunds.`;
+  const cx = document.getElementById('cxPolicy'); if(cx) cx.innerHTML = cancelPolicyText(order.map(function(o){return o.date;}));
   renderReviewSummary();
   if(sqPayments) ensureSquareCard();
 }
@@ -998,7 +1036,7 @@ async function payNow(){
       d.bookings.map(b=>`<div class="bk"><div><b>${b.roomName}</b><div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)}</div></div><div style="text-align:right"><b>${money(b.total)}</b></div></div>`).join('')
       + savedLine
       + `<div class="bk" style="border-color:transparent"><div><b>${d.grandTotal>0?'Total paid in full':'Total'}</b></div><div style="text-align:right"><b>${money(d.grandTotal)}</b></div></div>`;
-    order = []; cart = null; appliedCode = null; const ci=document.getElementById('codeInput'); if(ci)ci.value=''; const cm=document.getElementById('codeMsg'); if(cm)cm.textContent=''; go('confirm'); toast('Payment complete — booking saved');
+    order = []; cart = null; appliedCode = null; const ci=document.getElementById('codeInput'); if(ci)ci.value=''; const cm=document.getElementById('codeMsg'); if(cm)cm.textContent=''; go('confirm'); renderContractSection('confirmContract', email, d.confirmation); toast('Payment complete — booking saved');
   } catch(err){
     btn.disabled = false; btn.textContent = l0;
     toast(err.status===409 ? (err.body && err.body.error ? err.body.error : 'A time was just taken — please adjust.') : (err.message||'Could not complete booking'));
@@ -1043,7 +1081,7 @@ async function renderAccount(){
   ACCT_ITEMS = {}; (d.upcoming||[]).forEach(function(b){ ACCT_ITEMS[b.manual?('m:'+b.confirmation):String(b.id)] = b; });
   const up = d.upcoming.length ? d.upcoming.map(b=>acctBookingRow(b,true)).join('') : '<div class="empty">No upcoming bookings.</div>';
   const past = d.past.length ? d.past.map(b=>acctBookingRow(b,false)).join('') : '<div class="empty">Nothing here yet.</div>';
-  const note = d.upcoming.length ? `<div class="meta" style="color:var(--muted);font-size:13px;margin:2px 0 10px;line-height:1.5">Want to reschedule but don't know your new date yet? Just <b>cancel</b> your booking and, as long as you're outside the 48-hour window, your credit goes right into your account to use whenever you rebook.</div>` : '';
+  const note = d.upcoming.length ? `<div class="meta" style="color:var(--muted);font-size:13px;margin:2px 0 10px;line-height:1.5">Want to reschedule but don't know your new date yet? Just <b>cancel</b> your booking and, as long as you're outside the cancellation window (48 hours, or 7 days for holiday-weekend dates), your credit goes right into your account to use whenever you rebook.</div>` : '';
   inner.innerHTML = `<div class="card pad">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
       <div><h3 style="margin:0">${d.name||'Welcome'}</h3><div class="meta" style="color:var(--muted);font-size:13px">${d.email}</div>
@@ -1076,7 +1114,7 @@ function usageCard(o){
 }
 function acctBookingRow(b, upcoming){
   const actionable = upcoming && b.status!=='cancelled';
-  const fullCredit = b.hoursOut>=48;
+  const fullCredit = b.hoursOut >= (b.cancelHours||48);
   const showRcpt = b.confirmation && b.status!=='cancelled' && (!b.manual || b.isPaid);
   const rcpt = showRcpt ? `<a href="receipt.html?c=${encodeURIComponent(b.confirmation)}&e=${encodeURIComponent((typeof CLIENT!=='undefined'&&CLIENT&&CLIENT.email)||'')}" target="_blank" rel="noopener" style="font-size:13px;color:var(--gold);text-decoration:underline;white-space:nowrap">Receipt</a>` : '';
   const ref = b.manual ? ('m:'+b.confirmation) : String(b.id);
@@ -1209,7 +1247,8 @@ async function doSignup(){
 }
 function cancelBody(ref){ return (String(ref).indexOf('m:')===0) ? {token:CLIENT.token, confirmation:String(ref).slice(2)} : {token:CLIENT.token, bookingId:ref}; }
 async function cancelMyBooking(ref){
-  if(!confirm('Cancel this booking? If it is 48 hours or more before the start time, your payment becomes account credit for a future visit. Inside 48 hours there is no credit.')) return;
+  var it=ACCT_ITEMS[ref], win=(it&&it.cancelHours)||48, lbl=win>48?'7 days':'48 hours';
+  if(!confirm('Cancel this booking? If it is '+lbl+' or more before the start time, your payment becomes account credit for a future visit. Inside '+lbl+' there is no credit.')) return;
   try{ var d=await fetchJSON('/api/account/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cancelBody(ref))});
     toast(d.credited>0 ? ('Cancelled — '+money(d.credited)+' added to your credit') : 'Booking cancelled');
     if(CLIENT) loadClient();
@@ -1372,7 +1411,7 @@ function finishBooking(d, email){
     d.bookings.map(b=>`<div class="bk"><div><b>${b.roomName}</b><div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)}</div></div><div style="text-align:right"><b>${money(b.total)}</b></div></div>`).join('')
     + savedLine
     + `<div class="bk" style="border-color:transparent"><div><b>${d.grandTotal>0?'Total paid in full':'Total'}</b></div><div style="text-align:right"><b>${money(d.grandTotal)}</b></div></div>`;
-  order = []; cart = null; appliedCode = null; const ci=document.getElementById('codeInput'); if(ci)ci.value=''; const cm=document.getElementById('codeMsg'); if(cm)cm.textContent=''; go('confirm'); toast('Payment complete — booking saved');
+  order = []; cart = null; appliedCode = null; const ci=document.getElementById('codeInput'); if(ci)ci.value=''; const cm=document.getElementById('codeMsg'); if(cm)cm.textContent=''; go('confirm'); renderContractSection('confirmContract', email, d.confirmation); toast('Payment complete — booking saved');
 }
 var ppConfig=null, ppReady=false, ppRendered=false, ppSuppressError=false;
 async function initPaypal(){
@@ -1426,6 +1465,15 @@ function renderPaypalButtons(){
     }
     // Deep-link to the account page (used by the cancellation-credit email): ?account=1
     else if (_qs.get('account') || (location.hash||'').replace('#','')==='account') { go('account'); }
+    // Deep-link to sign the rental contract (from the confirmation email): ?sign=1&e=<email>
+    else if (_qs.get('sign')) {
+      var _se=_qs.get('e')||'', _sc=_qs.get('c')||'';
+      var sub=document.getElementById('confirmSub'), det=document.getElementById('confirmDetail'), h=document.querySelector('#view-confirm h1');
+      if(h) h.textContent='Rental contract';
+      if(sub) sub.textContent='Please review our studio policies and sign the rental contract below.';
+      if(det) det.innerHTML='';
+      go('confirm'); renderContractSection('confirmContract', _se, _sc);
+    }
   } catch(e){}
 })();
 </script>

@@ -81,6 +81,8 @@ try { db.exec(`CREATE TABLE IF NOT EXISTS clients (name_key TEXT PRIMARY KEY, na
 try { db.exec(`CREATE TABLE IF NOT EXISTS client_accounts (email TEXT PRIMARY KEY, name TEXT, pass_salt TEXT, pass_hash TEXT, created_at TEXT)`); } catch (_) {}
 try { db.exec(`CREATE TABLE IF NOT EXISTS client_sessions (token TEXT PRIMARY KEY, email TEXT, created_at TEXT)`); } catch (_) {}
 try { db.exec(`CREATE TABLE IF NOT EXISTS credit_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, amount REAL, reason TEXT, booking_id INTEGER, created_at TEXT)`); } catch (_) {}
+// rental-contract signatures (one per client email; a signed client stays signed for future bookings)
+try { db.exec(`CREATE TABLE IF NOT EXISTS signatures (email TEXT PRIMARY KEY, name TEXT, confirmation TEXT, signed_at TEXT)`); } catch (_) {}
 // early-arrival setup: a flag on the booking + a linked 15-min block that reserves the time before it
 try { db.exec("ALTER TABLE bookings ADD COLUMN setup INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN booking_id INTEGER"); } catch (_) {}
@@ -217,6 +219,7 @@ const emailEnabled = !!RESEND_API_KEY;
 const PUBLIC_URL = (process.env.PUBLIC_URL || 'https://vintage-loft-booking.onrender.com').replace(/\/$/, '');
 const LOGO_URL = PUBLIC_URL + '/email-logo.png';
 const ARRIVAL_URL = PUBLIC_URL + '/email-arrival.jpg';
+const CONTRACT_URL = process.env.CONTRACT_URL || 'https://www.thevintageloft.ca/rental-contract';
 
 async function sendEmail({ to, subject, html }) {
   if (!emailEnabled) { console.log('[email] skipped (no RESEND_API_KEY):', subject, '->', to); return { ok: false, skipped: true }; }
@@ -331,6 +334,20 @@ function confirmationEmail({ name, confirmation, bookings, grandTotal, discountT
       <a href="${receiptUrl}" style="display:inline-block;background:#7c7268;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;padding:12px 28px;border-radius:8px">Download your receipt (PDF)</a>
       <div style="font-family:Arial,sans-serif;font-size:12px;color:#9a938a;margin-top:8px">A printable, itemized receipt for your records &mdash; HST included.</div>
     </div>
+    <div style="border:1px solid #eae8e4;border-radius:10px;padding:16px 18px;margin:0 0 20px;font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#3a352f">
+      <div style="font-weight:bold;margin-bottom:6px">Studio policies &amp; rental contract</div>
+      <div style="color:#6b6459;margin-bottom:12px">Please review our policies and sign the rental contract before your session if you haven't already.</div>
+      <div style="text-align:center"><a href="${PUBLIC_URL}/?sign=1&amp;e=${encodeURIComponent(email || '')}&amp;c=${encodeURIComponent(confirmation)}" style="display:inline-block;background:#7c7268;color:#fff;text-decoration:none;font-size:14px;font-weight:bold;padding:11px 24px;border-radius:8px">Review &amp; sign the rental contract</a></div>
+      <div style="text-align:center;margin-top:8px;font-size:13px"><a href="${CONTRACT_URL}" style="color:#7c7268">Read the studio policies &amp; rental contract</a></div>
+    </div>
+    <div style="border:1px solid #eae8e4;border-radius:10px;padding:16px 18px;margin:0 0 20px;font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#3a352f">
+      <div style="font-weight:bold;margin-bottom:10px">Need to make a change?</div>
+      <div style="text-align:center">
+        <a href="${PUBLIC_URL}/?account=1" style="display:inline-block;background:#7c7268;color:#fff;text-decoration:none;font-size:14px;font-weight:bold;padding:11px 22px;border-radius:8px;margin:0 4px 6px">Edit my booking</a>
+        <a href="${PUBLIC_URL}/?account=1" style="display:inline-block;background:#fff;color:#7c7268;border:1px solid #d8d3cc;text-decoration:none;font-size:14px;font-weight:bold;padding:11px 22px;border-radius:8px;margin:0 4px 6px">Cancel my booking</a>
+      </div>
+      <div style="color:#9a938a;font-size:12px;text-align:center;margin-top:6px">Sign in with this email (${email ? email.replace(/[<>&"]/g, '') : 'the email you booked with'}) to edit or cancel. Changes follow our cancellation policy below.</div>
+    </div>
     <p style="margin:0 0 10px;font-weight:bold">Arrival information</p>
     <img src="${ARRIVAL_URL}" alt="How to find The Vintage Loft — 207 Dundas St West, Whitby. Enter through the awning-covered door on the ground level." width="540" style="width:100%;max-width:540px;height:auto;border:1px solid #eae8e4;border-radius:10px;display:block;margin:0 0 14px">
     <div style="font-size:14px;line-height:1.6;font-family:Arial,sans-serif;margin:0 0 18px;color:#3a352f">
@@ -340,9 +357,17 @@ function confirmationEmail({ name, confirmation, bookings, grandTotal, discountT
     </div>
     <p style="margin:0 0 18px;line-height:1.6">If you have any questions before you arrive, give us a call or text. See you soon!<br>Kelly &amp; The Vintage Loft Team</p>
     <div style="background:#f6f5f3;border:1px solid #eae8e4;border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.6;color:#6b6459;font-family:Arial,sans-serif">
-      <b>Cancellation policy:</b> We do not give refunds for bookings, however we give full studio credit if cancelled or rescheduled with 48 hours or more notice. (Special holiday sets have a different cancellation policy.)
+      <b>Cancellation policy:</b> ${cancelPolicyLine(bookings)}
     </div>`;
   return emailShell(inner);
+}
+
+// The cancellation-policy sentence for an email, worded for the booking's dates (holiday weekends = 7 days).
+function cancelPolicyLine(bookings) {
+  const xmas = (bookings || []).some(b => isXmasWeekend(b.date));
+  return xmas
+    ? 'We do not give refunds for bookings. Because these are holiday-weekend dates, we give full studio credit only if cancelled or rescheduled with <b>7 days</b> or more notice.'
+    : 'We do not give refunds for bookings, however we give full studio credit if cancelled or rescheduled with 48 hours or more notice. (Holiday-weekend dates, Nov–Dec Sat/Sun, require 7 days notice.)';
 }
 
 // Sent when a client extends an already-paid manual booking: shows the updated booking, what they've
@@ -363,7 +388,7 @@ function balanceEmail({ name, confirmation, bookings, alreadyPaid, balanceDue, p
     ${payBtn}
     <p style="margin:0 0 18px;line-height:1.6;font-family:Arial,sans-serif;font-size:14px;color:#6b6459">Once your payment is received, we'll email your updated receipt. Questions? Call or text 905-767-2099.</p>
     <div style="background:#f6f5f3;border:1px solid #eae8e4;border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.6;color:#6b6459;font-family:Arial,sans-serif">
-      <b>Cancellation policy:</b> We do not give refunds for bookings, however we give full studio credit if cancelled or rescheduled with 48 hours or more notice. (Special holiday sets have a different cancellation policy.)
+      <b>Cancellation policy:</b> ${cancelPolicyLine(bookings)}
     </div>`;
   return emailShell(inner);
 }
@@ -385,7 +410,7 @@ function cancellationEmail({ name, confirmation, bookings, credited, email }) {
          <div style="text-align:center;margin:16px 0 4px"><a href="${acctUrl}" style="display:inline-block;background:#7c7268;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;padding:12px 26px;border-radius:8px">View my account &amp; credit</a></div>
          <div style="font-family:Arial,sans-serif;font-size:13px;color:#6b6459;text-align:center;margin-top:6px">Please sign in with the same email you booked with (${emailSafe}) so your credit shows up.</div></div>`
     : `<div style="background:#f6f5f3;border:1px solid #eae8e4;border-radius:10px;padding:15px 17px;margin:0 0 18px;line-height:1.6">
-         This cancellation falls within our 48-hour cancellation window, so this booking isn't eligible for studio credit. We understand that unexpected situations can arise, and while we stand behind our cancellation policy, truly exceptional circumstances may be reviewed at our discretion.<br><br>
+         This cancellation falls within our ${((bookings || []).some(x => isXmasWeekend(x.date)) ? '7-day holiday-weekend' : '48-hour')} cancellation window, so this booking isn't eligible for studio credit. We understand that unexpected situations can arise, and while we stand behind our cancellation policy, truly exceptional circumstances may be reviewed at our discretion.<br><br>
          We appreciate your understanding and look forward to welcoming you back to The Vintage Loft soon.</div>`;
   const inner = `
     <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(name)},</p>
@@ -414,7 +439,7 @@ function reservedEmail({ name, confirmation, bookings, amountDue, discountTotal,
     ${payBtn}
     <p style="margin:0 0 18px;line-height:1.6;font-family:Arial,sans-serif;font-size:14px;color:#6b6459">Once your payment is received, we'll email your receipt. Questions? Call or text 905-767-2099.</p>
     <div style="background:#f6f5f3;border:1px solid #eae8e4;border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.6;color:#6b6459;font-family:Arial,sans-serif">
-      <b>Cancellation policy:</b> We do not give refunds for bookings, however we give full studio credit if cancelled or rescheduled with 48 hours or more notice. (Special holiday sets have a different cancellation policy.)
+      <b>Cancellation policy:</b> ${cancelPolicyLine(bookings)}
     </div>`;
   return emailShell(inner);
 }
@@ -515,15 +540,29 @@ function addCredit(email, amount, reason, bookingId) { db.prepare(`INSERT INTO c
 function torontoOffsetHours() { try { const n = new Date(); const loc = new Date(n.toLocaleString('en-US', { timeZone: 'America/Toronto' })); const utc = new Date(n.toLocaleString('en-US', { timeZone: 'UTC' })); return (loc - utc) / 3600000; } catch (_) { return -5; } }
 // hours from now until a booking's start (date 'YYYY-MM-DD' + decimal start hour, Toronto local)
 function hoursUntil(dateStr, startHour) { const p = (dateStr || '').split('-').map(Number); if (!p[0]) return 0; const off = torontoOffsetHours(); const bookingUTC = Date.UTC(p[0], p[1] - 1, p[2]) + startHour * 3600000 - off * 3600000; return (bookingUTC - Date.now()) / 3600000; }
-// cancel a real booking (bookings table) and issue full account credit if >= 48h before start
+// Christmas-weekend bookings (Sat/Sun, Nov 7–Dec 21, any year) get a 7-day cancellation cutoff instead of
+// 48h — they can't be re-rented and photographers book large blocks. Month/day based so it recurs yearly.
+const XMAS_CANCEL_HOURS = 168; // 7 days
+function isXmasWeekend(dateStr) {
+  const p = (dateStr || '').split('-').map(Number); if (!p[0]) return false;
+  const dow = new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay();
+  if (dow !== 0 && dow !== 6) return false;            // Saturdays & Sundays only
+  const md = p[1] * 100 + p[2];                        // Nov 7 = 1107, Dec 21 = 1221
+  return md >= 1107 && md <= 1221;
+}
+function cancelWindowHours(dateStr) { return isXmasWeekend(dateStr) ? XMAS_CANCEL_HOURS : 48; }
+function cancelWindowLabel(dateStr) { return isXmasWeekend(dateStr) ? '7 days' : '48 hours'; }
+
+// cancel a real booking (bookings table) and issue full account credit if outside the cancellation window
 function cancelBookingWithCredit(b) {
   db.prepare(`UPDATE bookings SET status='cancelled' WHERE id=?`).run(b.id);
   removeSetupBlocks(b.id);   // free the reserved early-arrival window, if any
   const hrs = hoursUntil(b.date, b.start);
+  const win = cancelWindowHours(b.date);
   const already = db.prepare(`SELECT 1 FROM credit_ledger WHERE booking_id=? AND amount>0`).get(b.id);
   let credited = 0;
-  if (hrs >= 48 && !already && (b.paid || 0) > 0 && b.customer_email) { credited = VL.round2(b.paid); addCredit(b.customer_email, credited, 'Cancellation credit', b.id); }
-  return { credited, hoursOut: Math.round(hrs), newBalance: b.customer_email ? creditBalance(b.customer_email) : 0 };
+  if (hrs >= win && !already && (b.paid || 0) > 0 && b.customer_email) { credited = VL.round2(b.paid); addCredit(b.customer_email, credited, 'Cancellation credit', b.id); }
+  return { credited, hoursOut: Math.round(hrs), windowHours: win, newBalance: b.customer_email ? creditBalance(b.customer_email) : 0 };
 }
 function validTimes(start, end) {
   if (!(start >= 8 && end <= 20 && end > start)) return 'Outside studio hours (8:00–20:00)';
@@ -1006,7 +1045,7 @@ app.get('/api/account', (req, res) => {
   const rows = db.prepare(`SELECT * FROM bookings WHERE lower(customer_email)=? ORDER BY date, start`).all(email);
   const today = torontoISO(0); const upcoming = [], past = [];
   rows.forEach(r => {
-    const item = { id: r.id, room: r.room_id, roomName: (VL.roomById(r.room_id) || {}).name || r.room_id, date: r.date, start: r.start, end: r.end, paid: r.paid, status: r.status, confirmation: r.confirmation, hoursOut: Math.round(hoursUntil(r.date, r.start)), manual: false };
+    const item = { id: r.id, room: r.room_id, roomName: (VL.roomById(r.room_id) || {}).name || r.room_id, date: r.date, start: r.start, end: r.end, paid: r.paid, status: r.status, confirmation: r.confirmation, hoursOut: Math.round(hoursUntil(r.date, r.start)), cancelHours: cancelWindowHours(r.date), manual: false };
     if (r.status === 'cancelled') past.push(Object.assign({ cancelled: true }, item));
     else if (r.date >= today) upcoming.push(item);
     else past.push(item);
@@ -1021,7 +1060,7 @@ app.get('/api/account', (req, res) => {
     myConfs.forEach(conf => {
       const o = manualOrder(conf); if (!o) return;
       o.bookings.forEach((ln, i) => {
-        const item = { id: 'm:' + conf + ':' + i, ref: 'm:' + conf, room: ln.room, roomName: ln.roomName, date: ln.date, start: ln.start, end: ln.end, paid: (o.paidAt ? VL.round2(ln.total) : 0), status: 'confirmed', confirmation: conf, hoursOut: Math.round(hoursUntil(ln.date, ln.start)), manual: true, isPaid: !!o.paidAt };
+        const item = { id: 'm:' + conf + ':' + i, ref: 'm:' + conf, room: ln.room, roomName: ln.roomName, date: ln.date, start: ln.start, end: ln.end, paid: (o.paidAt ? VL.round2(ln.total) : 0), status: 'confirmed', confirmation: conf, hoursOut: Math.round(hoursUntil(ln.date, ln.start)), cancelHours: cancelWindowHours(ln.date), manual: true, isPaid: !!o.paidAt };
         if (ln.date >= today) upcoming.push(item); else past.push(item);
       });
     });
@@ -1046,7 +1085,7 @@ app.post('/api/account/cancel', (req, res) => {
     const earliest = blocks.reduce((m, b) => ((b.date + String(b.start).padStart(5, '0')) < (m.date + String(m.start).padStart(5, '0')) ? b : m), blocks[0]);
     const hrs = hoursUntil(earliest.date, earliest.start);
     let credited = 0;
-    if (o && o.paidAt && (o.paid || 0) > 0 && hrs >= 48) { credited = VL.round2(o.paid); addCredit(email, credited, 'Cancellation credit for ' + conf); }
+    if (o && o.paidAt && (o.paid || 0) > 0 && hrs >= cancelWindowHours(earliest.date)) { credited = VL.round2(o.paid); addCredit(email, credited, 'Cancellation credit for ' + conf); }
     const bookingsForEmail = o ? o.bookings : [];
     db.prepare(`DELETE FROM blocks WHERE confirmation=? AND kind='booking'`).run(conf);   // frees the studio slot(s)
     sendEmail({ to: email, subject: 'Your booking has been cancelled — The Vintage Loft', html: cancellationEmail({ name: (o && o.name) || 'there', confirmation: conf, bookings: bookingsForEmail, credited, email }) }).catch(e => console.error('[email] cancellation error:', e.message));
@@ -1058,6 +1097,31 @@ app.post('/api/account/cancel', (req, res) => {
   const r = cancelBookingWithCredit(b);
   if (b.customer_email) sendEmail({ to: b.customer_email, subject: 'Your booking has been cancelled — The Vintage Loft', html: cancellationEmail({ name: b.customer_name || 'there', confirmation: b.confirmation, bookings: [{ roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end }], credited: r.credited, email: b.customer_email }) }).catch(e => console.error('[email] cancellation error:', e.message));
   res.json({ ok: true, credited: r.credited, hoursOut: r.hoursOut, newBalance: r.newBalance });
+});
+
+/* ---------- rental contract: link + lightweight signature (name + agree), tied to the client's email ---------- */
+function emailHasBooking(email) {
+  email = (email || '').toLowerCase(); if (!email) return false;
+  try { if (db.prepare(`SELECT 1 FROM bookings WHERE lower(customer_email)=? LIMIT 1`).get(email)) return true; } catch (_) {}
+  try { const rows = db.prepare(`SELECT client FROM blocks WHERE kind='booking' AND client IS NOT NULL`).all(); for (const r of rows) { let c = {}; try { c = JSON.parse(r.client || '{}'); } catch (_) {} if ((c.email || '').toLowerCase() === email) return true; } } catch (_) {}
+  return false;
+}
+app.get('/api/contract-status', (req, res) => {
+  const email = (req.query.e || '').toString().trim().toLowerCase();
+  const row = email ? db.prepare(`SELECT name, signed_at FROM signatures WHERE email=?`).get(email) : null;
+  res.json({ ok: true, signed: !!row, name: row ? row.name : '', signedAt: row ? row.signed_at : null, contractUrl: CONTRACT_URL });
+});
+app.post('/api/sign-contract', (req, res) => {
+  const email = (req.body.e || '').toString().trim().toLowerCase();
+  const name = (req.body.name || '').toString().trim().slice(0, 120);
+  if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'A valid email is required.' });
+  if (name.length < 2) return res.status(400).json({ error: 'Please type your full name to sign.' });
+  if (!emailHasBooking(email)) return res.status(404).json({ error: 'We couldn’t find a booking for that email.' });
+  const at = nowISO();
+  db.prepare(`INSERT INTO signatures (email,name,confirmation,signed_at) VALUES (?,?,?,?)
+    ON CONFLICT(email) DO UPDATE SET name=excluded.name, confirmation=excluded.confirmation, signed_at=excluded.signed_at`)
+    .run(email, name, (req.body.c || '').toString().slice(0, 40), at);
+  res.json({ ok: true, signedAt: at, name });
 });
 
 /* ---------- client self-service EDIT a booking (change studio/date/time in place, pay any difference) ---------- */
@@ -1103,7 +1167,7 @@ function evalEdit(cur, room, date, start, end) {
   if (!VL.validDuration(room, end - start)) return { error: 'That length isn’t available for that studio.' };
   if (isClosedDay(date)) return { error: 'We’re closed on Mondays — please choose another day.' };
   if (hoursUntil(date, start) < LEAD_HOURS) return { error: 'Please pick a time at least ' + LEAD_HOURS + ' hours from now, or call us at 905-767-2099.' };
-  if (hoursUntil(cur.date, cur.start) < 48) return { error: 'Changes need to be at least 48 hours before your current start time. Please call or text 905-767-2099 and we’ll help.' };
+  if (hoursUntil(cur.date, cur.start) < cancelWindowHours(cur.date)) return { error: 'Changes need to be at least ' + cancelWindowLabel(cur.date) + ' before your current start time' + (isXmasWeekend(cur.date) ? ' (holiday-weekend dates have a 7-day policy)' : '') + '. Please call or text 905-767-2099 and we’ll help.' };
   const exclude = cur.kind === 'manual' ? { confirmation: cur.confirmation } : { bookingId: cur.id };
   if (!isFreeForEdit(room, date, start, end, exclude)) return { error: 'That studio isn’t open for the time you picked. Please try another time or day.' };
   const newTotal = editNewTotal(room, date, end - start, cur.addons, cur.code);
