@@ -86,6 +86,8 @@ try { db.exec(`CREATE TABLE IF NOT EXISTS signatures (email TEXT PRIMARY KEY, na
 // early-arrival setup: a flag on the booking + a linked 15-min block that reserves the time before it
 try { db.exec("ALTER TABLE bookings ADD COLUMN setup INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN booking_id INTEGER"); } catch (_) {}
+try { db.exec("ALTER TABLE bookings ADD COLUMN inspo TEXT"); } catch (_) {}   // JSON array of inspiration-photo data URLs
+try { db.exec("ALTER TABLE blocks ADD COLUMN inspo TEXT"); } catch (_) {}
 
 /* ---------- one-time clean reset (owner-only, no button) ----------
    Set WIPE_ONCE to any word in the host environment to clear ALL bookings + holds
@@ -878,6 +880,24 @@ app.get('/api/receipt', (req, res) => {
 
 // Create a reservation of ONE OR MORE studios/rooms. Reserve the slots atomically,
 // charge once (real Square or stand-in), then confirm — or release the slots if the charge fails.
+// Inspiration photos: clients upload a few images to help us prep. Stored as a JSON array of
+// (already client-compressed) data URLs on each booking/block row. Kept lean and capped for safety.
+function sanitizeInspo(v) {
+  let arr = v;
+  if (typeof v === 'string') { try { arr = JSON.parse(v); } catch (_) { arr = null; } }
+  if (!Array.isArray(arr)) return null;
+  const out = []; let total = 0;
+  for (const s of arr) {
+    if (typeof s !== 'string') continue;
+    if (!/^data:image\/(png|jpeg|jpg|webp|gif);base64,/i.test(s)) continue;
+    if (s.length > 2500000) continue;          // ~1.8 MB per image ceiling
+    total += s.length; if (total > 12000000) break;   // ~9 MB total ceiling
+    out.push(s); if (out.length >= 8) break;   // up to 8 images
+  }
+  return out.length ? JSON.stringify(out) : null;
+}
+function inspoCountOf(s) { if (!s) return 0; try { const a = JSON.parse(s); return Array.isArray(a) ? a.length : 0; } catch (_) { return 0; } }
+
 app.post('/api/bookings', async (req, res) => {
   let { items, customerName, customerEmail, paymentToken } = req.body;
   if (!Array.isArray(items)) {   // backward-compatible with a single-room body
@@ -930,12 +950,13 @@ app.post('/api/bookings', async (req, res) => {
     }
     grandTotal = VL.round2(finals.reduce((sum, f) => sum + f.paid, 0));
     const intakeStr = req.body.intake ? JSON.stringify(req.body.intake).slice(0, 4000) : null;
-    const ins = db.prepare(`INSERT INTO bookings (room_id,date,start,end,hours,addons_json,pre,hst,total,paid,payment_ref,payment_mode,customer_name,customer_email,intake,setup,status,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,0,'PENDING','pending',?,?,?,?, 'pending', ?)`);
+    const inspoStr = sanitizeInspo(req.body.inspo);
+    const ins = db.prepare(`INSERT INTO bookings (room_id,date,start,end,hours,addons_json,pre,hst,total,paid,payment_ref,payment_mode,customer_name,customer_email,intake,inspo,setup,status,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,0,'PENDING','pending',?,?,?,?,?, 'pending', ?)`);
     items.forEach((it, i) => {
       const s = +it.start, e = +it.end, q = quotes[i];
       const setup = (it.addons && it.addons.earlysetup) ? 1 : 0;
-      const info = ins.run(it.room, it.date, s, e, e - s, JSON.stringify({ items: it.addons || {}, options: it.addonOptions || {} }), q.pre, q.hst, q.total, customerName, customerEmail, intakeStr, setup, nowISO());
+      const info = ins.run(it.room, it.date, s, e, e - s, JSON.stringify({ items: it.addons || {}, options: it.addonOptions || {} }), q.pre, q.hst, q.total, customerName, customerEmail, intakeStr, inspoStr, setup, nowISO());
       reservedIds.push(info.lastInsertRowid);
       if (setup) addSetupBlock(info.lastInsertRowid, it.room, it.date, s);   // reserve the 15-min early-arrival window
     });
@@ -1007,9 +1028,19 @@ function admin(req, res, next) { if ((req.query.key || req.body.key) === ADMIN_K
 
 app.get('/api/admin/bookings', admin, (_req, res) => {
   const rows = db.prepare(`SELECT * FROM bookings ORDER BY date DESC, start DESC`).all();
-  res.json({ bookings: rows.map(r => ({ ...r, roomName: (VL.roomById(r.room_id) || {}).name || r.room_id })) });
+  res.json({ bookings: rows.map(r => { const { inspo, ...rest } = r; return { ...rest, roomName: (VL.roomById(r.room_id) || {}).name || r.room_id, inspoCount: inspoCountOf(inspo) }; }) });
 });
-app.get('/api/admin/blocks', admin, (_req, res) => res.json({ blocks: db.prepare(`SELECT * FROM blocks ORDER BY date DESC`).all() }));
+app.get('/api/admin/blocks', admin, (_req, res) => res.json({ blocks: db.prepare(`SELECT * FROM blocks ORDER BY date DESC`).all().map(r => { const { inspo, ...rest } = r; return { ...rest, inspoCount: inspoCountOf(inspo) }; }) }));
+// Return the actual inspiration photos for one entry (loaded lazily by the staff app, not in the day list).
+app.get('/api/admin/inspo', admin, (req, res) => {
+  const table = req.query.source === 'booking' ? 'bookings' : 'blocks';
+  const id = +req.query.id;
+  if (!id) return res.status(400).json({ error: 'id required' });
+  const row = db.prepare(`SELECT inspo FROM ${table} WHERE id=?`).get(id);
+  let images = [];
+  if (row && row.inspo) { try { const a = JSON.parse(row.inspo); if (Array.isArray(a)) images = a; } catch (_) {} }
+  res.json({ images });
+});
 app.post('/api/admin/blocks', admin, (req, res) => {
   const { room, date, reason } = req.body; const start = +req.body.start, end = +req.body.end;
   if (!VL.roomById(room)) return res.status(400).json({ error: 'unknown room' });
@@ -1265,12 +1296,13 @@ app.post('/api/admin/import-blocks', admin, async (req, res) => {
   // client intake answers, applied to every booking-kind block in this submission
   const intakeStr = (req.body.intake && typeof req.body.intake === 'object')
     ? JSON.stringify(req.body.intake).slice(0, 4000) : null;
+  const inspoStr = sanitizeInspo(req.body.inspo);   // inspiration photos attached to this manual booking
   // optional coupon / discount code entered at booking time (validated up front)
   const codeStr = (req.body.code || '').toString().trim();
   let codeInfo = null;
   if (codeStr) { codeInfo = lookupCode(codeStr); if (!codeInfo) return res.status(400).json({ error: 'That discount code is not valid.' }); }
   const codeToStore = codeInfo ? codeInfo.code : null;
-  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,client,addons_json,intake,code,confirmation,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,client,addons_json,intake,inspo,code,confirmation,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const retag = db.prepare(`UPDATE blocks SET kind=? WHERE id=?`);
   let inserted = 0, skipped = 0, bad = 0;
   const madeForEmail = [];
@@ -1281,7 +1313,7 @@ app.post('/api/admin/import-blocks', admin, async (req, res) => {
     const found = exists.get(room, date, s, e);
     if (found) { retag.run(kind, found.id); skipped++; continue; }   // re-tag existing so labels can be corrected
     const addonsStr = JSON.stringify({ items: (b.addons && typeof b.addons === 'object') ? b.addons : {}, options: (b.addonOptions && typeof b.addonOptions === 'object') ? b.addonOptions : {} });
-    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, client, addonsStr, (kind === 'booking' ? intakeStr : null), (kind === 'booking' ? codeToStore : null), (kind === 'booking' ? manualConf : null), nowISO());
+    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, client, addonsStr, (kind === 'booking' ? intakeStr : null), (kind === 'booking' ? inspoStr : null), (kind === 'booking' ? codeToStore : null), (kind === 'booking' ? manualConf : null), nowISO());
     inserted++;
     madeForEmail.push({ roomName: (VL.roomById(room) || {}).name || room, date, start: s, end: e });
   }

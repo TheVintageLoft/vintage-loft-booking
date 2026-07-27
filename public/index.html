@@ -275,7 +275,56 @@
             <label>Anything else we should know? Requests, inspiration, details…</label>
             <textarea id="inDetails" rows="3" style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-family:inherit;resize:vertical"></textarea>
           </div>
+
+          <div class="field" style="margin-top:12px">
+            <label>Upload any images that may help us prep your studio! (dress rentals, cake smash set inspo, backdrop or specific props). You can add more than one.</label>
+            <input id="inInspo" type="file" accept="image/*" multiple style="display:none">
+            <button type="button" onclick="document.getElementById('inInspo').click()" style="margin-top:4px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 16px;font-family:inherit;font-size:14px;color:var(--ink,#3a352f);cursor:pointer">＋ Add photos</button>
+            <div id="inInspoPreview" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
+          </div>
         </div>
+        <script>
+        // Inspiration photos: compress each pick client-side (keeps uploads small), preview with remove.
+        var inspoImages = [];
+        function vlCompressImage(file, maxDim, quality){
+          return new Promise(function(resolve,reject){
+            var url=URL.createObjectURL(file), img=new Image();
+            img.onload=function(){ URL.revokeObjectURL(url);
+              var w=img.width,h=img.height;
+              if(w>h && w>maxDim){ h=Math.round(h*maxDim/w); w=maxDim; }
+              else if(h>maxDim){ w=Math.round(w*maxDim/h); h=maxDim; }
+              var c=document.createElement('canvas'); c.width=w; c.height=h;
+              c.getContext('2d').drawImage(img,0,0,w,h);
+              try{ resolve(c.toDataURL('image/jpeg', quality||0.8)); }catch(err){ reject(err); }
+            };
+            img.onerror=function(){ URL.revokeObjectURL(url); reject(new Error('bad image')); };
+            img.src=url;
+          });
+        }
+        function renderInspoPreview(){
+          var box=document.getElementById('inInspoPreview'); if(!box) return; box.innerHTML='';
+          inspoImages.forEach(function(d,i){
+            var wrap=document.createElement('div'); wrap.style.cssText='position:relative;width:64px;height:64px;border-radius:8px;overflow:hidden;border:1px solid var(--line,#ddd)';
+            var im=document.createElement('img'); im.src=d; im.style.cssText='width:100%;height:100%;object-fit:cover';
+            var x=document.createElement('button'); x.type='button'; x.textContent='×'; x.title='Remove';
+            x.style.cssText='position:absolute;top:1px;right:1px;width:18px;height:18px;line-height:15px;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;cursor:pointer;font-size:14px;padding:0';
+            x.onclick=function(){ inspoImages.splice(i,1); renderInspoPreview(); };
+            wrap.appendChild(im); wrap.appendChild(x); box.appendChild(wrap);
+          });
+        }
+        (function(){
+          var inp=document.getElementById('inInspo'); if(!inp) return;
+          inp.addEventListener('change', function(e){
+            var files=Array.prototype.slice.call(e.target.files||[]);
+            (function next(i){
+              if(i>=files.length){ e.target.value=''; renderInspoPreview(); return; }
+              if(inspoImages.length>=8){ if(window.toast)toast('Up to 8 photos, please.'); e.target.value=''; renderInspoPreview(); return; }
+              if(!/^image\//.test(files[i].type||'')){ next(i+1); return; }
+              vlCompressImage(files[i],1400,0.8).then(function(d){ inspoImages.push(d); next(i+1); }).catch(function(){ next(i+1); });
+            })(0);
+          });
+        })();
+        </script>
         <script>
         (function(){
           var S=['Family','Newborn','Maternity','Engagements','Headshots','Branding/Content','Boudoir','Fashion','Cakesmash','Graduation Portraits','Wedding Portraits','Product Photography'];
@@ -1027,7 +1076,8 @@ async function payNow(){
   const items = order.map(it=>({ room:it.roomId, date:it.date, start:it.start, end:it.end, addons:it.addons, addonOptions:it.addonOpts||{} }));
   const codeToSend = appliedCode ? appliedCode.code : undefined;
   try {
-    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken, code:codeToSend, intake, token: (CLIENT&&useAcctCredit)?CLIENT.token:undefined, useCredit: !!(CLIENT&&useAcctCredit) }) });
+    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken, code:codeToSend, intake, inspo: inspoImages, token: (CLIENT&&useAcctCredit)?CLIENT.token:undefined, useCredit: !!(CLIENT&&useAcctCredit) }) });
+    inspoImages = []; renderInspoPreview();
     if(CLIENT){ useAcctCredit=false; loadClient(); }
     LAST_EMAIL = email;
     const n = d.bookings.length;
@@ -1442,7 +1492,7 @@ function renderPaypalButtons(){
       },
       onApprove: function(data){
         var pp=bookingPayloadCheck(); if(!pp) return;
-        return fetchJSON('/api/bookings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:pp.items,customerName:pp.name,customerEmail:pp.email,code:pp.code,intake:pp.intake,paymentMethod:'paypal',paypalOrderId:data.orderID,token:(CLIENT&&useAcctCredit)?CLIENT.token:undefined,useCredit:!!(CLIENT&&useAcctCredit)})}).then(function(d){ finishBooking(d,pp.email); }).catch(function(err){ toast((err.body&&err.body.error)||err.message||'Could not complete booking'); });
+        return fetchJSON('/api/bookings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:pp.items,customerName:pp.name,customerEmail:pp.email,code:pp.code,intake:pp.intake,inspo:inspoImages,paymentMethod:'paypal',paypalOrderId:data.orderID,token:(CLIENT&&useAcctCredit)?CLIENT.token:undefined,useCredit:!!(CLIENT&&useAcctCredit)})}).then(function(d){ inspoImages=[]; renderInspoPreview(); finishBooking(d,pp.email); }).catch(function(err){ toast((err.body&&err.body.error)||err.message||'Could not complete booking'); });
       },
       onError: function(){ if(ppSuppressError){ ppSuppressError=false; return; } toast('PayPal had a problem. Please try again or pay by card.'); }
     }).render('#paypal-buttons');

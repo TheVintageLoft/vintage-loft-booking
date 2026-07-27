@@ -57,7 +57,7 @@
       options: [ { label: 'Rolled to Floor for Headshots', price: 15 }, { label: 'Taped to Floor for Full Body', price: 35 } ] },
     { id: 'lighting',  name: 'Studio lighting', unit: 'kit', desc: 'Profoto strobes & softboxes — select your camera so we set the right trigger',
       options: [ { label: 'Canon', price: 0 }, { label: 'Nikon', price: 0 }, { label: 'Sony', price: 0 } ] },
-    { id: 'cakesmash', name: 'Cake Smash Set',  price: 35, unit: 'set',   desc: 'Complete cake smash setup' },
+    { id: 'cakesmash', name: 'Cake Smash Set',  price: 35, unit: 'set',   desc: 'Complete cake smash setup. <a href="https://www.thevintageloft.ca/cakesmashrentals" target="_blank" rel="noopener" style="text-decoration:underline">See our cake smash sets →</a>' },
     { id: 'wardrobe',  name: 'Dress rental',    price: 50, unit: 'dress', desc: 'A styled dress from our collection' },
     { id: 'bedsetup',  name: 'Bed set-up',      price: 25, unit: 'set',   desc: 'Queen bed with fresh linens', rooms: ['gatsby'], priority: 1 },
     { id: 'swing',     name: 'Macramé swing',   price: 15, unit: 'each',  desc: 'Hanging macramé swing', rooms: ['grand', 'dream', 'northwing'] },

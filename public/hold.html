@@ -180,6 +180,11 @@
 
       <label class="fld">Details / notes for this session</label>
       <textarea id="inDetails" rows="3" placeholder="Client, styling, inspiration, anything to record…" style="font-family:Arial,sans-serif;font-size:15px;padding:10px 12px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;width:100%;resize:vertical"></textarea>
+
+      <label class="fld">Inspiration photos (optional)</label>
+      <input id="inInspoStaff" type="file" accept="image/*" multiple style="display:none">
+      <button type="button" onclick="document.getElementById('inInspoStaff').click()" style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:9px 14px;font-family:Arial,sans-serif;font-size:14px;color:#3a352f;cursor:pointer;margin:2px 0 0">＋ Add photos</button>
+      <div id="inInspoStaffPreview" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
     </div>
 
     <div id="addonWrap" style="display:none;margin-top:14px">
@@ -384,7 +389,47 @@ function clearIntake(){
   Array.prototype.forEach.call(document.querySelectorAll('#inSessions input:checked'),function(c){c.checked=false;});
   var p=document.getElementById('inPhotographer'); if(p) p.value='';
   var d=document.getElementById('inDetails'); if(d) d.value='';
+  staffInspo=[]; renderStaffInspo();
 }
+// Staff-side inspiration photos: same compress-on-pick as the client form.
+var staffInspo=[];
+function vlCompressImage(file,maxDim,quality){
+  return new Promise(function(resolve,reject){
+    var url=URL.createObjectURL(file), img=new Image();
+    img.onload=function(){ URL.revokeObjectURL(url);
+      var w=img.width,h=img.height;
+      if(w>h && w>maxDim){ h=Math.round(h*maxDim/w); w=maxDim; }
+      else if(h>maxDim){ w=Math.round(w*maxDim/h); h=maxDim; }
+      var c=document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      try{ resolve(c.toDataURL('image/jpeg', quality||0.8)); }catch(err){ reject(err); }
+    };
+    img.onerror=function(){ URL.revokeObjectURL(url); reject(new Error('bad image')); };
+    img.src=url;
+  });
+}
+function renderStaffInspo(){
+  var box=document.getElementById('inInspoStaffPreview'); if(!box) return; box.innerHTML='';
+  staffInspo.forEach(function(d,i){
+    var wrap=document.createElement('div'); wrap.style.cssText='position:relative;width:64px;height:64px;border-radius:8px;overflow:hidden;border:1px solid #ddd';
+    var im=document.createElement('img'); im.src=d; im.style.cssText='width:100%;height:100%;object-fit:cover';
+    var x=document.createElement('button'); x.type='button'; x.textContent='×'; x.title='Remove';
+    x.style.cssText='position:absolute;top:1px;right:1px;width:18px;height:18px;line-height:15px;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;cursor:pointer;font-size:14px;padding:0;margin:0';
+    x.onclick=function(){ staffInspo.splice(i,1); renderStaffInspo(); };
+    wrap.appendChild(im); wrap.appendChild(x); box.appendChild(wrap);
+  });
+}
+(function(){ var inp=document.getElementById('inInspoStaff'); if(!inp) return;
+  inp.addEventListener('change', function(e){
+    var files=Array.prototype.slice.call(e.target.files||[]);
+    (function next(i){
+      if(i>=files.length){ e.target.value=''; renderStaffInspo(); return; }
+      if(staffInspo.length>=8){ e.target.value=''; renderStaffInspo(); return; }
+      if(!/^image\//.test(files[i].type||'')){ next(i+1); return; }
+      vlCompressImage(files[i],1400,0.8).then(function(d){ staffInspo.push(d); next(i+1); }).catch(function(){ next(i+1); });
+    })(0);
+  });
+})();
 function renderAddonPicker(){
   var isBooking=(document.getElementById('entrykind').value==='booking');
   var intakeF=document.getElementById('intakeFields');
@@ -481,7 +526,7 @@ document.getElementById('go').onclick=function(){
   var blocks=lines.map(function(l){ return {room:l.room,date:l.date,start:l.start,end:l.end,reason:reason,addons:l.addons,addonOptions:l.addonOptions}; });
   var payload={key:key,blocks:blocks,kind:kind};
   if(client) payload.client=client;
-  if(kind==='booking'){ var intake=collectIntake(); if(intake) payload.intake=intake; var cc=(document.getElementById('couponCode').value||'').trim(); if(cc) payload.code=cc; }
+  if(kind==='booking'){ var intake=collectIntake(); if(intake) payload.intake=intake; if(staffInspo.length) payload.inspo=staffInspo; var cc=(document.getElementById('couponCode').value||'').trim(); if(cc) payload.code=cc; }
   if(kind==='booking' && email && sendConfirm) payload.sendConfirmation=true;
   var lastDate=lines[lines.length-1].date;
   var btn=this; btn.disabled=true; btn.textContent='Saving…';
@@ -519,8 +564,8 @@ function loadCalendar(){
     fetch('/api/admin/bookings?key='+encodeURIComponent(getKey())).then(chk)
   ]).then(function(res){
     var idx={};
-    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,pay_mode:b.pay_mode||'',addons_json:b.addons_json||'',intake:b.intake||''}); });
-    (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||''}); });
+    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,pay_mode:b.pay_mode||'',addons_json:b.addons_json||'',intake:b.intake||'',inspoCount:(b.inspoCount||0)}); });
+    (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||'',inspoCount:(b.inspoCount||0)}); });
     CAL.items=idx; cm.textContent='';
     renderMonth();
     if(CAL.sel) selectDay(CAL.sel);
@@ -608,6 +653,8 @@ function selectDay(iso){
           ib.innerHTML=h; card.appendChild(ib);
         }
       }
+      // ---- inspiration photos (loaded on demand) ----
+      if(x.inspoCount>0){ card.appendChild(inspoSection(x.source,x.id,x.inspoCount)); }
       // ---- add-ons on this entry ----
       (function(){
         var aj=null; try{ aj=JSON.parse(x.addons_json||'{}'); }catch(e){}
@@ -882,6 +929,29 @@ function selectDay(iso){
   });
 }
 
+// Inspiration photos in the day view: lazy-load thumbnails, click to view full size.
+function inspoSection(source,id,cnt){
+  var box=document.createElement('div'); box.style.cssText='margin-top:8px';
+  var lbl=document.createElement('div'); lbl.style.cssText='font-family:Arial,sans-serif;font-size:13px;font-weight:bold;color:#3a352f;margin-bottom:5px'; lbl.textContent='Inspiration photo'+(cnt===1?'':'s')+' ('+cnt+')'; box.appendChild(lbl);
+  var row=document.createElement('div'); row.style.cssText='display:flex;flex-wrap:wrap;gap:8px'; box.appendChild(row);
+  var load=document.createElement('span'); load.className='muted'; load.style.fontSize='12px'; load.textContent='Loading…'; row.appendChild(load);
+  fetch('/api/admin/inspo?source='+encodeURIComponent(source)+'&id='+id+'&key='+encodeURIComponent(getKey())).then(chk).then(function(d){
+    row.innerHTML='';
+    (d.images||[]).forEach(function(src){
+      var im=document.createElement('img'); im.src=src; im.loading='lazy';
+      im.style.cssText='width:76px;height:76px;object-fit:cover;border-radius:8px;border:1px solid #e7e5e2;cursor:zoom-in';
+      im.onclick=function(){ openLightbox(src); };
+      row.appendChild(im);
+    });
+    if(!row.children.length){ row.innerHTML='<span class="muted" style="font-size:12px">No images.</span>'; }
+  }).catch(function(){ row.innerHTML='<span class="muted" style="font-size:12px">Could not load images.</span>'; });
+  return box;
+}
+function openLightbox(src){
+  var ov=document.createElement('div'); ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:99999;padding:20px;cursor:zoom-out';
+  var im=document.createElement('img'); im.src=src; im.style.cssText='max-width:100%;max-height:100%;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5)';
+  ov.appendChild(im); ov.onclick=function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); }; document.body.appendChild(ov);
+}
 function saveNote(entry, notes, cb){
   fetch('/api/admin/set-note',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:entry.id,source:entry.source,notes:notes})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
