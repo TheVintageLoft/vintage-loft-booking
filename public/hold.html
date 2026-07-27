@@ -260,7 +260,7 @@ function makeLink(entry, dollars, cb){
 }
 
 // Calendar state — declared up top so an early auto-load has it ready.
-var RCOLOR={grand:'#c0392b',dream:'#2e6f9e',gatsby:'#3f8a52',carnegie:'#8a5a2b',marilyn:'#7a4fa3'};
+var RCOLOR={northwing:'#1a1a1a',grand:'#c0392b',dream:'#2e6f9e',gatsby:'#3f8a52',carnegie:'#8a5a2b',marilyn:'#7a4fa3'};
 var MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
 var CAL={items:{}, y:null, m:null, sel:null};
 
@@ -321,7 +321,7 @@ document.getElementById('pw').addEventListener('keydown',function(e){ if(e.key==
 // build room checkboxes + time options + default date
 (function(){
   var box=document.getElementById('rooms');
-  ROOMS.forEach(function(r){ var l=document.createElement('label'); l.innerHTML='<input type="checkbox" value="'+r[0]+'"> '+r[1]; box.appendChild(l); var cbx=l.querySelector('input'); if(cbx) cbx.addEventListener('change', renderAddonPicker); });
+  ROOMS.forEach(function(r){ var col=RCOLOR[r[0]]||'#3a352f'; var l=document.createElement('label'); l.innerHTML='<input type="checkbox" value="'+r[0]+'"> <span style="color:'+col+';font-weight:bold">'+r[1]+'</span>'; box.appendChild(l); var cbx=l.querySelector('input'); if(cbx) cbx.addEventListener('change', renderAddonPicker); });
   (function(){ var ek=document.getElementById('entrykind'); if(ek) ek.addEventListener('change', renderAddonPicker); })();
   var s=document.getElementById('start'),e=document.getElementById('end');
   for(var d=8; d<=20; d+=0.25){
