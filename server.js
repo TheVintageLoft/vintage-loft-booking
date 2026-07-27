@@ -1136,6 +1136,20 @@ app.post('/api/admin/delete-block', admin, (req, res) => {
   res.json({ ok: true, deleted: info.changes });
 });
 
+// Staff cancel of a MANUAL booking: frees the studio AND, if the client paid, puts the full amount
+// back into their account credit (no-refunds policy = credit). Cancels the whole confirmation.
+app.post('/api/admin/cancel-manual', admin, (req, res) => {
+  const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);
+  if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
+  const conf = b.confirmation;
+  const o = conf ? manualOrder(conf) : null;
+  let credited = 0, email = '';
+  if (o) { email = o.email || ''; if (o.paidAt && (o.paid || 0) > 0 && email) { credited = VL.round2(o.paid); addCredit(email, credited, 'Cancellation credit for ' + conf); } }
+  if (conf) db.prepare(`DELETE FROM blocks WHERE confirmation=? AND kind='booking'`).run(conf);
+  else db.prepare(`DELETE FROM blocks WHERE id=?`).run(b.id);
+  res.json({ ok: true, credited, email });
+});
+
 // Create a Square payment link for a manual booking, and remember it on the entry
 app.post('/api/admin/payment-link', admin, async (req, res) => {
   const amount = Math.round(parseFloat(req.body.amount) * 100);

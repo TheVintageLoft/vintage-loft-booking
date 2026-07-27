@@ -804,7 +804,8 @@ function selectDay(iso){
       var actions=document.createElement('div'); actions.style.marginTop='8px';
       var btn=document.createElement('button'); btn.className='del';
       if(x.source==='booking'){ btn.textContent='Cancel booking'; (function(id,lbl,btn){ btn.onclick=function(){ cancelBooking(id,btn,lbl); }; })(x.id,lbl,btn); }
-      else { btn.textContent=(x.kind==='booking'?'Remove booking':'Remove hold'); (function(id,lbl,btn){ btn.onclick=function(){ removeHold(id,btn,lbl); }; })(x.id,lbl,btn); }
+      else if(x.kind==='booking'){ btn.textContent='Cancel booking'; (function(id,lbl,btn){ btn.onclick=function(){ cancelManualBooking(id,btn,lbl); }; })(x.id,lbl,btn); }
+      else { btn.textContent='Remove hold'; (function(id,lbl,btn){ btn.onclick=function(){ removeHold(id,btn,lbl); }; })(x.id,lbl,btn); }
       actions.appendChild(btn);
       // Edit time / studio (inline)
       var editLink=document.createElement('a'); editLink.textContent='Edit time / studio'; editLink.style.cssText=LINKSTYLE+';margin-left:16px';
@@ -873,6 +874,17 @@ function removeHold(id,btn,label){
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
     .then(function(x){ if(!x.ok){btn.disabled=false;btn.textContent='Remove';alert((x.d&&x.d.error)||'Could not remove.');return;} loadCalendar(); })
     .catch(function(err){btn.disabled=false;btn.textContent='Remove';alert('Network error: '+err.message);});
+}
+
+function cancelManualBooking(id,btn,label){
+  if(!window.confirm('Cancel this booking?\n\n'+(label||'')+'\n\nThis frees the studio. If the client already paid, the full amount is added to their account credit for a future visit.')) return;
+  btn.disabled=true; btn.textContent='Cancelling…';
+  fetch('/api/admin/cancel-manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:id})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(x){ if(!x.ok||!x.d.ok){btn.disabled=false;btn.textContent='Cancel booking';alert((x.d&&x.d.error)||'Could not cancel.');return;}
+      if(x.d.credited>0) alert('Cancelled. $'+Number(x.d.credited).toFixed(2)+' account credit issued to '+(x.d.email||'the client')+'.');
+      loadCalendar(); })
+    .catch(function(err){btn.disabled=false;btn.textContent='Cancel booking';alert('Network error: '+err.message);});
 }
 
 function cancelBooking(id,btn,label){
