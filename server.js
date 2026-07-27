@@ -89,6 +89,9 @@ try { db.exec("ALTER TABLE blocks ADD COLUMN booking_id INTEGER"); } catch (_) {
 try { db.exec("ALTER TABLE bookings ADD COLUMN inspo TEXT"); } catch (_) {}   // JSON array of inspiration-photo data URLs
 try { db.exec("ALTER TABLE blocks ADD COLUMN inspo TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN pay_method TEXT"); } catch (_) {}   // how a manual booking was paid: card / etransfer / cash / debit
+// Square card-on-file: link a client email to a Square customer, and remember their saved cards.
+db.exec(`CREATE TABLE IF NOT EXISTS square_customers (email TEXT PRIMARY KEY, customer_id TEXT, created_at TEXT)`);
+db.exec(`CREATE TABLE IF NOT EXISTS saved_cards (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, customer_id TEXT, card_id TEXT UNIQUE, brand TEXT, last4 TEXT, exp_month INTEGER, exp_year INTEGER, created_at TEXT)`);
 
 /* ---------- one-time clean reset (owner-only, no button) ----------
    Set WIPE_ONCE to any word in the host environment to clear ALL bookings + holds
@@ -131,13 +134,14 @@ SQ.enabled = !!(SQ.token && SQ.appId && SQ.locationId);
 
 const payments = {
   get mode() { return SQ.enabled ? 'square-' + SQ.env : 'standin'; },
-  async charge({ amountCents, sourceId }) {
+  async charge({ amountCents, sourceId, customerId }) {
     if (!SQ.enabled) return { ok: true, ref: 'TEST-' + Date.now().toString(36).toUpperCase(), mode: 'standin' };
     if (!sourceId) return { ok: false, mode: this.mode, error: 'Missing card token' };
     const headers = { 'Authorization': 'Bearer ' + SQ.token, 'Content-Type': 'application/json', 'Accept': 'application/json' };
     if (SQ.version) headers['Square-Version'] = SQ.version;
     const body = { source_id: sourceId, idempotency_key: 'vl-' + Date.now() + '-' + Math.round(Math.random() * 1e9),
       amount_money: { amount: amountCents, currency: 'CAD' }, location_id: SQ.locationId };
+    if (customerId) body.customer_id = customerId;   // required when sourceId is a saved card-on-file
     try {
       const r = await fetch(SQ.apiBase + '/v2/payments', { method: 'POST', headers, body: JSON.stringify(body) });
       const d = await r.json().catch(() => ({}));
@@ -161,6 +165,65 @@ const payments = {
     } catch (e) { return { ok: false, error: e.message }; }
   }
 };
+
+/* ---------- Square Cards on File (save a client's card, then charge it later with permission) ----------
+   Flow: each client email maps to a Square Customer. A card saved at checkout (or already on file in
+   Square) is stored against that customer and remembered locally so the Staff App can charge it. */
+function sqHeaders() { const h = { 'Authorization': 'Bearer ' + SQ.token, 'Content-Type': 'application/json', 'Accept': 'application/json' }; if (SQ.version) h['Square-Version'] = SQ.version; return h; }
+function rememberCard(email, customerId, c) {
+  try { db.prepare(`INSERT OR IGNORE INTO saved_cards (email,customer_id,card_id,brand,last4,exp_month,exp_year,created_at) VALUES (?,?,?,?,?,?,?,?)`)
+    .run((email || '').toLowerCase(), customerId, c.id, c.card_brand || c.brand || '', c.last_4 || c.last4 || '', c.exp_month || null, c.exp_year || null, nowISO()); } catch (_) {}
+}
+// Find or create the Square customer for this email; cache the id locally.
+async function sqUpsertCustomer(email, name) {
+  email = (email || '').toLowerCase(); if (!email || !SQ.enabled) return null;
+  const cached = db.prepare(`SELECT customer_id FROM square_customers WHERE email=?`).get(email);
+  if (cached && cached.customer_id) return cached.customer_id;
+  let cid = null;
+  try {
+    const r = await fetch(SQ.apiBase + '/v2/customers/search', { method: 'POST', headers: sqHeaders(), body: JSON.stringify({ query: { filter: { email_address: { exact: email } } } }) });
+    const d = await r.json().catch(() => ({}));
+    if (d.customers && d.customers[0]) cid = d.customers[0].id;
+  } catch (_) {}
+  if (!cid) {
+    const parts = (name || '').trim().split(/\s+/);
+    try {
+      const r = await fetch(SQ.apiBase + '/v2/customers', { method: 'POST', headers: sqHeaders(), body: JSON.stringify({ idempotency_key: 'vlcust-' + email, given_name: parts[0] || '', family_name: parts.slice(1).join(' ') || '', email_address: email }) });
+      const d = await r.json().catch(() => ({}));
+      if (d.customer) cid = d.customer.id;
+    } catch (_) {}
+  }
+  if (cid) db.prepare(`INSERT OR REPLACE INTO square_customers (email,customer_id,created_at) VALUES (?,?,?)`).run(email, cid, nowISO());
+  return cid;
+}
+// Store a card on file from a Web Payments token (source_id) + SCA verification token.
+async function sqSaveCard({ email, name, sourceId, verificationToken }) {
+  if (!SQ.enabled) return { ok: false, error: 'Square is not connected.' };
+  const customerId = await sqUpsertCustomer(email, name);
+  if (!customerId) return { ok: false, error: 'Could not create the Square customer.' };
+  const body = { idempotency_key: 'vlcard-' + Date.now() + '-' + Math.round(Math.random() * 1e9), source_id: sourceId, card: { customer_id: customerId } };
+  if (name) body.card.cardholder_name = name.slice(0, 96);
+  if (verificationToken) body.verification_token = verificationToken;
+  try {
+    const r = await fetch(SQ.apiBase + '/v2/cards', { method: 'POST', headers: sqHeaders(), body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.card) { rememberCard(email, customerId, d.card); return { ok: true, customerId, card: { id: d.card.id, brand: d.card.card_brand, last4: d.card.last_4, exp_month: d.card.exp_month, exp_year: d.card.exp_year } }; }
+    return { ok: false, error: (d.errors && d.errors[0] && (d.errors[0].detail || d.errors[0].code)) || 'Could not save the card.' };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+// List a client's saved cards: refresh from Square (so cards saved in the Square dashboard show too), fall back to local.
+async function sqListCards(email) {
+  email = (email || '').toLowerCase();
+  const customerId = await sqUpsertCustomer(email, '');
+  if (SQ.enabled && customerId) {
+    try {
+      const r = await fetch(SQ.apiBase + '/v2/cards?customer_id=' + encodeURIComponent(customerId), { method: 'GET', headers: sqHeaders() });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && Array.isArray(d.cards)) d.cards.filter(c => c.enabled !== false).forEach(c => rememberCard(email, customerId, c));
+    } catch (_) {}
+  }
+  return db.prepare(`SELECT card_id, brand, last4, exp_month, exp_year FROM saved_cards WHERE email=? ORDER BY id DESC`).all(email);
+}
 
 /* ---------- PayPal (Orders v2 REST API) — turns on when PAYPAL_CLIENT_ID + PAYPAL_SECRET are set ----------
    Set PAYPAL_ENV='live' for production (else sandbox). The client-id is public (used by the on-page
@@ -981,6 +1044,11 @@ app.post('/api/bookings', async (req, res) => {
   } else if (req.body.paymentMethod === 'paypal') {
     pay = PP.enabled ? await ppCaptureOrder(req.body.paypalOrderId) : { ok: false, error: 'PayPal is not connected.' };
     if (pay.ok) pay.mode = 'paypal';
+  } else if (req.body.saveCard && paymentToken) {
+    // Client ticked "save my card": store it on file first, then charge the stored card so it's kept for next time.
+    const saved = await sqSaveCard({ email: customerEmail, name: customerName, sourceId: paymentToken, verificationToken: req.body.verificationToken });
+    if (saved.ok) pay = await payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: saved.card.id, customerId: saved.customerId });
+    else pay = await payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: paymentToken });   // saving failed: still take payment so the booking isn't lost
   } else {
     pay = await payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: paymentToken });
   }
@@ -1533,6 +1601,32 @@ app.post('/api/admin/mark-paid', admin, (req, res) => {
   if (/^\d{4}-\d{2}-\d{2}$/.test(pon)) paidAt = pon + 'T12:00:00.000Z';   // noon UTC so the calendar date reads correctly
   db.prepare(`UPDATE blocks SET paid=?, paid_at=?, pay_mode='paid', pay_method=? WHERE confirmation=? AND kind='booking'`).run(amt, paidAt, method, b.confirmation);
   res.json({ ok: true, paid: amt, mode: 'paid', method: method, paidAt: paidAt });
+});
+
+// Staff: list a client's saved cards (for charging on file with their permission).
+app.get('/api/admin/saved-cards', admin, async (req, res) => {
+  const email = (req.query.email || '').toString().trim().toLowerCase();
+  if (!email) return res.json({ cards: [], squareEnabled: SQ.enabled });
+  let cards = [];
+  try { cards = await sqListCards(email); } catch (_) { cards = db.prepare(`SELECT card_id, brand, last4, exp_month, exp_year FROM saved_cards WHERE email=? ORDER BY id DESC`).all(email); }
+  res.json({ cards, squareEnabled: SQ.enabled });
+});
+
+// Staff: charge a client's saved card on file (merchant-initiated, with prior permission), then mark the booking paid.
+app.post('/api/admin/charge-card', admin, async (req, res) => {
+  const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);
+  if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
+  if (!b.confirmation) b.confirmation = ensureBlockConfirmation(b.id);
+  const card = db.prepare(`SELECT * FROM saved_cards WHERE card_id=?`).get((req.body.cardId || '').toString());
+  if (!card) return res.status(400).json({ error: 'That saved card was not found.' });
+  const o = manualOrder(b.confirmation);
+  const amt = (req.body.amount != null && req.body.amount !== '') ? VL.round2(parseFloat(req.body.amount)) : (o ? o.grandTotal : 0);
+  if (!(amt > 0)) return res.status(400).json({ error: 'Enter an amount greater than $0.' });
+  if (!SQ.enabled) return res.status(400).json({ error: 'Square is not connected yet, so saved cards can’t be charged. Add your Square keys to turn this on.' });
+  const pay = await payments.charge({ amountCents: Math.round(amt * 100), sourceId: card.card_id, customerId: card.customer_id });
+  if (!pay.ok) return res.status(402).json({ error: pay.error || 'The card could not be charged.' });
+  db.prepare(`UPDATE blocks SET paid=?, paid_at=?, pay_mode='paid', pay_method='card' WHERE confirmation=? AND kind='booking'`).run(amt, nowISO(), b.confirmation);
+  res.json({ ok: true, paid: amt, ref: pay.ref, last4: card.last4, brand: card.brand });
 });
 
 // One-time pre-launch helper: mark every currently-unpaid manual booking as paid at its full computed price.

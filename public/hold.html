@@ -887,6 +887,7 @@ function selectDay(iso){
             } else if(!email && !owner && !comp){ var n=document.createElement('span'); n.className='meta'; n.textContent='(add a client email to send the confirmation)'; row.appendChild(n); }
             box.appendChild(row); box.appendChild(msg);
             if(paid && !owner && !comp) checkAdjust();
+            if(!paid && !owner && !comp && email) loadSavedCards(entry, email, box, msg);
           }
           render();
           card.appendChild(box);
@@ -1002,6 +1003,33 @@ function removeHold(id,btn,label){
     .catch(function(err){btn.disabled=false;btn.textContent='Remove';alert('Network error: '+err.message);});
 }
 
+// Saved cards on file (Square): show the client's card and let staff charge it with permission.
+function loadSavedCards(entry, email, box, msg){
+  fetch('/api/admin/saved-cards?key='+encodeURIComponent(getKey())+'&email='+encodeURIComponent(email)).then(chk).then(function(d){
+    if(!d.cards || !d.cards.length) return;
+    var wrap=document.createElement('div'); wrap.style.cssText='margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center';
+    d.cards.forEach(function(c){
+      var lbl=document.createElement('span'); lbl.className='meta'; lbl.style.fontSize='13px'; lbl.innerHTML='<b>Card on file:</b> '+esc(c.brand||'Card')+' ····'+esc(c.last4||'');
+      wrap.appendChild(lbl);
+      var btn=pillBtn('Charge saved card','#2e6f9e','#eef4fa');
+      (function(cardId){ btn.onclick=function(){ chargeSavedCard(entry, cardId, msg); }; })(c.card_id);
+      wrap.appendChild(btn);
+    });
+    box.insertBefore(wrap, msg);
+  }).catch(function(){});
+}
+function chargeSavedCard(entry, cardId, msg){
+  fetch('/api/admin/order?key='+encodeURIComponent(getKey())+'&id='+entry.id).then(function(r){return r.json();}).then(function(o){
+    var amt=(o&&typeof o.grandTotal==='number')?o.grandTotal:0;
+    if(!(amt>0)){ msg.style.color='#a33'; msg.textContent='This booking has no amount to charge.'; return; }
+    if(!window.confirm('Charge $'+amt.toFixed(2)+' to this saved card now?\n\nMake sure you have the client\'s permission first. This charges their card and marks the booking paid.')) return;
+    msg.style.color='#8a8375'; msg.textContent='Charging the saved card…';
+    fetch('/api/admin/charge-card',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:entry.id,cardId:cardId,amount:amt})})
+      .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+      .then(function(x){ if(x.ok&&x.d.ok!==false){ msg.style.color='#2e6b34'; msg.textContent='Charged $'+Number(x.d.paid).toFixed(2)+' to '+(x.d.brand||'card')+' ····'+(x.d.last4||'')+'. Booking marked paid.'; loadCalendar(); } else { msg.style.color='#a33'; msg.textContent=(x.d&&x.d.error)||'Could not charge the card.'; } })
+      .catch(function(err){ msg.style.color='#a33'; msg.textContent='Network error: '+err.message; });
+  });
+}
 // Silently remove a manual booking the client was never notified about — no cancellation email is sent.
 function deleteQuiet(id,label){
   if(!window.confirm('Delete this booking with NO email to the client?\n\n'+(label||'')+'\n\nUse this only for bookings the client was never told about (e.g. ones entered from the old schedule). The studio frees up and nothing is sent to them.')) return;

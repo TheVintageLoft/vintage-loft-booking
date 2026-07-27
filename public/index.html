@@ -366,6 +366,10 @@
           </div>
         </div>
         </div>
+        <label id="saveCardRow" style="display:none;align-items:flex-start;gap:8px;margin-top:12px;font-size:13px;color:var(--ink,#3a352f);cursor:pointer;line-height:1.45">
+          <input type="checkbox" id="saveCardChk" style="width:auto;margin-top:2px">
+          <span>Save my card for faster booking next time. I authorize The Vintage Loft to charge this card for future bookings with my permission. Your card is stored securely by Square, never by us.</span>
+        </label>
         <div id="paypalWrap" style="display:none;margin-top:14px">
           <div style="text-align:center;color:var(--muted);font-size:13px;margin:2px 0 10px">&mdash; or pay with PayPal &mdash;</div>
           <div id="paypal-buttons"></div>
@@ -1066,17 +1070,24 @@ async function payNow(){
     details: ((document.getElementById('inDetails')||{}).value||'').trim()
   };
   const btn = document.getElementById('payBtn'); btn.disabled = true; const l0 = btn.textContent; btn.textContent = 'Processing…';
-  let paymentToken;
+  let paymentToken, saveCard=false, verificationToken;
   if(sqPayments && orderTotalDue > 0){
     if(!sqCard){ toast('Card form is still loading — one moment.'); btn.disabled=false; btn.textContent=l0; return; }
     let result; try{ result = await sqCard.tokenize(); }catch(e){ toast('Card error, please retry.'); btn.disabled=false; btn.textContent=l0; return; }
     if(result.status!=='OK'){ document.getElementById('sq-errors').textContent=(result.errors&&result.errors[0]&&(result.errors[0].message||result.errors[0].detail))||'Please check your card details.'; btn.disabled=false; btn.textContent=l0; return; }
     document.getElementById('sq-errors').textContent=''; paymentToken=result.token;
+    // Client asked to save the card: get the SCA verification token Square needs to store it on file.
+    var scChk=document.getElementById('saveCardChk');
+    if(scChk && scChk.checked){
+      saveCard=true;
+      try{ var vr=await sqPayments.verifyBuyer(paymentToken, { amount:'0.00', currencyCode:'CAD', intent:'STORE', billingContact:{ email: email } }); if(vr && vr.token) verificationToken=vr.token; }
+      catch(e){ /* if verification fails we still take payment; the card just won't be stored */ }
+    }
   }
   const items = order.map(it=>({ room:it.roomId, date:it.date, start:it.start, end:it.end, addons:it.addons, addonOptions:it.addonOpts||{} }));
   const codeToSend = appliedCode ? appliedCode.code : undefined;
   try {
-    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken, code:codeToSend, intake, inspo: inspoImages, token: (CLIENT&&useAcctCredit)?CLIENT.token:undefined, useCredit: !!(CLIENT&&useAcctCredit) }) });
+    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken, saveCard, verificationToken, code:codeToSend, intake, inspo: inspoImages, token: (CLIENT&&useAcctCredit)?CLIENT.token:undefined, useCredit: !!(CLIENT&&useAcctCredit) }) });
     inspoImages = []; renderInspoPreview();
     if(CLIENT){ useAcctCredit=false; loadClient(); }
     LAST_EMAIL = email;
@@ -1433,6 +1444,7 @@ async function initSquare(){
     sqPayments = await window.Square.payments(sqConfig.appId, sqConfig.locationId);
     const f=document.getElementById('fakeCard'); if(f) f.style.display='none';
     const w=document.getElementById('sqCardWrap'); if(w) w.style.display='block';
+    const sc=document.getElementById('saveCardRow'); if(sc) sc.style.display='flex';   // offer "save my card" only with real Square
   }catch(e){ sqPayments=null; }   // fall back to stand-in on any load error
 }
 async function ensureSquareCard(){
