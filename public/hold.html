@@ -241,6 +241,8 @@ function contactRow(phone,email){
   }
   return row;
 }
+// Coloured pill action button (outline style). color = border + text; each action gets its own colour so they read as distinct.
+function pillBtn(text,color,bg){ var b=document.createElement('button'); b.textContent=text; b.style.cssText='font-family:Arial,sans-serif;font-size:13px;font-weight:bold;background:'+(bg||'#fff')+';color:'+color+';border:1px solid '+color+';border-radius:999px;padding:8px 16px;margin:0;cursor:pointer'; return b; }
 var INPUTSTYLE='width:100%;font-family:Arial,sans-serif;font-size:14px;padding:8px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;background:#fff';
 function fillTimes(sel,val){ sel.innerHTML=''; for(var d=8; d<=20; d+=0.25){ var o=document.createElement('option'); o.value=d; o.textContent=tLabel(d); if(d===val) o.selected=true; sel.appendChild(o); } }
 function saveEdit(entry, room, date, start, end, cb){
@@ -609,11 +611,10 @@ function selectDay(iso){
         function draw(){
           wrap.innerHTML='';
           if(entry.notes){
-            var nt=document.createElement('div'); nt.className='meta'; nt.style.whiteSpace='pre-wrap'; nt.style.marginBottom='4px';
-            var b=document.createElement('b'); b.textContent='Notes: '; nt.appendChild(b);
-            nt.appendChild(document.createTextNode(entry.notes)); wrap.appendChild(nt);
+            var lbl=document.createElement('div'); lbl.style.cssText='font-family:Arial,sans-serif;font-size:13px;font-weight:bold;color:#3a352f;margin-bottom:4px'; lbl.textContent='Notes'; wrap.appendChild(lbl);
+            var box=document.createElement('div'); box.style.cssText='white-space:pre-wrap;font-family:Arial,sans-serif;font-size:14px;color:#3a352f;padding:9px 11px;border:1px solid #ddd;border-radius:8px;background:#fff;box-sizing:border-box'; box.textContent=entry.notes; wrap.appendChild(box);
           }
-          var a=document.createElement('a'); a.style.cssText='font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline';
+          var a=document.createElement('a'); a.style.cssText='display:inline-block;margin-top:6px;font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline';
           a.textContent=entry.notes?'Edit note':'Add note'; a.onclick=function(){ edit(); }; wrap.appendChild(a);
         }
         function edit(){
@@ -816,17 +817,17 @@ function selectDay(iso){
         })(x);
       }
       var lbl=fdate(iso)+'  ·  '+r[1]+'  ·  '+tLabel(x.start)+' – '+tLabel(x.end)+'  ·  '+x.label;
-      var actions=document.createElement('div'); actions.style.marginTop='8px';
+      var actions=document.createElement('div'); actions.style.cssText='margin-top:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center';
       if(x.source==='booking'){
-        var btn=document.createElement('button'); btn.className='del'; btn.textContent='Cancel booking'; (function(id,lbl,btn){ btn.onclick=function(){ cancelBooking(id,btn,lbl); }; })(x.id,lbl,btn); actions.appendChild(btn);
+        var btn=pillBtn('Cancel booking','#a33','#fdf3f3'); (function(id,lbl,btn){ btn.onclick=function(){ cancelBooking(id,btn,lbl); }; })(x.id,lbl,btn); actions.appendChild(btn);
       } else if(x.kind==='booking'){
-        var b1=document.createElement('button'); b1.className='del'; b1.textContent='Cancel with credit'; (function(id,lbl,b){ b.onclick=function(){ cancelManualBooking(id,b,lbl,true); }; })(x.id,lbl,b1); actions.appendChild(b1);
-        var b2=document.createElement('button'); b2.className='del'; b2.style.marginLeft='10px'; b2.style.color='#8a6a2b'; b2.textContent='Cancel without credit'; (function(id,lbl,b){ b.onclick=function(){ cancelManualBooking(id,b,lbl,false); }; })(x.id,lbl,b2); actions.appendChild(b2);
+        var b1=pillBtn('Cancel with credit','#a33','#fdf3f3'); (function(id,lbl,b){ b.onclick=function(){ cancelManualBooking(id,b,lbl,true); }; })(x.id,lbl,b1); actions.appendChild(b1);
+        var b2=pillBtn('Cancel without credit','#8a6a2b','#fbf6ec'); (function(id,lbl,b){ b.onclick=function(){ cancelManualBooking(id,b,lbl,false); }; })(x.id,lbl,b2); actions.appendChild(b2);
       } else {
-        var btn=document.createElement('button'); btn.className='del'; btn.textContent='Remove hold'; (function(id,lbl,btn){ btn.onclick=function(){ removeHold(id,btn,lbl); }; })(x.id,lbl,btn); actions.appendChild(btn);
+        var btn=pillBtn('Remove hold','#a33','#fdf3f3'); (function(id,lbl,btn){ btn.onclick=function(){ removeHold(id,btn,lbl); }; })(x.id,lbl,btn); actions.appendChild(btn);
       }
-      // Edit time / studio (inline)
-      var editLink=document.createElement('a'); editLink.textContent='Edit time / studio'; editLink.style.cssText=LINKSTYLE+';margin-left:16px';
+      // Edit booking (inline time / date / studio)
+      var editLink=pillBtn('Edit booking','#7c7268','#f7f5f2');
       (function(entry, dayIso){
         editLink.onclick=function(){
           if(card.querySelector('.editbox')) return;   // already open
@@ -860,7 +861,7 @@ function selectDay(iso){
       actions.appendChild(editLink);
       if(x.source==='block'){
         var flip=document.createElement('a');
-        flip.style.cssText='font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline;margin-left:16px';
+        flip.style.cssText='font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline;margin-left:6px';
         var toKind=(x.kind==='booking')?'hold':'booking';
         flip.textContent=(x.kind==='booking')?'Change to Hold':'Change to Booking';
         (function(id,toKind){ flip.onclick=function(){ setKind(id,toKind); }; })(x.id,toKind);
