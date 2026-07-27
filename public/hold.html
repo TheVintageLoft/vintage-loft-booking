@@ -802,11 +802,14 @@ function selectDay(iso){
       }
       var lbl=fdate(iso)+'  ·  '+r[1]+'  ·  '+tLabel(x.start)+' – '+tLabel(x.end)+'  ·  '+x.label;
       var actions=document.createElement('div'); actions.style.marginTop='8px';
-      var btn=document.createElement('button'); btn.className='del';
-      if(x.source==='booking'){ btn.textContent='Cancel booking'; (function(id,lbl,btn){ btn.onclick=function(){ cancelBooking(id,btn,lbl); }; })(x.id,lbl,btn); }
-      else if(x.kind==='booking'){ btn.textContent='Cancel booking'; (function(id,lbl,btn){ btn.onclick=function(){ cancelManualBooking(id,btn,lbl); }; })(x.id,lbl,btn); }
-      else { btn.textContent='Remove hold'; (function(id,lbl,btn){ btn.onclick=function(){ removeHold(id,btn,lbl); }; })(x.id,lbl,btn); }
-      actions.appendChild(btn);
+      if(x.source==='booking'){
+        var btn=document.createElement('button'); btn.className='del'; btn.textContent='Cancel booking'; (function(id,lbl,btn){ btn.onclick=function(){ cancelBooking(id,btn,lbl); }; })(x.id,lbl,btn); actions.appendChild(btn);
+      } else if(x.kind==='booking'){
+        var b1=document.createElement('button'); b1.className='del'; b1.textContent='Cancel with credit'; (function(id,lbl,b){ b.onclick=function(){ cancelManualBooking(id,b,lbl,true); }; })(x.id,lbl,b1); actions.appendChild(b1);
+        var b2=document.createElement('button'); b2.className='del'; b2.style.marginLeft='10px'; b2.style.color='#8a6a2b'; b2.textContent='Cancel without credit'; (function(id,lbl,b){ b.onclick=function(){ cancelManualBooking(id,b,lbl,false); }; })(x.id,lbl,b2); actions.appendChild(b2);
+      } else {
+        var btn=document.createElement('button'); btn.className='del'; btn.textContent='Remove hold'; (function(id,lbl,btn){ btn.onclick=function(){ removeHold(id,btn,lbl); }; })(x.id,lbl,btn); actions.appendChild(btn);
+      }
       // Edit time / studio (inline)
       var editLink=document.createElement('a'); editLink.textContent='Edit time / studio'; editLink.style.cssText=LINKSTYLE+';margin-left:16px';
       (function(entry, dayIso){
@@ -876,15 +879,21 @@ function removeHold(id,btn,label){
     .catch(function(err){btn.disabled=false;btn.textContent='Remove';alert('Network error: '+err.message);});
 }
 
-function cancelManualBooking(id,btn,label){
-  if(!window.confirm('Cancel this booking?\n\n'+(label||'')+'\n\nThis frees the studio. If the client already paid, the full amount is added to their account credit for a future visit.')) return;
+function cancelManualBooking(id,btn,label,withCredit){
+  var origText=btn.textContent;
+  var msg = withCredit
+    ? ('Cancel this booking AND give the client account credit?\n\n'+(label||'')+'\n\nThe studio frees up and the full amount they paid becomes account credit for a future visit. They get an email letting them know.')
+    : ('Cancel this booking WITHOUT credit?\n\n'+(label||'')+'\n\nThe studio frees up but no account credit is given (payment is forfeited under the cancellation policy). They get a gentle email explaining this.');
+  if(!window.confirm(msg)) return;
   btn.disabled=true; btn.textContent='Cancelling…';
-  fetch('/api/admin/cancel-manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:id})})
+  fetch('/api/admin/cancel-manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:id,credit:!!withCredit})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
-    .then(function(x){ if(!x.ok||!x.d.ok){btn.disabled=false;btn.textContent='Cancel booking';alert((x.d&&x.d.error)||'Could not cancel.');return;}
-      if(x.d.credited>0) alert('Cancelled. $'+Number(x.d.credited).toFixed(2)+' account credit issued to '+(x.d.email||'the client')+'.');
+    .then(function(x){ if(!x.ok||!x.d.ok){btn.disabled=false;btn.textContent=origText;alert((x.d&&x.d.error)||'Could not cancel.');return;}
+      var note = x.d.credited>0 ? ('Cancelled. $'+Number(x.d.credited).toFixed(2)+' account credit issued to '+(x.d.email||'the client')+'.') : 'Cancelled — no credit given.';
+      if(x.d.emailed) note += ' A cancellation email was sent.';
+      alert(note);
       loadCalendar(); })
-    .catch(function(err){btn.disabled=false;btn.textContent='Cancel booking';alert('Network error: '+err.message);});
+    .catch(function(err){btn.disabled=false;btn.textContent=origText;alert('Network error: '+err.message);});
 }
 
 function cancelBooking(id,btn,label){
