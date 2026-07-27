@@ -20,8 +20,13 @@
     christmasWeekendsOnly: true,
     christmasStart: [10, 7],  // Nov 7  (month index 10)
     christmasEnd: [11, 22],   // Dec 22 (month index 11)
-    tiers: [                  // length-of-booking discounts
+    tiers: [                  // length-of-booking discounts (regular days)
       { minH: 3, off: 0.10 }, // 3–4 hrs
+      { minH: 5, off: 0.15 }, // 5–6 hrs
+      { minH: 8, off: 0.25 }  // 8–10 hrs
+    ],
+    christmasTiers: [         // holiday-weekend (premium-rate) length discounts — 10% starts at 2 hrs
+      { minH: 2, off: 0.10 }, // 2–4 hrs
       { minH: 5, off: 0.15 }, // 5–6 hrs
       { minH: 8, off: 0.25 }  // 8–10 hrs
     ]
@@ -54,7 +59,7 @@
 
   const roomById = id => ROOMS.find(r => r.id === id);
 
-  function tierFor(hours) { let off = 0; for (const t of CONFIG.tiers) if (hours >= t.minH) off = t.off; return { off }; }
+  function tierFor(hours, xmas) { const ladder = xmas ? CONFIG.christmasTiers : CONFIG.tiers; let off = 0; for (const t of ladder) if (hours >= t.minH) off = t.off; return { off }; }
   function isWeekend(dateStr) { const g = new Date(dateStr + 'T12:00:00').getDay(); return g === 0 || g === 6; }
   function isChristmas(dateStr) {
     const d = new Date(dateStr + 'T12:00:00'), y = d.getFullYear();
@@ -68,7 +73,7 @@
     if (room.special === 'dream' && !isChristmas(dateStr) && hours <= 1) return CONFIG.dreamSingleHour;
     return rateFor(room, dateStr) * hours;
   }
-  function roomTotalFor(room, dateStr, hours) { const b = roomBaseFor(room, dateStr, hours); return b - b * tierFor(hours).off; }
+  function roomTotalFor(room, dateStr, hours) { const b = roomBaseFor(room, dateStr, hours); return b - b * tierFor(hours, isChristmas(dateStr)).off; }
 
   // Which durations a studio allows. Dream skips 1.5 hr (goes 1 hr -> 2 hr).
   function validDuration(roomId, hours) {
@@ -102,7 +107,7 @@
     const rate = rateFor(room, dateStr);
     const dreamSpecial = room.special === 'dream' && !xmas && hours <= 1;
     const roomBase = roomBaseFor(room, dateStr, hours);
-    const tier = tierFor(hours);
+    const tier = tierFor(hours, xmas);
     const tierDisc = roomBase * tier.off;
     const roomTotal = roomBase - tierDisc;
     let addonTotal = 0;
