@@ -47,7 +47,9 @@
     { id: 'swing',     name: 'Macramé swing',   price: 15, unit: 'each',  desc: 'Hanging macramé swing', rooms: ['grand', 'dream'] },
     { id: 'earlysetup', name: '15 min early arrival (setup)', unit: 'setup', boolean: true, priority: 2,
       desc: 'Arrive 15 minutes before your session to set up. Your time starts 15 minutes early and that window is reserved for you (a 9:00 booking begins at 8:45).',
-      roomPrices: { grand: 25, gatsby: 20, carnegie: 20, dream: 15, marilyn: 7 } }
+      roomPrices: { grand: 25, gatsby: 20, carnegie: 20, dream: 15, marilyn: 7 } },
+    { id: 'petfee', name: 'Pet fee', price: 25, unit: 'family', boolean: true, priority: 3,
+      desc: 'Bringing a furry friend? Covers up to 2 pets per family. We prep a pet couch, water bowl and treats, and sterilize the space afterward. Pets must be leashed or held except while being photographed.' }
   ];
 
   const roomById = id => ROOMS.find(r => r.id === id);
