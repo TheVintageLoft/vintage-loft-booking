@@ -603,8 +603,17 @@ function removeSetupBlocks(bookingId) { db.prepare(`DELETE FROM blocks WHERE boo
 // ---- manual (staff) bookings: confirmation, price, and paid state (stored on the block rows) ----
 function newManualConfirmation() {
   const prefix = 'VLM-' + torontoDateCode() + '-';
-  const n = (db.prepare(`SELECT COUNT(DISTINCT confirmation) c FROM blocks WHERE confirmation LIKE ?`).get(prefix + '%').c) || 0;
-  return prefix + (n + 1);
+  // Go one past the HIGHEST suffix ever used today (not the count — counts break when bookings are
+  // cancelled/deleted, which caused two bookings to collide onto one confirmation). Then guard for uniqueness.
+  let max = 0;
+  try {
+    const rows = db.prepare(`SELECT confirmation FROM blocks WHERE confirmation LIKE ?`).all(prefix + '%');
+    for (const r of rows) { const m = /-(\d+)$/.exec(r.confirmation || ''); if (m) { const v = +m[1]; if (v > max) max = v; } }
+  } catch (_) {}
+  let n = max + 1;
+  const exists = db.prepare(`SELECT 1 FROM blocks WHERE confirmation=? LIMIT 1`);
+  while (exists.get(prefix + n)) n++;   // belt-and-suspenders: never reuse an in-use number
+  return prefix + n;
 }
 function blockQuote(b) {
   let a = { items: {}, options: {} };
@@ -954,10 +963,14 @@ app.post('/api/bookings', async (req, res) => {
     reservedIds.forEach(id => { removeSetupBlocks(id); del.run(id); });
     return res.status(402).json({ error: pay.error || 'Payment failed' });
   }
-  // One confirmation number for the whole order: VL_YYMMDD-N, N = the Nth booking made that day.
+  // One confirmation number for the whole order: VL_YYMMDD-N, one past the highest suffix used today
+  // (max-based, not a count, so it can't collide onto an existing confirmation).
   const prefix = 'VL_' + torontoDateCode() + '-';
-  const usedToday = db.prepare(`SELECT COUNT(DISTINCT confirmation) AS n FROM bookings WHERE confirmation LIKE ?`).get(prefix + '%');
-  const confirmation = prefix + ((usedToday.n || 0) + 1);
+  let cmax = 0;
+  try { db.prepare(`SELECT confirmation FROM bookings WHERE confirmation LIKE ?`).all(prefix + '%').forEach(r => { const m = /-(\d+)$/.exec(r.confirmation || ''); if (m && +m[1] > cmax) cmax = +m[1]; }); } catch (_) {}
+  let cn = cmax + 1; const cex = db.prepare(`SELECT 1 FROM bookings WHERE confirmation=? LIMIT 1`);
+  while (cex.get(prefix + cn)) cn++;
+  const confirmation = prefix + cn;
   const upd = db.prepare(`UPDATE bookings SET status='confirmed', pre=?, hst=?, total=?, paid=?, discount=?, code=?, payment_ref=?, payment_mode=?, confirmation=? WHERE id=?`);
   reservedIds.forEach((id, i) => upd.run(finals[i].pre, finals[i].hst, finals[i].total, finals[i].paid, finals[i].discount, codeInfo ? codeInfo.code : null, pay.ref, pay.mode, confirmation, id));
   // Retire a single-use code (reschedule credits, gift cards) so it can't be used again.
