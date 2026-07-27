@@ -863,8 +863,10 @@ function selectDay(iso){
             }
             else { A('Mark unpaid', unpay, '#a33'); }
             if(email && !owner && !comp){
-              if(!paid) A('Send confirmation email', function(){ busy('Sending the confirmation email…'); post('/api/admin/send-reserved').then(function(x2){ if(x2.ok&&x2.d.ok!==false){ okm(x2.d.payLinkIncluded?('Confirmation email sent to '+email+' with an updated payment link.'):('Confirmation email sent to '+email+'.')); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not send.'); }); });
-              else A('Send confirmation email', function(){ busy('Sending the confirmation email…'); post('/api/admin/send-receipt').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Confirmation email sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
+              var scBtn=pillBtn('Send confirmation email','#2e6f9e','#eef4fa');
+              if(!paid) scBtn.onclick=function(){ busy('Sending the confirmation email…'); post('/api/admin/send-reserved').then(function(x2){ if(x2.ok&&x2.d.ok!==false){ okm(x2.d.payLinkIncluded?('Confirmation email sent to '+email+' with an updated payment link.'):('Confirmation email sent to '+email+'.')); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not send.'); }); };
+              else scBtn.onclick=function(){ busy('Sending the confirmation email…'); post('/api/admin/send-receipt').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Confirmation email sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); };
+              row.appendChild(scBtn);
             } else if(!email && !owner && !comp){ var n=document.createElement('span'); n.className='meta'; n.textContent='(add a client email to send the confirmation)'; row.appendChild(n); }
             box.appendChild(row); box.appendChild(msg);
             if(paid && !owner && !comp) checkAdjust();
