@@ -1087,7 +1087,8 @@ async function payNow(){
   const items = order.map(it=>({ room:it.roomId, date:it.date, start:it.start, end:it.end, addons:it.addons, addonOptions:it.addonOpts||{} }));
   const codeToSend = appliedCode ? appliedCode.code : undefined;
   try {
-    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken, saveCard, verificationToken, code:codeToSend, intake, inspo: inspoImages, token: (CLIENT&&useAcctCredit)?CLIENT.token:undefined, useCredit: !!(CLIENT&&useAcctCredit) }) });
+    const consentText = saveCard ? (((document.getElementById('saveCardRow')||{}).innerText)||'').trim() : undefined;
+    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken, saveCard, verificationToken, consentText, code:codeToSend, intake, inspo: inspoImages, token: (CLIENT&&useAcctCredit)?CLIENT.token:undefined, useCredit: !!(CLIENT&&useAcctCredit) }) });
     inspoImages = []; renderInspoPreview();
     if(CLIENT){ useAcctCredit=false; loadClient(); }
     LAST_EMAIL = email;

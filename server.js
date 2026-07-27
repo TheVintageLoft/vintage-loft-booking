@@ -92,6 +92,10 @@ try { db.exec("ALTER TABLE blocks ADD COLUMN pay_method TEXT"); } catch (_) {}  
 // Square card-on-file: link a client email to a Square customer, and remember their saved cards.
 db.exec(`CREATE TABLE IF NOT EXISTS square_customers (email TEXT PRIMARY KEY, customer_id TEXT, created_at TEXT)`);
 db.exec(`CREATE TABLE IF NOT EXISTS saved_cards (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, customer_id TEXT, card_id TEXT UNIQUE, brand TEXT, last4 TEXT, exp_month INTEGER, exp_year INTEGER, created_at TEXT)`);
+// Timestamped record of the client's consent to store + charge their card (PCI/consent requirement).
+db.exec(`CREATE TABLE IF NOT EXISTS card_consents (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, consent_text TEXT, source TEXT, ip TEXT, consented_at TEXT)`);
+// Append-only audit trail of sensitive card actions (who did what, when).
+db.exec(`CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, actor TEXT, action TEXT, email TEXT, detail TEXT)`);
 
 /* ---------- one-time clean reset (owner-only, no button) ----------
    Set WIPE_ONCE to any word in the host environment to clear ALL bookings + holds
@@ -134,12 +138,14 @@ SQ.enabled = !!(SQ.token && SQ.appId && SQ.locationId);
 
 const payments = {
   get mode() { return SQ.enabled ? 'square-' + SQ.env : 'standin'; },
-  async charge({ amountCents, sourceId, customerId }) {
+  async charge({ amountCents, sourceId, customerId, idempotencyKey }) {
     if (!SQ.enabled) return { ok: true, ref: 'TEST-' + Date.now().toString(36).toUpperCase(), mode: 'standin' };
     if (!sourceId) return { ok: false, mode: this.mode, error: 'Missing card token' };
     const headers = { 'Authorization': 'Bearer ' + SQ.token, 'Content-Type': 'application/json', 'Accept': 'application/json' };
     if (SQ.version) headers['Square-Version'] = SQ.version;
-    const body = { source_id: sourceId, idempotency_key: 'vl-' + Date.now() + '-' + Math.round(Math.random() * 1e9),
+    // A caller-supplied idempotency key (stable per logical charge) lets Square dedupe a double-submit
+    // instead of charging twice; falls back to a unique key for one-off charges.
+    const body = { source_id: sourceId, idempotency_key: idempotencyKey || ('vl-' + Date.now() + '-' + Math.round(Math.random() * 1e9)),
       amount_money: { amount: amountCents, currency: 'CAD' }, location_id: SQ.locationId };
     if (customerId) body.customer_id = customerId;   // required when sourceId is a saved card-on-file
     try {
@@ -170,6 +176,9 @@ const payments = {
    Flow: each client email maps to a Square Customer. A card saved at checkout (or already on file in
    Square) is stored against that customer and remembered locally so the Staff App can charge it. */
 function sqHeaders() { const h = { 'Authorization': 'Bearer ' + SQ.token, 'Content-Type': 'application/json', 'Accept': 'application/json' }; if (SQ.version) h['Square-Version'] = SQ.version; return h; }
+function clientIp(req) { return ((req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || (req.socket && req.socket.remoteAddress) || ''; }
+function recordConsent(email, text, source, ip) { try { db.prepare(`INSERT INTO card_consents (email,consent_text,source,ip,consented_at) VALUES (?,?,?,?,?)`).run((email || '').toLowerCase(), (text || '').toString().slice(0, 600), source || '', ip || '', nowISO()); } catch (_) {} }
+function audit(actor, action, email, detail) { try { db.prepare(`INSERT INTO audit_log (at,actor,action,email,detail) VALUES (?,?,?,?,?)`).run(nowISO(), (actor || '').toString().slice(0, 80), (action || '').toString().slice(0, 60), (email || '').toLowerCase(), (detail || '').toString().slice(0, 600)); } catch (_) {} }
 function rememberCard(email, customerId, c) {
   try { db.prepare(`INSERT OR IGNORE INTO saved_cards (email,customer_id,card_id,brand,last4,exp_month,exp_year,created_at) VALUES (?,?,?,?,?,?,?,?)`)
     .run((email || '').toLowerCase(), customerId, c.id, c.card_brand || c.brand || '', c.last_4 || c.last4 || '', c.exp_month || null, c.exp_year || null, nowISO()); } catch (_) {}
@@ -1047,7 +1056,12 @@ app.post('/api/bookings', async (req, res) => {
   } else if (req.body.saveCard && paymentToken) {
     // Client ticked "save my card": store it on file first, then charge the stored card so it's kept for next time.
     const saved = await sqSaveCard({ email: customerEmail, name: customerName, sourceId: paymentToken, verificationToken: req.body.verificationToken });
-    if (saved.ok) pay = await payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: saved.card.id, customerId: saved.customerId });
+    if (saved.ok) {
+      // Log the timestamped consent (exact wording the client agreed to) + an audit entry, then charge the stored card.
+      recordConsent(customerEmail, req.body.consentText || 'Client authorized saving and future charging of their card.', 'checkout', clientIp(req));
+      audit('client:' + (customerEmail || '').toLowerCase(), 'card_saved', customerEmail, (saved.card.brand || 'card') + ' ...' + (saved.card.last4 || ''));
+      pay = await payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: saved.card.id, customerId: saved.customerId });
+    }
     else pay = await payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: paymentToken });   // saving failed: still take payment so the booking isn't lost
   } else {
     pay = await payments.charge({ amountCents: Math.round(grandTotal * 100), sourceId: paymentToken });
@@ -1620,14 +1634,21 @@ app.post('/api/admin/charge-card', admin, async (req, res) => {
   const card = db.prepare(`SELECT * FROM saved_cards WHERE card_id=?`).get((req.body.cardId || '').toString());
   if (!card) return res.status(400).json({ error: 'That saved card was not found.' });
   const o = manualOrder(b.confirmation);
+  if (o && o.paidAt != null) return res.status(409).json({ error: 'This booking is already marked paid — nothing was charged.' });   // idempotency: never double-charge a paid booking
   const amt = (req.body.amount != null && req.body.amount !== '') ? VL.round2(parseFloat(req.body.amount)) : (o ? o.grandTotal : 0);
   if (!(amt > 0)) return res.status(400).json({ error: 'Enter an amount greater than $0.' });
   if (!SQ.enabled) return res.status(400).json({ error: 'Square is not connected yet, so saved cards can’t be charged. Add your Square keys to turn this on.' });
-  const pay = await payments.charge({ amountCents: Math.round(amt * 100), sourceId: card.card_id, customerId: card.customer_id });
-  if (!pay.ok) return res.status(402).json({ error: pay.error || 'The card could not be charged.' });
+  // Stable idempotency key (confirmation + amount) so a double-click is deduped by Square rather than charging twice.
+  const idem = 'vlcharge-' + b.confirmation + '-' + Math.round(amt * 100);
+  const pay = await payments.charge({ amountCents: Math.round(amt * 100), sourceId: card.card_id, customerId: card.customer_id, idempotencyKey: idem });
+  if (!pay.ok) { audit('staff', 'card_charge_failed', card.email, '$' + amt + ' ' + b.confirmation + ': ' + (pay.error || '')); return res.status(402).json({ error: pay.error || 'The card could not be charged.' }); }
   db.prepare(`UPDATE blocks SET paid=?, paid_at=?, pay_mode='paid', pay_method='card' WHERE confirmation=? AND kind='booking'`).run(amt, nowISO(), b.confirmation);
+  audit('staff', 'card_charged', card.email, '$' + amt + ' to ' + (card.brand || 'card') + ' ...' + (card.last4 || '') + ' for ' + b.confirmation + ' (ref ' + pay.ref + ')');
   res.json({ ok: true, paid: amt, ref: pay.ref, last4: card.last4, brand: card.brand });
 });
+
+// Staff: view the card audit trail (most recent first).
+app.get('/api/admin/audit', admin, (_req, res) => res.json({ log: db.prepare(`SELECT * FROM audit_log ORDER BY id DESC LIMIT 500`).all() }));
 
 // One-time pre-launch helper: mark every currently-unpaid manual booking as paid at its full computed price.
 app.post('/api/admin/mark-all-paid', admin, (req, res) => {
