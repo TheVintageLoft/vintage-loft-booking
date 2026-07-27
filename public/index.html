@@ -1124,10 +1124,11 @@ async function cancelMyBooking(ref){
   }catch(e){ toast((e.body&&e.body.error)||'Could not cancel'); }
 }
 async function rescheduleMyBooking(ref){
-  if(!confirm('Reschedule this booking? We will release this time and, if it is 48+ hours away, add its value to your account credit. Then just pick a new time and your credit is applied at checkout.')) return;
+  if(!confirm('Reschedule this booking? We will release this time and, if it is 48+ hours away, add its value to your account credit. Then just pick your new time — your credit is applied automatically, so if the price is the same there is nothing more to pay. If the new time costs more you will just pay the difference; if it costs less the remainder stays as credit.')) return;
   try{ var d=await fetchJSON('/api/account/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cancelBody(ref))});
-    toast(d.credited>0 ? (money(d.credited)+' credit ready — pick your new time') : 'Time released — pick your new time');
     if(CLIENT) await loadClient();
+    useAcctCredit = true;   // pre-apply their credit to the new booking so any price difference is handled automatically
+    toast(d.credited>0 ? (money(d.credited)+' credit ready — pick your new time, it applies automatically') : 'Time released — pick your new time');
     go('search');
   }catch(e){ toast((e.body&&e.body.error)||'Could not reschedule'); }
 }
