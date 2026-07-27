@@ -146,7 +146,7 @@
         <div><span class="muted">Email (optional)</span><input id="clientEmail" type="email" placeholder="Client email"></div>
       </div>
       <label style="font-family:Arial,sans-serif;font-size:13px;color:#3a352f;display:flex;align-items:center;gap:7px;margin-top:12px;cursor:pointer">
-        <input id="sendConfirm" type="checkbox" checked style="width:auto"> Email them the reservation <b>with a payment link</b>
+        <input id="sendConfirm" type="checkbox" checked style="width:auto"> Email them the confirmation <b>with a payment link</b>
       </label>
     </div>
 
@@ -538,7 +538,7 @@ document.getElementById('go').onclick=function(){
       if(!x.ok){return showMsg(msg,(x.d&&x.d.error)||'Could not save — please try again.','err');}
       var added=x.d.inserted, skip=x.d.skipped;
       var word=kind==='booking'?'Booking':'Hold';
-      var emailed = payload.sendConfirmation ? (x.d.payLinkIncluded ? ' A reservation email with a payment link was sent to the client.' : (x.d.emailSent ? ' A reservation email was sent to the client.' : '')) : '';
+      var emailed = payload.sendConfirmation ? (x.d.payLinkIncluded ? ' A confirmation email with a payment link was sent to the client.' : (x.d.emailSent ? ' A confirmation email was sent to the client.' : '')) : '';
       var oneConf=(kind==='booking'&&added>1)?' All on one confirmation.':'';
       showMsg(msg,'<b>'+word+' saved.</b> '+added+' studio'+(added===1?'':'s')+' booked.'+oneConf+(skip?' ('+skip+' already on the calendar.)':'')+emailed,'ok');
       pendingLines=[]; renderPending();
@@ -863,9 +863,9 @@ function selectDay(iso){
             }
             else { A('Mark unpaid', unpay, '#a33'); }
             if(email && !owner && !comp){
-              if(!paid) A('Email reservation + payment link', function(){ busy('Creating a fresh payment link and sending…'); post('/api/admin/send-reserved').then(function(x2){ if(x2.ok&&x2.d.ok!==false){ okm(x2.d.payLinkIncluded?('Sent to '+email+' with an updated payment link.'):('Reservation email sent to '+email+'.')); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not send.'); }); });
-              else A('Send receipt', function(){ busy('Sending...'); post('/api/admin/send-receipt').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Receipt sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
-            } else if(!email && !owner && !comp){ var n=document.createElement('span'); n.className='meta'; n.textContent='(add a client email to send emails/receipts)'; row.appendChild(n); }
+              if(!paid) A('Send confirmation email', function(){ busy('Sending the confirmation email…'); post('/api/admin/send-reserved').then(function(x2){ if(x2.ok&&x2.d.ok!==false){ okm(x2.d.payLinkIncluded?('Confirmation email sent to '+email+' with an updated payment link.'):('Confirmation email sent to '+email+'.')); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not send.'); }); });
+              else A('Send confirmation email', function(){ busy('Sending the confirmation email…'); post('/api/admin/send-receipt').then(function(x2){ (x2.ok&&x2.d.ok!==false)?okm('Confirmation email sent to '+email):err((x2.d&&x2.d.error)||'Could not send.'); }); });
+            } else if(!email && !owner && !comp){ var n=document.createElement('span'); n.className='meta'; n.textContent='(add a client email to send the confirmation)'; row.appendChild(n); }
             box.appendChild(row); box.appendChild(msg);
             if(paid && !owner && !comp) checkAdjust();
           }
