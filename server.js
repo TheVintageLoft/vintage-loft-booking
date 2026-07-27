@@ -88,6 +88,7 @@ try { db.exec("ALTER TABLE bookings ADD COLUMN setup INTEGER NOT NULL DEFAULT 0"
 try { db.exec("ALTER TABLE blocks ADD COLUMN booking_id INTEGER"); } catch (_) {}
 try { db.exec("ALTER TABLE bookings ADD COLUMN inspo TEXT"); } catch (_) {}   // JSON array of inspiration-photo data URLs
 try { db.exec("ALTER TABLE blocks ADD COLUMN inspo TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE blocks ADD COLUMN pay_method TEXT"); } catch (_) {}   // how a manual booking was paid: card / etransfer / cash / debit
 
 /* ---------- one-time clean reset (owner-only, no button) ----------
    Set WIPE_ONCE to any word in the host environment to clear ALL bookings + holds
@@ -1525,8 +1526,13 @@ app.post('/api/admin/mark-paid', admin, (req, res) => {
   if (codeStr) { const ci = lookupCode(codeStr); if (ci) db.prepare(`UPDATE blocks SET code=? WHERE confirmation=? AND kind='booking'`).run(ci.code, b.confirmation); }
   const o = manualOrder(b.confirmation);   // re-read AFTER saving the code so grandTotal is the discounted total
   const amt = (req.body.paid != null && req.body.paid !== '') ? VL.round2(parseFloat(req.body.paid)) : (o ? o.grandTotal : 0);
-  db.prepare(`UPDATE blocks SET paid=?, paid_at=?, pay_mode='paid' WHERE confirmation=? AND kind='booking'`).run(amt, nowISO(), b.confirmation);
-  res.json({ ok: true, paid: amt, mode: 'paid' });
+  // how they paid (card / etransfer / cash / debit) and, for e-transfer or cash, the date it landed
+  const method = ['card', 'etransfer', 'cash', 'debit'].indexOf(req.body.method) >= 0 ? req.body.method : null;
+  let paidAt = nowISO();
+  const pon = (req.body.paidOn || '').toString().trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(pon)) paidAt = pon + 'T12:00:00.000Z';   // noon UTC so the calendar date reads correctly
+  db.prepare(`UPDATE blocks SET paid=?, paid_at=?, pay_mode='paid', pay_method=? WHERE confirmation=? AND kind='booking'`).run(amt, paidAt, method, b.confirmation);
+  res.json({ ok: true, paid: amt, mode: 'paid', method: method, paidAt: paidAt });
 });
 
 // One-time pre-launch helper: mark every currently-unpaid manual booking as paid at its full computed price.

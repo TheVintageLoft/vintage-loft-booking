@@ -225,6 +225,14 @@ var ROOMS=[["northwing","North Wing"],["grand","Grand Room"],["dream","Dream Roo
 function pad(n){return String(n).padStart(2,'0');}
 function tLabel(d){var h=Math.floor(d),m=Math.round((d-h)*60),ap=h<12?'AM':'PM',hh=h%12||12;return hh+':'+pad(m)+' '+ap;}
 function fdate(iso){var p=iso.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return M[+p[1]-1]+' '+(+p[2])+', '+p[0];}
+var PAYMETHODS={card:'Credit card',etransfer:'E-transfer',cash:'Cash',debit:'In-person debit'};
+// Small "· E-transfer · Aug 5, 2026" tag shown after a Paid amount (method + payment date, when recorded).
+function payMethodDate(entry){
+  var parts=[];
+  if(entry.pay_method && PAYMETHODS[entry.pay_method]) parts.push(PAYMETHODS[entry.pay_method]);
+  if(entry.paid_at){ var d=String(entry.paid_at).slice(0,10); if(/^\d{4}-\d{2}-\d{2}$/.test(d)) parts.push(fdate(d)); }
+  return parts.length ? (' <span style="color:#8a8375;font-weight:normal;font-size:12px">· '+parts.join(' · ')+'</span>') : '';
+}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function rname(id){for(var i=0;i<ROOMS.length;i++){if(ROOMS[i][0]===id)return ROOMS[i][1];}return id;}
 function hrsTxt(h){h=Math.round(h*100)/100;return (h===Math.floor(h)?h:h)+' h';}
@@ -564,7 +572,7 @@ function loadCalendar(){
     fetch('/api/admin/bookings?key='+encodeURIComponent(getKey())).then(chk)
   ]).then(function(res){
     var idx={};
-    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,pay_mode:b.pay_mode||'',addons_json:b.addons_json||'',intake:b.intake||'',inspoCount:(b.inspoCount||0)}); });
+    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,pay_mode:b.pay_mode||'',pay_method:b.pay_method||'',addons_json:b.addons_json||'',intake:b.intake||'',inspoCount:(b.inspoCount||0)}); });
     (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||'',inspoCount:(b.inspoCount||0)}); });
     CAL.items=idx; cm.textContent='';
     renderMonth();
@@ -781,7 +789,7 @@ function selectDay(iso){
               ? '<span style="color:#6b4a8a;font-weight:bold">Owner use · Vintage Films (no charge)</span>'
               : comp
               ? '<span style="color:#1f6b6b;font-weight:bold">Comp · Marketing / Goodwill (no charge)</span>'
-              : (paid ? ('<span style="color:#2e6b34;font-weight:bold">Paid'+(entry.paid!=null?(' $'+Number(entry.paid).toFixed(2)):'')+'</span>') : '<span style="color:#a37b2b;font-weight:bold">Unpaid</span>');
+              : (paid ? ('<span style="color:#2e6b34;font-weight:bold">Paid'+(entry.paid!=null?(' $'+Number(entry.paid).toFixed(2)):'')+'</span>'+payMethodDate(entry)) : '<span style="color:#a37b2b;font-weight:bold">Unpaid</span>');
             head.innerHTML='<b>Client emails &amp; payment</b> &nbsp; '+statusHtml;
             box.appendChild(head);
             var row=document.createElement('div'); row.style.cssText='display:flex;gap:16px;flex-wrap:wrap;align-items:center';
@@ -804,6 +812,15 @@ function selectDay(iso){
               var capply=document.createElement('a'); capply.textContent='Apply'; capply.style.cssText=LINKSTYLE;
               crow.appendChild(clab); crow.appendChild(cin); crow.appendChild(capply);
               box.insertBefore(crow, msg);
+              // how they paid + the date it was received (handy for e-transfer / cash paid on a different day)
+              var mrow=document.createElement('div'); mrow.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;width:100%';
+              var mlab=document.createElement('span'); mlab.className='meta'; mlab.textContent='Paid by';
+              var msel=document.createElement('select'); msel.style.cssText='font-family:Arial,sans-serif;font-size:14px;padding:7px 9px;border:1px solid #ddd;border-radius:8px';
+              [['card','Credit card'],['etransfer','E-transfer'],['cash','Cash'],['debit','In-person debit (Square machine)']].forEach(function(o){ var op=document.createElement('option'); op.value=o[0]; op.textContent=o[1]; msel.appendChild(op); });
+              var dlab=document.createElement('span'); dlab.className='meta'; dlab.textContent='on';
+              var pdt=document.createElement('input'); pdt.type='date'; pdt.value=todayISO(); pdt.style.cssText='font-family:Arial,sans-serif;font-size:14px;padding:6px 9px;border:1px solid #ddd;border-radius:8px';
+              mrow.appendChild(mlab); mrow.appendChild(msel); mrow.appendChild(dlab); mrow.appendChild(pdt);
+              box.insertBefore(mrow, msg);
               var aj=entryAddons(entry);
               var orderItems=null, orderCount=1, orderGrand=null;
               function ensureOrder(cb){
@@ -823,7 +840,7 @@ function selectDay(iso){
               cin.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); applyFormCode(); } });
               if(entry._code && typeof entry._codeTotal==='number'){ cin.value=entry._code; inp.value=entry._codeTotal.toFixed(2); okm('Prefilled the '+entry._code+' price $'+entry._codeTotal.toFixed(2)+'. Just click Confirm paid, or change the amount.'); inp.focus(); }
               else { fillFull(); }
-              conf.onclick=function(){ var v=parseFloat(inp.value); if(!(v>=0)){ err('Enter a dollar amount.'); return; } busy('Saving...'); post('/api/admin/mark-paid',{paid:v, code:(entry._code||cin.value.trim()||undefined)}).then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=x2.d.paid; entry.paid_at='now'; entry.code=(entry._code||cin.value.trim().toUpperCase()||entry.code); render(); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not save.'); }); };
+              conf.onclick=function(){ var v=parseFloat(inp.value); if(!(v>=0)){ err('Enter a dollar amount.'); return; } busy('Saving...'); post('/api/admin/mark-paid',{paid:v, code:(entry._code||cin.value.trim()||undefined), method:msel.value, paidOn:pdt.value}).then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=x2.d.paid; entry.paid_at=x2.d.paidAt||'now'; entry.pay_method=x2.d.method||msel.value; entry.code=(entry._code||cin.value.trim().toUpperCase()||entry.code); render(); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not save.'); }); };
               canc.onclick=function(){ render(); };
             }
             function unpay(){ busy('Saving...'); post('/api/admin/mark-paid',{unpay:true}).then(function(x2){ if(x2.ok){ entry.paid=null; entry.paid_at=null; entry.pay_mode=''; render(); loadCalendar(); } else err('Could not update.'); }); }
