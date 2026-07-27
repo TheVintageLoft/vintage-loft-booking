@@ -369,7 +369,8 @@ function balanceEmail({ name, confirmation, bookings, alreadyPaid, balanceDue, p
 }
 
 // Sent when a booking is cancelled. Warm wording, and two outcomes: credit issued, or (inside the window) no credit.
-function cancellationEmail({ name, confirmation, bookings, credited }) {
+function cancellationEmail({ name, confirmation, bookings, credited, email }) {
+  const emailSafe = (email || 'this address').replace(/[<>&"]/g, '');
   const resBox = (bookings && bookings.length) ? `
     <div style="background:#f6f5f3;border-radius:10px;padding:16px 18px;margin:0 0 18px">
       <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#9a938a;font-family:Arial,sans-serif;margin-bottom:10px">Cancelled${confirmation ? ' &middot; ' + confirmation : ''}</div>
@@ -377,17 +378,21 @@ function cancellationEmail({ name, confirmation, bookings, credited }) {
         ${bookings.map(b => `<tr><td style="padding:6px 0"><b>${b.roomName}</b><br><span style="color:#8a8375;font-size:13px;font-family:Arial,sans-serif">${emDate(b.date)} &middot; ${emTime(b.start)}&ndash;${emTime(b.end)}</span></td></tr>`).join('')}
       </table>
     </div>` : '';
+  const acctUrl = PUBLIC_URL + '/?account=1';
   const outcome = (credited > 0)
     ? `<div style="background:#eaf5ec;border:1px solid #bfe0c5;border-radius:10px;padding:15px 17px;margin:0 0 18px;line-height:1.6">
-         Because you let us know in good time, the full amount you paid &mdash; <b>${emMoney(credited)}</b> &mdash; is now waiting in your account as <b>studio credit</b> toward a future booking. It applies automatically the next time you book, so there's nothing you need to do.</div>`
+         The full amount you paid &mdash; <b>${emMoney(credited)}</b> &mdash; is now waiting in your account as <b>studio credit</b> toward a future booking. It applies automatically the next time you book.
+         <div style="text-align:center;margin:16px 0 4px"><a href="${acctUrl}" style="display:inline-block;background:#7c7268;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;padding:12px 26px;border-radius:8px">View my account &amp; credit</a></div>
+         <div style="font-family:Arial,sans-serif;font-size:13px;color:#6b6459;text-align:center;margin-top:6px">Please sign in with the same email you booked with (${emailSafe}) so your credit shows up.</div></div>`
     : `<div style="background:#f6f5f3;border:1px solid #eae8e4;border-radius:10px;padding:15px 17px;margin:0 0 18px;line-height:1.6">
-         This cancellation falls inside our 48-hour window, so on this occasion we aren't able to move your payment into studio credit. We know life happens and things come up unexpectedly &mdash; if there's something out of the ordinary going on, please just reply to this email or call us at 905-767-2099 and we'll always do our best to look after you.</div>`;
+         This cancellation falls within our 48-hour cancellation window, so this booking isn't eligible for studio credit. We understand that unexpected situations can arise, and while we stand behind our cancellation policy, truly exceptional circumstances may be reviewed at our discretion.<br><br>
+         We appreciate your understanding and look forward to welcoming you back to The Vintage Loft soon.</div>`;
   const inner = `
     <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(name)},</p>
     <p style="margin:0 0 16px;line-height:1.6">Your booking at The Vintage Loft has been <b>cancelled</b>. Here's what was on it:</p>
     ${resBox}
     ${outcome}
-    <p style="margin:0 0 14px;line-height:1.6;font-family:Arial,sans-serif;font-size:14px;color:#6b6459">We'd love to see you another time. Questions, or ready to rebook? Call or text 905-767-2099.</p>`;
+    <p style="margin:0 0 14px;line-height:1.6;font-family:Arial,sans-serif;font-size:14px;color:#6b6459">Questions, or ready to rebook? Call or text 905-767-2099.</p>`;
   return emailShell(inner);
 }
 
@@ -959,7 +964,7 @@ app.post('/api/admin/cancel', admin, (req, res) => {
   if (!b) return res.json({ ok: false });
   if (b.status === 'cancelled') return res.json({ ok: true, credited: 0 });
   const r = cancelBookingWithCredit(b);
-  if (b.customer_email && req.body.notify !== false) sendEmail({ to: b.customer_email, subject: 'Your booking has been cancelled — The Vintage Loft', html: cancellationEmail({ name: b.customer_name || 'there', confirmation: b.confirmation, bookings: [{ roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end }], credited: r.credited }) }).catch(e => console.error('[email] cancellation error:', e.message));
+  if (b.customer_email && req.body.notify !== false) sendEmail({ to: b.customer_email, subject: 'Your booking has been cancelled — The Vintage Loft', html: cancellationEmail({ name: b.customer_name || 'there', confirmation: b.confirmation, bookings: [{ roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end }], credited: r.credited, email: b.customer_email }) }).catch(e => console.error('[email] cancellation error:', e.message));
   res.json({ ok: true, credited: r.credited, hoursOut: r.hoursOut, newBalance: r.newBalance, email: b.customer_email });
 });
 // Staff: adjust a client's credit by hand (goodwill, corrections, manual cancellation credit)
@@ -1044,14 +1049,14 @@ app.post('/api/account/cancel', (req, res) => {
     if (o && o.paidAt && (o.paid || 0) > 0 && hrs >= 48) { credited = VL.round2(o.paid); addCredit(email, credited, 'Cancellation credit for ' + conf); }
     const bookingsForEmail = o ? o.bookings : [];
     db.prepare(`DELETE FROM blocks WHERE confirmation=? AND kind='booking'`).run(conf);   // frees the studio slot(s)
-    sendEmail({ to: email, subject: 'Your booking has been cancelled — The Vintage Loft', html: cancellationEmail({ name: (o && o.name) || 'there', confirmation: conf, bookings: bookingsForEmail, credited }) }).catch(e => console.error('[email] cancellation error:', e.message));
+    sendEmail({ to: email, subject: 'Your booking has been cancelled — The Vintage Loft', html: cancellationEmail({ name: (o && o.name) || 'there', confirmation: conf, bookings: bookingsForEmail, credited, email }) }).catch(e => console.error('[email] cancellation error:', e.message));
     return res.json({ ok: true, credited, hoursOut: Math.round(hrs), newBalance: creditBalance(email) });
   }
   const b = db.prepare(`SELECT * FROM bookings WHERE id=? AND lower(customer_email)=?`).get(+req.body.bookingId, email);
   if (!b) return res.status(404).json({ error: 'Booking not found on your account.' });
   if (b.status === 'cancelled') return res.status(400).json({ error: 'That booking is already cancelled.' });
   const r = cancelBookingWithCredit(b);
-  if (b.customer_email) sendEmail({ to: b.customer_email, subject: 'Your booking has been cancelled — The Vintage Loft', html: cancellationEmail({ name: b.customer_name || 'there', confirmation: b.confirmation, bookings: [{ roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end }], credited: r.credited }) }).catch(e => console.error('[email] cancellation error:', e.message));
+  if (b.customer_email) sendEmail({ to: b.customer_email, subject: 'Your booking has been cancelled — The Vintage Loft', html: cancellationEmail({ name: b.customer_name || 'there', confirmation: b.confirmation, bookings: [{ roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end }], credited: r.credited, email: b.customer_email }) }).catch(e => console.error('[email] cancellation error:', e.message));
   res.json({ ok: true, credited: r.credited, hoursOut: r.hoursOut, newBalance: r.newBalance });
 });
 
@@ -1178,7 +1183,7 @@ app.post('/api/admin/cancel-manual', admin, (req, res) => {
   else db.prepare(`DELETE FROM blocks WHERE id=?`).run(b.id);
   let emailed = false;
   if (email && req.body.notify !== false) {
-    sendEmail({ to: email, subject: 'Your booking has been cancelled — The Vintage Loft', html: cancellationEmail({ name, confirmation: conf, bookings: bookingsForEmail, credited }) })
+    sendEmail({ to: email, subject: 'Your booking has been cancelled — The Vintage Loft', html: cancellationEmail({ name, confirmation: conf, bookings: bookingsForEmail, credited, email }) })
       .then(r => {}).catch(e => console.error('[email] cancellation error:', e.message));
     emailed = true;
   }

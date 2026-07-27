@@ -1325,11 +1325,14 @@ function renderPaypalButtons(){
   initPaypal();
   // Embed / deep-link: if a ?room= is supplied, jump straight into that studio's booking flow.
   try {
-    var _rm = new URLSearchParams(location.search).get('room');
+    var _qs = new URLSearchParams(location.search);
+    var _rm = _qs.get('room');
     if (_rm && ROOMS.some(function(r){ return r.id === _rm; })) {
       window.VL_LOCK = true; openRoomCal(_rm);
       document.querySelectorAll('button').forEach(function(bt){ var oc=bt.getAttribute('onclick')||''; if(oc.indexOf("go('search')")>=0 || oc.indexOf('addAnotherStudio')>=0) bt.style.display='none'; });
     }
+    // Deep-link to the account page (used by the cancellation-credit email): ?account=1
+    else if (_qs.get('account') || (location.hash||'').replace('#','')==='account') { go('account'); }
   } catch(e){}
 })();
 </script>
