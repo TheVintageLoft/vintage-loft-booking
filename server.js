@@ -697,7 +697,7 @@ const CODES = (() => {
   // "on the house" — content-creator/marketing comps and goodwill gestures. 100% off, tracked in your Comps year-end total.
   const comp = { type: 'percent', off: 1.00, scope: 'all', reusable: true, kind: 'Comp' };
   const map = {
-    STEVEVIP: vip, KBKVIP: vip, JOSIEVIP: vip,
+    STEVEVIP: vip, KBKVIP: vip, JOSIEVIP: vip, VIP20: vip,
     ALANNAH50: emp, BRIA50: emp, SHAY50: emp, MACKENZIE50: emp, MIKHELA50: emp, JOELLE50: emp, ROSALIND50: emp,
     KELLY: owner, KAYA: owner,
     COMP: comp, GOODWILL: comp,
