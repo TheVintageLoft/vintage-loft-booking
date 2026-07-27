@@ -224,6 +224,23 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return
 function rname(id){for(var i=0;i<ROOMS.length;i++){if(ROOMS[i][0]===id)return ROOMS[i][1];}return id;}
 function hrsTxt(h){h=Math.round(h*100)/100;return (h===Math.floor(h)?h:h)+' h';}
 var LINKSTYLE='font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline';
+// Tappable client contact: phone shows Call + Message, email shows Email. tel:/sms:/mailto: open the phone or computer's own apps.
+var CHIPSTYLE='display:inline-block;padding:4px 11px;border:1px solid #d8d3ca;border-radius:999px;font-family:Arial,sans-serif;font-size:12px;color:#3a352f;text-decoration:none;background:#faf9f7;white-space:nowrap;line-height:1.4';
+function contactRow(phone,email){
+  var row=document.createElement('div'); row.style.cssText='margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center';
+  function chip(href,label){ var a=document.createElement('a'); a.href=href; a.textContent=label; a.style.cssText=CHIPSTYLE; return a; }
+  if(phone){
+    var tel=String(phone).replace(/[^0-9+]/g,'');
+    var pl=document.createElement('span'); pl.className='meta'; pl.style.cssText='font-size:13px'; pl.innerHTML='<b>Phone:</b> '+esc(phone); row.appendChild(pl);
+    row.appendChild(chip('tel:'+tel,'Call'));
+    row.appendChild(chip('sms:'+tel,'Message'));
+  }
+  if(email){
+    var el=document.createElement('span'); el.className='meta'; el.style.cssText='font-size:13px'; el.innerHTML='<b>Email:</b> '+esc(email); row.appendChild(el);
+    row.appendChild(chip('mailto:'+encodeURIComponent(email).replace(/%40/g,'@'),'Email'));
+  }
+  return row;
+}
 var INPUTSTYLE='width:100%;font-family:Arial,sans-serif;font-size:14px;padding:8px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;background:#fff';
 function fillTimes(sel,val){ sel.innerHTML=''; for(var d=8; d<=20; d+=0.25){ var o=document.createElement('option'); o.value=d; o.textContent=tLabel(d); if(d===val) o.selected=true; sel.appendChild(o); } }
 function saveEdit(entry, room, date, start, end, cb){
@@ -563,9 +580,7 @@ function selectDay(iso){
       if(x.client){
         var cc=null; try{ cc=JSON.parse(x.client); }catch(e){}
         if(cc && (cc.phone||cc.email)){
-          var cd=document.createElement('div'); cd.className='meta'; cd.style.marginTop='4px';
-          var parts=[]; if(cc.phone) parts.push('<b>Phone:</b> '+esc(cc.phone)); if(cc.email) parts.push('<b>Email:</b> '+esc(cc.email));
-          cd.innerHTML=parts.join('  ·  '); card.appendChild(cd);
+          card.appendChild(contactRow(cc.phone,cc.email));
         }
       }
       // ---- client intake form answers (read-only, from the booking checkout) ----
@@ -934,7 +949,7 @@ function showClientBookings(name){
   var back=document.createElement('a'); back.textContent='← Back to search'; back.style.cssText=LINKSTYLE; back.onclick=function(){ renderClientSearch(); }; res.appendChild(back);
   var h=document.createElement('div'); h.style.cssText='font-family:Georgia,serif;font-size:17px;margin:10px 0 4px;color:#3a352f'; h.textContent=name; res.appendChild(h);
   var contact=CLIENTS[name.toLowerCase()];
-  if(contact && (contact.phone||contact.email)){ var c=document.createElement('div'); c.className='muted'; c.style.marginBottom='8px'; var pp=[]; if(contact.phone)pp.push('Phone: '+contact.phone); if(contact.email)pp.push('Email: '+contact.email); c.textContent=pp.join('   ·   '); res.appendChild(c); }
+  if(contact && (contact.phone||contact.email)){ var c=contactRow(contact.phone,contact.email); c.style.marginBottom='8px'; res.appendChild(c); }
   if(contact && contact.email){ renderClientCredit(res, contact.email); }
   var mine=allEntries().filter(function(it){ return (it.e.label||'').trim().toLowerCase()===name.toLowerCase(); })
     .sort(function(a,b){ return (a.date+String(a.e.start).padStart(6,'0'))<(b.date+String(b.e.start).padStart(6,'0'))?-1:1; });
