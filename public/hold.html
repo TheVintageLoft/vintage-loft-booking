@@ -558,14 +558,24 @@ function renderMonth(){
 function selectDay(iso){
   CAL.sel=iso; renderMonth();
   var det=document.getElementById('dayDetail'); det.innerHTML='';
-  var h=document.createElement('div'); h.style.cssText='font-family:Georgia,serif;font-size:16px;margin:18px 0 6px;color:#3a352f'; h.textContent=fdate(iso); det.appendChild(h);
-  if(dowOf(iso)===1){ var m=document.createElement('div'); m.className='muted'; m.textContent='Closed on Mondays.'; det.appendChild(m); return; }
+  // Collapsible day: tap the date to fold the whole day away so Find a client / Add to the calendar are one tap below.
+  var h=document.createElement('div'); h.style.cssText='font-family:Georgia,serif;font-size:16px;margin:18px 0 6px;color:#3a352f;cursor:pointer;display:flex;align-items:center;gap:9px;user-select:none';
+  var caret=document.createElement('span'); caret.textContent='▾'; caret.style.cssText='font-size:12px;color:#8a8375;width:12px;display:inline-block;text-align:center';
+  var htxt=document.createElement('span'); htxt.textContent=fdate(iso);
+  var count=document.createElement('span'); count.style.cssText='font-family:Arial,sans-serif;font-size:12px;color:#a49d92;font-weight:normal';
+  h.appendChild(caret); h.appendChild(htxt); h.appendChild(count); det.appendChild(h);
+  var body=document.createElement('div'); det.appendChild(body);
+  var hintBase='';
+  h.onclick=function(){ var open=body.style.display!=='none'; body.style.display=open?'none':''; caret.textContent=open?'▸':'▾'; count.textContent=hintBase?(hintBase+(open?' · tap to show)':' · tap to hide)')):''; };
+  if(dowOf(iso)===1){ var m=document.createElement('div'); m.className='muted'; m.textContent='Closed on Mondays.'; body.appendChild(m); return; }
   var items=(CAL.items[iso]||[]).slice().sort(function(a,b){return a.start-b.start;});
-  if(!items.length){ var m2=document.createElement('div'); m2.className='muted'; m2.textContent='Nothing booked. This day is completely open.'; det.appendChild(m2); return; }
+  if(!items.length){ var m2=document.createElement('div'); m2.className='muted'; m2.textContent='Nothing booked. This day is completely open.'; body.appendChild(m2); return; }
+  hintBase='('+items.length+' booking'+(items.length===1?'':'s');
+  count.textContent=hintBase+' · tap to hide)';
   ROOMS.forEach(function(r){
     var rid=r[0]; var list=items.filter(function(x){return x.room===rid;});
     if(!list.length) return;
-    var hdr=document.createElement('div'); hdr.className='studiohdr'; hdr.innerHTML='<i style="background:'+RCOLOR[rid]+'"></i>'+r[1]; det.appendChild(hdr);
+    var hdr=document.createElement('div'); hdr.className='studiohdr'; hdr.innerHTML='<i style="background:'+RCOLOR[rid]+'"></i>'+r[1]; body.appendChild(hdr);
     list.forEach(function(x){
       var card=document.createElement('div'); card.className='daycard'; card.style.borderLeftColor=RCOLOR[rid];
       var who=document.createElement('div'); who.className='who';
@@ -867,7 +877,7 @@ function selectDay(iso){
         (function(id,toKind){ flip.onclick=function(){ setKind(id,toKind); }; })(x.id,toKind);
         actions.appendChild(flip);
       }
-      card.appendChild(actions); det.appendChild(card);
+      card.appendChild(actions); body.appendChild(card);
     });
   });
 }
