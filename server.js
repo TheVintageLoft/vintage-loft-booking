@@ -1006,6 +1006,21 @@ app.get('/api/account', (req, res) => {
 app.post('/api/account/cancel', (req, res) => {
   const email = emailForToken(req.body.token);
   if (!email) return res.status(401).json({ error: 'Please log in.' });
+  // Manual (staff-entered) booking — identified by its confirmation. Cancels the whole confirmation, frees the slots, credits per the 48h rule.
+  if (req.body.confirmation) {
+    const conf = String(req.body.confirmation);
+    const blocks = db.prepare(`SELECT * FROM blocks WHERE confirmation=? AND kind='booking'`).all(conf);
+    if (!blocks.length) return res.status(404).json({ error: 'Booking not found on your account.' });
+    let cj = {}; try { cj = JSON.parse(blocks[0].client || '{}'); } catch (_) {}
+    if ((cj.email || '').toLowerCase() !== email) return res.status(404).json({ error: 'Booking not found on your account.' });
+    const o = manualOrder(conf);
+    const earliest = blocks.reduce((m, b) => ((b.date + String(b.start).padStart(5, '0')) < (m.date + String(m.start).padStart(5, '0')) ? b : m), blocks[0]);
+    const hrs = hoursUntil(earliest.date, earliest.start);
+    let credited = 0;
+    if (o && o.paidAt && (o.paid || 0) > 0 && hrs >= 48) { credited = VL.round2(o.paid); addCredit(email, credited, 'Cancellation credit for ' + conf); }
+    db.prepare(`DELETE FROM blocks WHERE confirmation=? AND kind='booking'`).run(conf);   // frees the studio slot(s)
+    return res.json({ ok: true, credited, hoursOut: Math.round(hrs), newBalance: creditBalance(email) });
+  }
   const b = db.prepare(`SELECT * FROM bookings WHERE id=? AND lower(customer_email)=?`).get(+req.body.bookingId, email);
   if (!b) return res.status(404).json({ error: 'Booking not found on your account.' });
   if (b.status === 'cancelled') return res.status(400).json({ error: 'That booking is already cancelled.' });

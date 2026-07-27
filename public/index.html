@@ -1073,14 +1073,15 @@ function usageCard(o){
   </div>`;
 }
 function acctBookingRow(b, upcoming){
-  const canCancel = upcoming && b.status!=='cancelled' && !b.manual;
+  const actionable = upcoming && b.status!=='cancelled';
   const fullCredit = b.hoursOut>=48;
   const showRcpt = b.confirmation && b.status!=='cancelled' && (!b.manual || b.isPaid);
   const rcpt = showRcpt ? `<a href="receipt.html?c=${encodeURIComponent(b.confirmation)}&e=${encodeURIComponent((typeof CLIENT!=='undefined'&&CLIENT&&CLIENT.email)||'')}" target="_blank" rel="noopener" style="font-size:13px;color:var(--gold);text-decoration:underline;white-space:nowrap">Receipt</a>` : '';
-  const changeHint = (upcoming && b.manual) ? `<span class="meta" style="font-size:12px;color:var(--muted);white-space:nowrap">Call 905-767-2099 to change</span>` : '';
+  const ref = b.manual ? ('m:'+b.confirmation) : String(b.id);
+  const btns = actionable ? `<button class="btn btn-ghost" onclick="rescheduleMyBooking('${ref}')">Reschedule</button><button class="btn btn-ghost" onclick="cancelMyBooking('${ref}')">Cancel${fullCredit?' · full credit':''}</button>` : '';
   return `<div class="bk"><div><b>${b.roomName}</b>${b.status==='cancelled'?' <span style="color:var(--red);font-size:12px">· Cancelled</span>':''}
       <div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)}${(b.paid||0)>0?' · paid '+money(b.paid):''}</div></div>
-    <div style="display:flex;gap:14px;align-items:center;white-space:nowrap">${rcpt}${canCancel?`<button class="btn btn-ghost" onclick="cancelMyBooking(${b.id})">Cancel${fullCredit?' · full credit':''}</button>`:changeHint}</div></div>`;
+    <div style="display:flex;gap:10px;align-items:center;white-space:nowrap;flex-wrap:wrap;justify-content:flex-end">${rcpt}${btns}</div></div>`;
 }
 function showAuth(which){
   var tl=document.getElementById('tabLogin'), ts=document.getElementById('tabSignup');
@@ -1113,12 +1114,22 @@ async function doSignup(){
     CLIENT={token:d.token,email:d.email,name:d.name,credit:0}; saveClient(); await loadClient(); renderAccount();
   }catch(e){ msg.style.color='var(--red)'; msg.textContent=(e.body&&e.body.error)||'Could not create account.'; }
 }
-async function cancelMyBooking(id){
-  if(!confirm('Cancel this booking? If it is 48 hours or more away, your payment becomes account credit for a future visit.')) return;
-  try{ var d=await fetchJSON('/api/account/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:CLIENT.token,bookingId:id})});
+function cancelBody(ref){ return (String(ref).indexOf('m:')===0) ? {token:CLIENT.token, confirmation:String(ref).slice(2)} : {token:CLIENT.token, bookingId:ref}; }
+async function cancelMyBooking(ref){
+  if(!confirm('Cancel this booking? If it is 48 hours or more before the start time, your payment becomes account credit for a future visit. Inside 48 hours there is no credit.')) return;
+  try{ var d=await fetchJSON('/api/account/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cancelBody(ref))});
     toast(d.credited>0 ? ('Cancelled — '+money(d.credited)+' added to your credit') : 'Booking cancelled');
+    if(CLIENT) loadClient();
     renderAccount();
   }catch(e){ toast((e.body&&e.body.error)||'Could not cancel'); }
+}
+async function rescheduleMyBooking(ref){
+  if(!confirm('Reschedule this booking? We will release this time and, if it is 48+ hours away, add its value to your account credit. Then just pick a new time and your credit is applied at checkout.')) return;
+  try{ var d=await fetchJSON('/api/account/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cancelBody(ref))});
+    toast(d.credited>0 ? (money(d.credited)+' credit ready — pick your new time') : 'Time released — pick your new time');
+    if(CLIENT) await loadClient();
+    go('search');
+  }catch(e){ toast((e.body&&e.body.error)||'Could not reschedule'); }
 }
 function toggleAcctCredit(){ useAcctCredit=document.getElementById('useCredit').checked; renderReviewSummary(); }
 
