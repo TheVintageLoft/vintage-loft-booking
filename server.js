@@ -1518,7 +1518,12 @@ app.post('/api/admin/mark-paid', admin, (req, res) => {
     db.prepare(`UPDATE blocks SET paid=0, paid_at=?, pay_mode='comp' WHERE confirmation=? AND kind='booking'`).run(nowISO(), b.confirmation);
     return res.json({ ok: true, paid: 0, mode: 'comp' });
   }
-  const o = manualOrder(b.confirmation);
+  // If a discount code was applied in the mark-paid box, SAVE it on the booking so its computed
+  // total reflects the discount. Without this the day view keeps showing the discount as a
+  // phantom "balance still owing" (paid the discounted price, but total still read as full price).
+  const codeStr = (req.body.code || '').toString().trim();
+  if (codeStr) { const ci = lookupCode(codeStr); if (ci) db.prepare(`UPDATE blocks SET code=? WHERE confirmation=? AND kind='booking'`).run(ci.code, b.confirmation); }
+  const o = manualOrder(b.confirmation);   // re-read AFTER saving the code so grandTotal is the discounted total
   const amt = (req.body.paid != null && req.body.paid !== '') ? VL.round2(parseFloat(req.body.paid)) : (o ? o.grandTotal : 0);
   db.prepare(`UPDATE blocks SET paid=?, paid_at=?, pay_mode='paid' WHERE confirmation=? AND kind='booking'`).run(amt, nowISO(), b.confirmation);
   res.json({ ok: true, paid: amt, mode: 'paid' });

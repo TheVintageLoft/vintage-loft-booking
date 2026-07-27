@@ -823,7 +823,7 @@ function selectDay(iso){
               cin.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); applyFormCode(); } });
               if(entry._code && typeof entry._codeTotal==='number'){ cin.value=entry._code; inp.value=entry._codeTotal.toFixed(2); okm('Prefilled the '+entry._code+' price $'+entry._codeTotal.toFixed(2)+'. Just click Confirm paid, or change the amount.'); inp.focus(); }
               else { fillFull(); }
-              conf.onclick=function(){ var v=parseFloat(inp.value); if(!(v>=0)){ err('Enter a dollar amount.'); return; } busy('Saving...'); post('/api/admin/mark-paid',{paid:v}).then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=x2.d.paid; entry.paid_at='now'; render(); } else err((x2.d&&x2.d.error)||'Could not save.'); }); };
+              conf.onclick=function(){ var v=parseFloat(inp.value); if(!(v>=0)){ err('Enter a dollar amount.'); return; } busy('Saving...'); post('/api/admin/mark-paid',{paid:v, code:(entry._code||cin.value.trim()||undefined)}).then(function(x2){ if(x2.ok&&x2.d.ok!==false){ entry.paid=x2.d.paid; entry.paid_at='now'; entry.code=(entry._code||cin.value.trim().toUpperCase()||entry.code); render(); loadCalendar(); } else err((x2.d&&x2.d.error)||'Could not save.'); }); };
               canc.onclick=function(){ render(); };
             }
             function unpay(){ busy('Saving...'); post('/api/admin/mark-paid',{unpay:true}).then(function(x2){ if(x2.ok){ entry.paid=null; entry.paid_at=null; entry.pay_mode=''; render(); loadCalendar(); } else err('Could not update.'); }); }
