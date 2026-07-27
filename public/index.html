@@ -1040,8 +1040,10 @@ async function renderAccount(){
   let d; try{ d=await fetchJSON('/api/account?token='+encodeURIComponent(CLIENT.token)); }
   catch(e){ CLIENT=null; saveClient(); return renderAccount(); }
   CLIENT.credit=d.credit; CLIENT.name=d.name; updateAcctNav();
+  ACCT_ITEMS = {}; (d.upcoming||[]).forEach(function(b){ ACCT_ITEMS[b.manual?('m:'+b.confirmation):String(b.id)] = b; });
   const up = d.upcoming.length ? d.upcoming.map(b=>acctBookingRow(b,true)).join('') : '<div class="empty">No upcoming bookings.</div>';
   const past = d.past.length ? d.past.map(b=>acctBookingRow(b,false)).join('') : '<div class="empty">Nothing here yet.</div>';
+  const note = d.upcoming.length ? `<div class="meta" style="color:var(--muted);font-size:13px;margin:2px 0 10px;line-height:1.5">Want to reschedule but don't know your new date yet? Just <b>cancel</b> your booking and, as long as you're outside the 48-hour window, your credit goes right into your account to use whenever you rebook.</div>` : '';
   inner.innerHTML = `<div class="card pad">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
       <div><h3 style="margin:0">${d.name||'Welcome'}</h3><div class="meta" style="color:var(--muted);font-size:13px">${d.email}</div>
@@ -1049,7 +1051,7 @@ async function renderAccount(){
       <div style="text-align:right"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Account credit</div>
         <div style="font-size:28px;font-family:Georgia,serif;color:var(--green,#2e7d32)">${money(d.credit)}</div></div>
     </div>
-    <h3 style="font-size:15px;margin:22px 0 8px">Upcoming bookings</h3>${up}
+    <h3 style="font-size:15px;margin:22px 0 8px">Upcoming bookings</h3>${note}${up}
     <h3 style="font-size:15px;margin:22px 0 8px">Past bookings</h3>${past}
   </div>${d.ownerUsage?usageCard({title:'Studio use · Vintage Films',blurb:'Your own sessions, settled at no charge. Amounts are the regular studio rate, tracked here for your records.',accent:'#6b4a8a',u:d.ownerUsage,showCode:false,empty:'No owner-use sessions yet. Mark one “Owner use” in the Staff App and it will appear here.'}):''}${d.compUsage?usageCard({title:'Comps · Marketing & Goodwill',blurb:'On-the-house bookings for content creators and goodwill gestures. Amounts are the regular studio rate, tracked here for year end.',accent:'#1f6b6b',u:d.compUsage,showCode:true,empty:'No comps yet. Give out your COMP code, or mark a booking “Comp” in the Staff App, and it will appear here.'}):''}`;
 }
@@ -1078,10 +1080,101 @@ function acctBookingRow(b, upcoming){
   const showRcpt = b.confirmation && b.status!=='cancelled' && (!b.manual || b.isPaid);
   const rcpt = showRcpt ? `<a href="receipt.html?c=${encodeURIComponent(b.confirmation)}&e=${encodeURIComponent((typeof CLIENT!=='undefined'&&CLIENT&&CLIENT.email)||'')}" target="_blank" rel="noopener" style="font-size:13px;color:var(--gold);text-decoration:underline;white-space:nowrap">Receipt</a>` : '';
   const ref = b.manual ? ('m:'+b.confirmation) : String(b.id);
-  const btns = actionable ? `<button class="btn btn-ghost" onclick="rescheduleMyBooking('${ref}')">Reschedule</button><button class="btn btn-ghost" onclick="cancelMyBooking('${ref}')">Cancel${fullCredit?' · full credit':''}</button>` : '';
-  return `<div class="bk"><div><b>${b.roomName}</b>${b.status==='cancelled'?' <span style="color:var(--red);font-size:12px">· Cancelled</span>':''}
+  const btns = actionable ? `<button class="btn btn-ghost" onclick="openEditBooking('${ref}')">Edit booking</button><button class="btn btn-ghost" onclick="cancelMyBooking('${ref}')">Cancel${fullCredit?' · full credit':''}</button>` : '';
+  return `<div class="bk" data-ref="${ref}"><div><b>${b.roomName}</b>${b.status==='cancelled'?' <span style="color:var(--red);font-size:12px">· Cancelled</span>':''}
       <div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)}${(b.paid||0)>0?' · paid '+money(b.paid):''}</div></div>
     <div style="display:flex;gap:10px;align-items:center;white-space:nowrap;flex-wrap:wrap;justify-content:flex-end">${rcpt}${btns}</div></div>`;
+}
+var ACCT_ITEMS = {}, editCard = null, editPPRendered = {};
+function tSel(id, val){ var s='<select id="'+id+'" style="padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#fff">'; for(var d=8; d<=20; d+=0.25){ s+='<option value="'+d+'"'+(d===val?' selected':'')+'>'+label(d)+'</option>'; } return s+'</select>'; }
+async function openEditBooking(ref){
+  var it = ACCT_ITEMS[ref]; if(!it){ toast('Please refresh and try again.'); return; }
+  var row = document.querySelector('.bk[data-ref="'+CSS.escape(ref)+'"]'); if(!row) return;
+  if(row.nextElementSibling && row.nextElementSibling.classList && row.nextElementSibling.classList.contains('editpanel')){ row.nextElementSibling.remove(); return; }
+  var roomOpts = ROOMS.map(function(r){ return '<option value="'+r.id+'"'+(r.id===it.room?' selected':'')+'>'+r.name+'</option>'; }).join('');
+  var panel = document.createElement('div'); panel.className='editpanel'; panel.style.cssText='background:#faf9f7;border:1px solid var(--line);border-radius:12px;padding:16px;margin:2px 0 12px';
+  panel.innerHTML =
+    '<div style="font-weight:bold;margin-bottom:10px">Change this booking</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">'
+    +   '<div><div class="meta" style="font-size:12px;color:var(--muted)">Studio</div><select id="edRoom" style="padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#fff">'+roomOpts+'</select></div>'
+    +   '<div><div class="meta" style="font-size:12px;color:var(--muted)">Date</div><input id="edDate" type="date" value="'+it.date+'" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px"></div>'
+    +   '<div><div class="meta" style="font-size:12px;color:var(--muted)">Start</div>'+tSel('edStart', it.start)+'</div>'
+    +   '<div><div class="meta" style="font-size:12px;color:var(--muted)">End</div>'+tSel('edEnd', it.end)+'</div>'
+    + '</div>'
+    + '<div id="edMsg" class="meta" style="margin-top:12px;line-height:1.5"></div>'
+    + '<div id="edPay" style="display:none;margin-top:12px"></div>'
+    + '<div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn btn-gold" id="edConfirm" style="display:none">Confirm change</button><button class="btn btn-ghost" id="edCancel">Close</button></div>';
+  row.parentNode.insertBefore(panel, row.nextSibling);
+  document.getElementById('edCancel').onclick=function(){ panel.remove(); };
+  ['edRoom','edDate','edStart','edEnd'].forEach(function(id){ document.getElementById(id).onchange=function(){ editQuote(ref); }; });
+  editQuote(ref);
+}
+function edFields(){ return { room:document.getElementById('edRoom').value, date:document.getElementById('edDate').value, start:+document.getElementById('edStart').value, end:+document.getElementById('edEnd').value }; }
+async function editQuote(ref){
+  var msg=document.getElementById('edMsg'), pay=document.getElementById('edPay'), conf=document.getElementById('edConfirm');
+  pay.style.display='none'; pay.innerHTML=''; conf.style.display='none';
+  var f=edFields();
+  msg.style.color='var(--muted)'; msg.textContent='Checking availability and price…';
+  var d; try{ d=await fetchJSON('/api/account/edit-quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({token:CLIENT.token,ref:ref},f))}); }
+  catch(e){ msg.style.color='var(--red)'; msg.textContent=(e.body&&e.body.error)||'That change isn\'t available.'; return; }
+  var diff=d.difference;
+  if(Math.abs(diff)<0.01){
+    msg.style.color='var(--ink)'; msg.innerHTML='New price <b>'+money(d.newTotal)+'</b> — same as what you\'ve paid, so nothing more to pay.';
+    conf.textContent='Confirm change'; conf.style.display=''; conf.onclick=function(){ editApply(ref,null); };
+  } else if(diff<0){
+    msg.style.color='var(--ink)'; msg.innerHTML='New price <b>'+money(d.newTotal)+'</b>. You\'ll get <b style="color:var(--green,#2e7d32)">'+money(-diff)+'</b> back as account credit.';
+    conf.textContent='Confirm change'; conf.style.display=''; conf.onclick=function(){ editApply(ref,null); };
+  } else {
+    msg.style.color='var(--ink)'; msg.innerHTML='New price <b>'+money(d.newTotal)+'</b>. There\'s <b>'+money(diff)+'</b> more to pay to confirm this change.';
+    renderEditPay(ref, diff);
+  }
+}
+async function renderEditPay(ref, diff){
+  var pay=document.getElementById('edPay'); pay.style.display='block';
+  pay.innerHTML='<div class="meta" style="margin-bottom:8px">Pay the <b>'+money(diff)+'</b> difference to confirm:</div>'
+    +'<div id="edCardWrap" style="max-width:420px"><div id="edsq-card" style="border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff;min-height:52px"></div>'
+    +'<div id="edsq-err" style="color:var(--red);font-size:13px;margin-top:6px"></div>'
+    +'<button class="btn btn-gold" id="edPayCard" style="margin-top:10px;width:100%">Pay '+money(diff)+' &amp; confirm</button></div>'
+    +'<div id="edPaypalWrap" style="max-width:420px"><div style="text-align:center;color:var(--muted);font-size:13px;margin:12px 0 8px">— or pay with PayPal —</div><div id="edpaypal"></div></div>';
+  // Square card
+  try{
+    if(!sqPayments){ await initSquare(); }
+    if(sqPayments){ editCard = await sqPayments.card(); await editCard.attach('#edsq-card'); }
+    else { document.getElementById('edCardWrap').innerHTML='<div class="meta">Card payment isn\'t set up yet.</div>'; }
+  }catch(e){ document.getElementById('edCardWrap').innerHTML='<div class="meta">Could not load the card form. Please try PayPal.</div>'; }
+  var payBtn=document.getElementById('edPayCard');
+  if(payBtn) payBtn.onclick=async function(){
+    if(!editCard){ toast('Card form still loading.'); return; }
+    payBtn.disabled=true; payBtn.textContent='Processing…';
+    var result; try{ result=await editCard.tokenize(); }catch(e){ payBtn.disabled=false; payBtn.textContent='Pay '+money(diff)+' & confirm'; document.getElementById('edsq-err').textContent='Card error, please retry.'; return; }
+    if(result.status!=='OK'){ payBtn.disabled=false; payBtn.textContent='Pay '+money(diff)+' & confirm'; document.getElementById('edsq-err').textContent='Please check your card details.'; return; }
+    editApply(ref, {paymentMethod:'card', paymentToken:result.token});
+  };
+  // PayPal
+  try{
+    if(!ppReady){ await initPaypal(); }
+    if(ppReady && window.paypal){
+      document.getElementById('edpaypal').innerHTML='';
+      window.paypal.Buttons({
+        style:{layout:'horizontal',color:'gold',shape:'rect',height:42,tagline:false,label:'paypal'},
+        createOrder:function(){ var f=edFields(); return fetchJSON('/api/account/edit-paypal-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({token:CLIENT.token,ref:ref},f))}).then(function(d){return d.orderId;}); },
+        onApprove:function(data){ return editApply(ref, {paymentMethod:'paypal', paypalOrderId:data.orderID}); },
+        onError:function(){ toast('PayPal had a problem. Please try the card, or call us.'); }
+      }).render('#edpaypal');
+    } else { document.getElementById('edPaypalWrap').style.display='none'; }
+  }catch(e){ document.getElementById('edPaypalWrap').style.display='none'; }
+}
+async function editApply(ref, payment){
+  var msg=document.getElementById('edMsg'); if(msg){ msg.style.color='var(--muted)'; msg.textContent='Saving your change…'; }
+  var f=edFields();
+  try{
+    var d=await fetchJSON('/api/account/edit-apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({token:CLIENT.token,ref:ref},f,payment||{}))});
+    var extra = d.credited>0 ? (' '+money(d.credited)+' credit added to your account.') : (d.difference>0 ? ' Payment received.' : '');
+    toast('Booking updated.'+extra);
+    editCard=null;
+    if(CLIENT) await loadClient();
+    renderAccount();
+  }catch(e){ if(msg){ msg.style.color='var(--red)'; msg.textContent=(e.body&&e.body.error)||'Could not save the change.'; } var pb=document.getElementById('edPayCard'); if(pb){ pb.disabled=false; pb.textContent='Pay & confirm'; } }
 }
 function showAuth(which){
   var tl=document.getElementById('tabLogin'), ts=document.getElementById('tabSignup');

@@ -584,7 +584,7 @@ function manualOrder(conf) {
     subtotalPre += q.pre;
     if (codeInfo && codeInfo.type === 'percent') { q = VL.applyDiscountToQuote(q, codeInfo); discountTotal += (q.discount || 0); }
     grandTotal += q.total;
-    return { roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end, hours: b.end - b.start, total: q.total, pre: q.pre, hst: q.hst, addonItems: q.addonItems };
+    return { room: b.room_id, roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end, hours: b.end - b.start, total: q.total, pre: q.pre, hst: q.hst, addonItems: q.addonItems };
   });
   if (codeInfo && codeInfo.type === 'fixed') { const credit = Math.min(codeInfo.amount, grandTotal); discountTotal += credit; grandTotal = VL.round2(grandTotal - credit); }
   let client = {}; try { client = JSON.parse(blocks[0].client || '{}'); } catch (_) {}
@@ -1006,7 +1006,7 @@ app.get('/api/account', (req, res) => {
   const rows = db.prepare(`SELECT * FROM bookings WHERE lower(customer_email)=? ORDER BY date, start`).all(email);
   const today = torontoISO(0); const upcoming = [], past = [];
   rows.forEach(r => {
-    const item = { id: r.id, roomName: (VL.roomById(r.room_id) || {}).name || r.room_id, date: r.date, start: r.start, end: r.end, paid: r.paid, status: r.status, confirmation: r.confirmation, hoursOut: Math.round(hoursUntil(r.date, r.start)), manual: false };
+    const item = { id: r.id, room: r.room_id, roomName: (VL.roomById(r.room_id) || {}).name || r.room_id, date: r.date, start: r.start, end: r.end, paid: r.paid, status: r.status, confirmation: r.confirmation, hoursOut: Math.round(hoursUntil(r.date, r.start)), manual: false };
     if (r.status === 'cancelled') past.push(Object.assign({ cancelled: true }, item));
     else if (r.date >= today) upcoming.push(item);
     else past.push(item);
@@ -1021,7 +1021,7 @@ app.get('/api/account', (req, res) => {
     myConfs.forEach(conf => {
       const o = manualOrder(conf); if (!o) return;
       o.bookings.forEach((ln, i) => {
-        const item = { id: 'm:' + conf + ':' + i, roomName: ln.roomName, date: ln.date, start: ln.start, end: ln.end, paid: (o.paidAt ? VL.round2(ln.total) : 0), status: 'confirmed', confirmation: conf, hoursOut: Math.round(hoursUntil(ln.date, ln.start)), manual: true, isPaid: !!o.paidAt };
+        const item = { id: 'm:' + conf + ':' + i, ref: 'm:' + conf, room: ln.room, roomName: ln.roomName, date: ln.date, start: ln.start, end: ln.end, paid: (o.paidAt ? VL.round2(ln.total) : 0), status: 'confirmed', confirmation: conf, hoursOut: Math.round(hoursUntil(ln.date, ln.start)), manual: true, isPaid: !!o.paidAt };
         if (ln.date >= today) upcoming.push(item); else past.push(item);
       });
     });
@@ -1058,6 +1058,113 @@ app.post('/api/account/cancel', (req, res) => {
   const r = cancelBookingWithCredit(b);
   if (b.customer_email) sendEmail({ to: b.customer_email, subject: 'Your booking has been cancelled — The Vintage Loft', html: cancellationEmail({ name: b.customer_name || 'there', confirmation: b.confirmation, bookings: [{ roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end }], credited: r.credited, email: b.customer_email }) }).catch(e => console.error('[email] cancellation error:', e.message));
   res.json({ ok: true, credited: r.credited, hoursOut: r.hoursOut, newBalance: r.newBalance });
+});
+
+/* ---------- client self-service EDIT a booking (change studio/date/time in place, pay any difference) ---------- */
+// Availability for the new slot, ignoring the booking being edited itself (so it doesn't block against its own time).
+function isFreeForEdit(roomId, date, start, end, exclude) {
+  const bk = db.prepare(`SELECT id,start,end FROM bookings WHERE room_id=? AND date=? AND status!='cancelled'`).all(roomId, date)
+    .filter(r => !(exclude.bookingId && r.id === exclude.bookingId));
+  const bl = db.prepare(`SELECT id,confirmation,start,end FROM blocks WHERE room_id=? AND date=?`).all(roomId, date)
+    .filter(r => !(exclude.confirmation && r.confirmation === exclude.confirmation) && !(exclude.blockId && r.id === exclude.blockId));
+  return ![...bk, ...bl].some(iv => VL.overlaps(start, end, iv.start - BUFFER, iv.end + BUFFER));
+}
+// The price of a (possibly re-studio'd) booking, re-applying any code that was on the original.
+function editNewTotal(room, date, dur, addons, codeStr) {
+  let q = VL.priceQuote(room, date, dur, (addons && addons.items) || {}, (addons && addons.options) || {});
+  const c = codeStr ? lookupCode(codeStr) : null;
+  if (c && c.type === 'percent') q = VL.applyDiscountToQuote(q, c);
+  return VL.round2(q.total);
+}
+// Load a client's own booking by ref: numeric id = online booking; "m:CONF" = manual (staff-entered) booking.
+function loadClientBooking(email, ref) {
+  ref = String(ref || '');
+  if (ref.indexOf('m:') === 0) {
+    const conf = ref.slice(2);
+    const blocks = db.prepare(`SELECT * FROM blocks WHERE confirmation=? AND kind='booking'`).all(conf);
+    if (!blocks.length) return null;
+    let cj = {}; try { cj = JSON.parse(blocks[0].client || '{}'); } catch (_) {}
+    if ((cj.email || '').toLowerCase() !== email) return null;
+    if (blocks.length > 1) return { multi: true };
+    const b = blocks[0]; let aj = { items: {}, options: {} }; try { aj = JSON.parse(b.addons_json || '{}'); } catch (_) {}
+    const o = manualOrder(conf);
+    return { kind: 'manual', blockId: b.id, confirmation: conf, room: b.room_id, date: b.date, start: b.start, end: b.end, addons: aj, code: b.code || '', paid: (o && o.paidAt ? (o.paid || 0) : 0) };
+  }
+  const b = db.prepare(`SELECT * FROM bookings WHERE id=? AND lower(customer_email)=?`).get(+ref, email);
+  if (!b || b.status === 'cancelled') return null;
+  let aj = { items: {}, options: {} }; try { aj = JSON.parse(b.addons_json || '{}'); } catch (_) {}
+  return { kind: 'online', id: b.id, confirmation: b.confirmation, room: b.room_id, date: b.date, start: b.start, end: b.end, addons: aj, code: b.code || '', paid: (b.paid || 0) };
+}
+// Validate a proposed change and price the difference. Returns {error} or {ok,newTotal,paid,difference}.
+function evalEdit(cur, room, date, start, end) {
+  if (!VL.roomById(room)) return { error: 'Please choose a studio.' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'Please choose a date.' };
+  const vt = validTimes(start, end); if (vt) return { error: vt };
+  if (!VL.validDuration(room, end - start)) return { error: 'That length isn’t available for that studio.' };
+  if (isClosedDay(date)) return { error: 'We’re closed on Mondays — please choose another day.' };
+  if (hoursUntil(date, start) < LEAD_HOURS) return { error: 'Please pick a time at least ' + LEAD_HOURS + ' hours from now, or call us at 905-767-2099.' };
+  if (hoursUntil(cur.date, cur.start) < 48) return { error: 'Changes need to be at least 48 hours before your current start time. Please call or text 905-767-2099 and we’ll help.' };
+  const exclude = cur.kind === 'manual' ? { confirmation: cur.confirmation } : { bookingId: cur.id };
+  if (!isFreeForEdit(room, date, start, end, exclude)) return { error: 'That studio isn’t open for the time you picked. Please try another time or day.' };
+  const newTotal = editNewTotal(room, date, end - start, cur.addons, cur.code);
+  return { ok: true, newTotal, paid: VL.round2(cur.paid || 0), difference: VL.round2(newTotal - (cur.paid || 0)) };
+}
+// Live preview: price the change + the difference (no changes made).
+app.post('/api/account/edit-quote', (req, res) => {
+  const email = emailForToken(req.body.token);
+  if (!email) return res.status(401).json({ error: 'Please log in.' });
+  const cur = loadClientBooking(email, req.body.ref);
+  if (!cur) return res.status(404).json({ error: 'Booking not found on your account.' });
+  if (cur.multi) return res.status(400).json({ error: 'This booking has more than one studio on it — please call us at 905-767-2099 to change it.' });
+  const ev = evalEdit(cur, (req.body.room || cur.room), String(req.body.date || cur.date), +req.body.start, +req.body.end);
+  if (ev.error) return res.status(400).json({ error: ev.error, current: { room: cur.room, date: cur.date, start: cur.start, end: cur.end, paid: cur.paid } });
+  res.json({ ok: true, newTotal: ev.newTotal, paid: ev.paid, difference: ev.difference, current: { room: cur.room, date: cur.date, start: cur.start, end: cur.end, paid: cur.paid } });
+});
+// Create a PayPal order for JUST the difference (when the change costs more).
+app.post('/api/account/edit-paypal-order', async (req, res) => {
+  const email = emailForToken(req.body.token);
+  if (!email) return res.status(401).json({ error: 'Please log in.' });
+  if (!PP.enabled) return res.status(400).json({ error: 'PayPal is not connected yet.' });
+  const cur = loadClientBooking(email, req.body.ref);
+  if (!cur || cur.multi) return res.status(400).json({ error: 'Booking not available to edit.' });
+  const ev = evalEdit(cur, (req.body.room || cur.room), String(req.body.date || cur.date), +req.body.start, +req.body.end);
+  if (ev.error) return res.status(400).json({ error: ev.error });
+  if (ev.difference <= 0) return res.status(400).json({ error: 'No extra payment is needed for this change.' });
+  try { const orderId = await ppCreateOrder(Math.round(ev.difference * 100), 'The Vintage Loft — booking change'); res.json({ ok: true, orderId, difference: ev.difference }); }
+  catch (e) { res.status(400).json({ error: e.message || 'Could not start PayPal.' }); }
+});
+// Apply the change: charge/capture any difference, move the booking, credit any overage.
+app.post('/api/account/edit-apply', async (req, res) => {
+  const email = emailForToken(req.body.token);
+  if (!email) return res.status(401).json({ error: 'Please log in.' });
+  const cur = loadClientBooking(email, req.body.ref);
+  if (!cur) return res.status(404).json({ error: 'Booking not found on your account.' });
+  if (cur.multi) return res.status(400).json({ error: 'This booking has more than one studio on it — please call us at 905-767-2099 to change it.' });
+  const room = (req.body.room || cur.room), date = String(req.body.date || cur.date), start = +req.body.start, end = +req.body.end;
+  const ev = evalEdit(cur, room, date, start, end);
+  if (ev.error) return res.status(400).json({ error: ev.error });
+  // Collect the difference if the change costs more
+  if (ev.difference > 0) {
+    let pay;
+    if (req.body.paymentMethod === 'paypal') pay = PP.enabled ? await ppCaptureOrder(req.body.paypalOrderId) : { ok: false, error: 'PayPal is not connected.' };
+    else pay = await payments.charge({ amountCents: Math.round(ev.difference * 100), sourceId: req.body.paymentToken });
+    if (!pay || !pay.ok) return res.status(402).json({ error: (pay && pay.error) || 'That payment could not be completed. Your booking was not changed.' });
+  }
+  // Apply the move
+  let credited = 0;
+  if (cur.kind === 'online') {
+    const q = VL.priceQuote(room, date, end - start, (cur.addons.items) || {}, (cur.addons.options) || {});
+    const c = cur.code ? lookupCode(cur.code) : null; const dq = (c && c.type === 'percent') ? VL.applyDiscountToQuote(q, c) : q;
+    db.prepare(`UPDATE bookings SET room_id=?, date=?, start=?, end=?, hours=?, pre=?, hst=?, total=?, paid=? WHERE id=?`)
+      .run(room, date, start, end, end - start, dq.pre, dq.hst, ev.newTotal, ev.newTotal, cur.id);
+    removeSetupBlocks(cur.id);
+    if (cur.addons.items && cur.addons.items.earlysetup) addSetupBlock(cur.id, room, date, start);
+  } else {
+    db.prepare(`UPDATE blocks SET room_id=?, date=?, start=?, end=? WHERE id=?`).run(room, date, start, end, cur.blockId);
+    db.prepare(`UPDATE blocks SET paid=?, paid_at=COALESCE(paid_at, ?) WHERE confirmation=? AND kind='booking'`).run(ev.newTotal, nowISO(), cur.confirmation);
+  }
+  if (ev.difference < 0) { credited = VL.round2(-ev.difference); addCredit(email, credited, 'Credit from shortening booking ' + (cur.confirmation || '')); }
+  res.json({ ok: true, newTotal: ev.newTotal, difference: ev.difference, credited, newBalance: creditBalance(email) });
 });
 
 // Bulk-import blocks (e.g. existing Acuity bookings). Idempotent: identical blocks are skipped,
