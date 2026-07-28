@@ -194,7 +194,7 @@
 
     <div style="margin-top:14px">
       <button id="addLine" type="button" style="font-family:Arial,sans-serif;font-size:14px;font-weight:bold;background:#f7f5f2;color:#7c7268;border:1px solid #7c7268;border-radius:999px;padding:9px 18px;cursor:pointer">+ Add another studio</button>
-      <div class="muted" style="font-size:12px;margin-top:5px">Same day only. A different day should be its own booking, so cancelling one day never touches the other.</div>
+      <div class="muted" style="font-size:12px;margin-top:5px">Same day only. A different day should be its own booking, so cancelling one day never affects the other.</div>
     </div>
 
     <label id="sendConfirmRow" style="font-family:Arial,sans-serif;font-size:14px;color:#3a352f;display:flex;align-items:flex-start;gap:7px;margin:18px 0 6px;cursor:pointer">
@@ -673,7 +673,7 @@ function loadCalendar(){
   ]).then(function(res){
     var idx={};
     (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,booking_id:b.booking_id||null,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,pay_mode:b.pay_mode||'',pay_method:b.pay_method||'',addons_json:b.addons_json||'',intake:b.intake||'',inspoCount:(b.inspoCount||0)}); });
-    (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||'',inspoCount:(b.inspoCount||0),customer_email:b.customer_email||''}); });
+    (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||'',inspoCount:(b.inspoCount||0),customer_email:b.customer_email||'',total:(b.total==null?null:b.total),paid:(b.paid==null?null:b.paid),discount:(b.discount||0),code:b.code||'',payment_ref:b.payment_ref||'',payment_mode:b.payment_mode||'',created_at:b.created_at||''}); });
     CAL.items=idx; cm.textContent='';
     renderMonth(); renderHoldings();
     if(CAL.sel) selectDay(CAL.sel);
@@ -826,6 +826,8 @@ function selectDay(iso){
         }
         draw(); card.appendChild(wrap);
       })(x);
+      // ---- PAYMENT section: total, how they paid, when, and any balance ----
+      if(x.kind==='booking') renderPaymentSection(card, x);
       // ---- payment link (bookings only) ----
       if(x.kind==='booking'){
         (function(entry){
@@ -1374,6 +1376,78 @@ function jumpToDay(date){
   var p=date.split('-'); CAL.y=+p[0]; CAL.m=+p[1]-1; CAL.sel=date;
   renderMonth(); selectDay(date);
   try{ document.querySelector('.appcard .cal-head').scrollIntoView({behavior:'smooth', block:'start'}); }catch(e){}
+}
+/* ===== PAYMENT section on every booking card =====
+   Shows the money story at a glance: total price, discount, exactly how and when they paid
+   (with the processor reference on online bookings), and any balance still owed. */
+function payMethodLabel(m){ return ({card:'Credit card',etransfer:'E-transfer',cash:'Cash',debit:'In-person debit (Square machine)'})[m]||m||''; }
+function payModeLabel(m){
+  if(m==='free') return 'Free (100% code)';
+  if(m==='standin') return 'Test mode';
+  if(m==='paypal') return 'PayPal';
+  if(m) return 'Square';
+  return '';
+}
+function fmtPaidAt(v){
+  if(!v) return '';
+  try{ var d=new Date(v); if(!isNaN(d)) return d.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}); }catch(e){}
+  var s=String(v).slice(0,10); return /^\d{4}-\d{2}-\d{2}$/.test(s)?fdate(s):'';
+}
+function renderPaymentSection(card, x){
+  var box=document.createElement('div');
+  box.style.cssText='margin-top:10px;background:#fff;border:1px solid #e5e1db;border-radius:10px;padding:12px 14px;font-family:Arial,sans-serif;font-size:14px';
+  function row(l,r,extra){
+    var d=document.createElement('div'); d.style.cssText='display:flex;justify-content:space-between;gap:12px;padding:3px 0;align-items:baseline'+(extra||'');
+    var a=document.createElement('span'); a.innerHTML=l; var b=document.createElement('span'); b.style.textAlign='right'; b.innerHTML=r;
+    d.appendChild(a); d.appendChild(b); box.appendChild(d); return d;
+  }
+  var h=document.createElement('div'); h.style.cssText='text-transform:uppercase;font-size:11px;letter-spacing:.5px;color:#8a8375;font-weight:bold;margin-bottom:6px'; h.textContent='Payment'; box.appendChild(h);
+  var money=function(n){ return '$'+Number(n||0).toFixed(2); };
+  function balanceRow(total, paidAmt){
+    var bal=Math.round(((total||0)-(paidAmt||0))*100)/100;
+    var d=document.createElement('div'); d.style.cssText='display:flex;justify-content:space-between;gap:12px;padding:6px 0 0;margin-top:5px;border-top:1px solid #f0eeeb;font-weight:bold';
+    var a=document.createElement('span'); var b=document.createElement('span');
+    if(bal>0.005){ a.textContent='Balance owed'; b.textContent=money(bal); d.style.color='#a33'; }
+    else if(bal<-0.005){ a.textContent='Overpaid'; b.textContent=money(-bal); d.style.color='#8a6a2b'; }
+    else { a.textContent='Paid in full'; b.textContent='✓'; d.style.color='#2e6b34'; }
+    d.appendChild(a); d.appendChild(b); box.appendChild(d);
+  }
+  if(x.source==='booking'){
+    // ---- online booking: everything is already on the row ----
+    row('Total price','<b>'+money(x.total)+'</b>');
+    if((x.discount||0)>0) row('<span style="color:#2e6b34">Discount'+(x.code?(' ('+esc(x.code)+')'):'')+'</span>','<span style="color:#2e6b34">−'+money(x.discount)+'</span>');
+    var sub=[]; var when=fmtPaidAt(x.created_at); if(when) sub.push(when);
+    var via=payModeLabel(x.payment_mode); if(via) sub.push(via);
+    if(x.payment_ref && x.payment_ref!=='SEED') sub.push('ref '+esc(String(x.payment_ref).slice(0,18)));
+    row('Paid','−'+money(x.paid)+(sub.length?('<br><span style="font-weight:normal;color:#8a8375;font-size:12px">'+sub.join(' · ')+'</span>'):''));
+    balanceRow(x.total, x.paid);
+    card.appendChild(box);
+  } else {
+    // ---- manual booking: order total comes from the server (covers every studio on the confirmation) ----
+    if(x.pay_mode==='owner'){ row('Settled','<b style="color:#6b4a8a">Owner use · Vintage Films (no charge)</b>'); card.appendChild(box); return; }
+    if(x.pay_mode==='comp'){ row('Settled','<b style="color:#1f6b6b">Comp · marketing &amp; goodwill (no charge)</b>'); card.appendChild(box); return; }
+    var loading=row('Total price','<span style="color:#8a8375">…</span>');
+    card.appendChild(box);
+    fetch('/api/admin/order?key='+encodeURIComponent(getKey())+'&id='+x.id)
+      .then(function(r){ return r.json(); })
+      .then(function(o){
+        box.removeChild(loading);
+        // rebuild rows in order under the header
+        var frag=[];
+        row('Total price','<b>'+money(o.grandTotal)+'</b>'+((o.count||1)>1?('<br><span style="font-weight:normal;color:#8a8375;font-size:12px">one payment covers all '+o.count+' studios</span>'):''));
+        if(o.code) row('<span style="color:#2e6b34">Discount code</span>','<span style="color:#2e6b34">'+esc(o.code)+' applied</span>');
+        if(x.paid_at){
+          var sub=[]; var when=fmtPaidAt(x.paid_at); if(when) sub.push(when);
+          var m=payMethodLabel(x.pay_method); if(m) sub.push(m);
+          row('Paid','−'+money(x.paid)+(sub.length?('<br><span style="font-weight:normal;color:#8a8375;font-size:12px">'+sub.join(' · ')+'</span>'):''));
+          balanceRow(o.grandTotal, x.paid);
+        } else {
+          row('Paid','−'+money(0));
+          balanceRow(o.grandTotal, 0);
+        }
+      })
+      .catch(function(){ loading.lastChild.innerHTML='<span style="color:#a33">could not load</span>'; });
+  }
 }
 // staff view of a client's credit balance, with a manual adjust control
 // Standing "notes about this client" — style, preferences, special requests. Editable, shared by staff,

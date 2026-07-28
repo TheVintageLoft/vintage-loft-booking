@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Vintage Loft — Staff Training</title>
+<style>
+  :root{
+    --paper:#f6f5f3; --card:#ffffff; --ink:#3a352f; --muted:#8a8375; --line:#e5e1db;
+    --brown:#7c7268; --grand:#c0392b; --dream:#2e6f9e; --gatsby:#3f8a52; --carnegie:#8a5a2b; --marilyn:#7a4fa3;
+    --green:#2e6b34; --greenbg:#e5efe7; --red:#a33; --redbg:#fdf3f3;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5}
+  h1,h2{font-family:Georgia,'Times New Roman',serif;font-weight:normal;margin:0}
+  .wrap{max-width:640px;margin:0 auto;padding:0 16px 90px}
+  header{background:#fff;border-bottom:2px solid var(--brown);padding:18px 16px;text-align:center}
+  header h1{font-size:24px;letter-spacing:.5px}
+  header .sub{color:var(--muted);font-size:12px;letter-spacing:2.5px;text-transform:uppercase;margin-top:3px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin:16px 0;box-shadow:0 2px 10px rgba(58,53,47,.05)}
+  .muted{color:var(--muted);font-size:13px}
+  input[type=text],input[type=password],select{width:100%;padding:10px 11px;border:1px solid #ddd;border-radius:8px;font-size:15px;font-family:inherit;background:#fff}
+  input:focus,select:focus{outline:none;border-color:var(--brown)}
+  .btn{font-family:inherit;font-size:14px;font-weight:bold;border-radius:999px;padding:10px 20px;cursor:pointer;border:1px solid var(--brown);background:var(--brown);color:#fff}
+  .btn.ghost{background:#f7f5f2;color:var(--brown)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .pill{font-size:13px;font-weight:bold;border-radius:999px;padding:8px 16px;cursor:pointer;border:1px solid;background:#fff;font-family:inherit}
+  /* progress tracker: one swatch per module, in studio colours */
+  .tracker{display:flex;gap:7px;margin:18px 0 4px}
+  .tracker .sw{flex:1;height:10px;border-radius:5px;background:#e8e4de;border:1px solid var(--line);transition:.3s}
+  .tracker .sw.done{border-color:transparent}
+  .tracklbl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase}
+  .modhead{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .modhead i{width:13px;height:13px;border-radius:3px;display:inline-block}
+  .modhead h2{font-size:20px}
+  .task{background:#fbf9f6;border:1px dashed #d8d2c8;border-radius:10px;padding:12px 14px;margin:12px 0;font-size:14px}
+  .task b{color:var(--carnegie)}
+  .done-note{display:none;background:var(--greenbg);border:1px solid #bcd8c1;color:var(--green);border-radius:10px;padding:10px 13px;margin-top:12px;font-weight:bold}
+  .check{display:inline-block;width:22px;height:22px;border-radius:50%;background:var(--green);color:#fff;text-align:center;line-height:22px;font-size:13px;margin-right:7px}
+  .msg{min-height:18px;font-size:13px;margin-top:8px;color:var(--red)}
+  /* mini staff-app sim pieces */
+  .daycard{background:#fbfaf8;border:1px solid var(--line);border-left:4px solid var(--brown);border-radius:10px;padding:12px;margin:10px 0;position:relative}
+  .who{font-weight:bold}
+  .tag{font-size:10px;letter-spacing:.5px;text-transform:uppercase;border-radius:99px;padding:3px 8px;margin-left:8px;font-weight:bold}
+  .tag-booking{background:#eef4fa;color:var(--dream)}
+  .tag-hold{background:#fbf6ec;color:#8a6a2b}
+  .meta{color:var(--muted);font-size:13px;margin-top:2px}
+  .paidstamp{position:absolute;top:8px;right:9px;font-size:9px;font-weight:bold;letter-spacing:.5px;color:var(--green);background:var(--greenbg);border:1px solid #bcd8c1;border-radius:3px;padding:1px 5px}
+  .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+  .chooser{margin-top:10px;background:var(--redbg);border:1px solid #f0d9d9;border-radius:8px;padding:11px 13px;display:none}
+  .chooser .h{font-size:11px;color:var(--red);text-transform:uppercase;letter-spacing:.5px;font-weight:bold;margin-bottom:8px}
+  .cert{text-align:center;padding:6px 0}
+  .cert h2{font-size:26px}
+  .cert .list{text-align:left;max-width:420px;margin:16px auto;background:#fbf9f6;border:1px solid var(--line);border-radius:10px;padding:14px 18px}
+  .cert .list div{padding:4px 0}
+  .hidden{display:none}
+  .notewrap{margin-top:10px;background:#f3ece2;border:1px solid #e6dcc9;border-radius:8px;padding:11px 13px}
+  .notehdr{text-transform:uppercase;font-size:11px;letter-spacing:.5px;color:#8a7d63;font-weight:bold;cursor:pointer;display:flex;justify-content:space-between;user-select:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>The Vintage Loft</h1>
+  <div class="sub">Staff App Training</div>
+</header>
+<div class="wrap">
+
+  <!-- ============ NAME GATE ============ -->
+  <div class="card" id="gate">
+    <h2 style="font-size:22px">Welcome to training</h2>
+    <p style="margin:10px 0">Six short hands-on modules on a <b>practice copy</b> of the Staff App. Nothing here touches real bookings, so tap everything freely. Each module ends with a checkmark; finish all six and your completion card appears.</p>
+    <label class="muted" style="display:block;margin:14px 0 6px">Your first name</label>
+    <input type="text" id="traineeName" placeholder="e.g. Alannah" autocomplete="given-name">
+    <div class="msg" id="gateMsg"></div>
+    <button class="btn" style="margin-top:8px" onclick="startTraining()">Start training</button>
+  </div>
+
+  <!-- ============ TRACKER ============ -->
+  <div id="trackerWrap" class="hidden">
+    <div class="tracker" id="tracker"></div>
+    <div class="tracklbl"><span id="helloLbl"></span><span id="progLbl">0 of 6 complete</span></div>
+  </div>
+
+  <!-- ============ MODULE 1: SIGN IN ============ -->
+  <div class="card hidden mod" id="mod1">
+    <div class="modhead"><i style="background:var(--brown)"></i><h2>1 · Signing in</h2></div>
+    <p>The Staff App lives at <b>/hold.html</b> and is installed on the studio phone and iPad as an app. You sign in once with the staff code and stay signed in for 30 days. Kelly will give you the real code in person; it is never written down in emails or texts.</p>
+    <div class="task">YOUR TASK: sign in to the practice app with the practice code <b>training</b></div>
+    <input type="password" id="m1pw" placeholder="Practice code">
+    <div class="msg" id="m1msg"></div>
+    <button class="btn" style="margin-top:8px" onclick="m1go()">Sign in</button>
+    <div class="done-note" id="m1done"><span class="check">✓</span>Signed in. This is exactly how the real app works.</div>
+  </div>
+
+  <!-- ============ MODULE 2: READ THE SCHEDULE ============ -->
+  <div class="card hidden mod" id="mod2">
+    <div class="modhead"><i style="background:var(--grand)"></i><h2>2 · Reading the schedule</h2></div>
+    <p>The calendar shows every studio's day. Learn the colours: <b style="color:var(--grand)">Grand red</b>, <b style="color:var(--dream)">Dream blue</b>, <b style="color:var(--gatsby)">Gatsby green</b>, <b style="color:var(--carnegie)">Carnegie brown</b>, <b style="color:var(--marilyn)">Marilyn purple</b>.</p>
+    <p style="margin-top:8px">Three things to spot on any entry: the <span class="tag tag-booking" style="margin-left:0">Booking</span> or <span class="tag tag-hold">Hold</span> tag, the green <b style="color:var(--green)">PAID</b> stamp in the corner (paid, Vintage Films, and comps all count as paid), and slim <b>Setup</b> cards, which are reserved early-arrival time that belongs to the booking above them and can't be edited on their own.</p>
+    <div id="m2cards"></div>
+    <div class="task">YOUR TASK: one of these bookings has <b>not been paid</b>. Tap it.</div>
+    <div class="msg" id="m2msg"></div>
+    <div class="done-note" id="m2done"><span class="check">✓</span>Right. No PAID stamp means money is still owed. Always glance for the stamp.</div>
+  </div>
+
+  <!-- ============ MODULE 3: FIND A CLIENT ============ -->
+  <div class="card hidden mod" id="mod3">
+    <div class="modhead"><i style="background:var(--dream)"></i><h2>3 · Find a client</h2></div>
+    <p>Search any name to see a client's bookings, contact info, account credit, and the standing note about them. Notes are collapsed to keep things tidy: tap the header to open them.</p>
+    <div class="task">YOUR TASK: search for <b>Sarah</b>, open her <b>note</b>, and type her account credit below.</div>
+    <input type="text" id="m3search" placeholder="Search clients…" oninput="m3search()">
+    <div id="m3result"></div>
+    <div id="m3quiz" class="hidden" style="margin-top:12px">
+      <label class="muted" style="display:block;margin-bottom:6px">Sarah's account credit is $</label>
+      <input type="text" id="m3amt" placeholder="0.00" inputmode="decimal" style="max-width:140px">
+      <button class="btn ghost" style="margin-left:8px" onclick="m3check()">Check</button>
+      <div class="msg" id="m3msg"></div>
+    </div>
+    <div class="done-note" id="m3done"><span class="check">✓</span>Found it. Credit shows on every client, but only Kelly can change it. Cancellation credits are automatic.</div>
+  </div>
+
+  <!-- ============ MODULE 4: ADD A BOOKING ============ -->
+  <div class="card hidden mod" id="mod4">
+    <div class="modhead"><i style="background:var(--gatsby)"></i><h2>4 · Adding a booking</h2></div>
+    <p>Phone bookings go in through <b>Add to the calendar</b>. Pick the studio, date, and time, add any add-ons, and leave <b>Notify client</b> ticked so they get the email with their payment link. Use <b>+ Add another studio</b> for a second same-day studio; a different day should be its own booking.</p>
+    <div class="task">YOUR TASK: book the <b>Gatsby</b> studio for <b>2 hours</b>, add the <b>Pet fee</b>, keep Notify client ticked, then Add to calendar.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">
+      <div><label class="muted">Studio</label><select id="m4room"><option value="">Choose…</option><option value="grand">Grand Room</option><option value="gatsby">Gatsby Room</option><option value="dream">Dream Room</option><option value="carnegie">Carnegie Room</option></select></div>
+      <div><label class="muted">Hours</label><select id="m4hrs"><option value="">Choose…</option><option>1</option><option>1.5</option><option>2</option><option>3</option></select></div>
+    </div>
+    <label class="muted" style="display:block;margin:12px 0 6px">Add-ons</label>
+    <label style="display:block"><input type="checkbox" id="m4pet"> Pet fee ($25, up to 2 pets)</label>
+    <label style="display:block"><input type="checkbox" id="m4back"> Backdrop</label>
+    <label style="display:flex;align-items:flex-start;gap:7px;margin-top:12px;cursor:pointer">
+      <input type="checkbox" id="m4notify" checked style="margin-top:2px">
+      <span>Notify client<span class="muted" style="display:block;font-size:12px">Sends email with payment link</span></span>
+    </label>
+    <div class="msg" id="m4msg"></div>
+    <button class="btn" style="margin-top:8px" onclick="m4go()">Add to calendar</button>
+    <div class="done-note" id="m4done"><span class="check">✓</span>Booked. The client gets one email with everything, including the payment link.</div>
+  </div>
+
+  <!-- ============ MODULE 5: PAYMENTS ============ -->
+  <div class="card hidden mod" id="mod5">
+    <div class="modhead"><i style="background:var(--carnegie)"></i><h2>5 · Payments</h2></div>
+    <p>Your booking from module 4 is unpaid. The colour-coded buttons: <b style="color:var(--green)">Mark as paid</b> for money received (card, e-transfer, cash), <b style="color:var(--dream)">Create payment link</b> to send a pay-online link, and <b style="color:var(--marilyn)">Vintage Films</b> when Kelly's own team is using the studio: full value gets tallied, nobody is charged. Comps are Kelly-only, so you won't see that button.</p>
+    <div class="daycard" style="border-left-color:var(--gatsby)">
+      <div class="who">Priya N <span class="tag tag-booking">Booking</span></div>
+      <div class="meta">Gatsby Room · 2 hours · Pet fee</div>
+      <div class="actions">
+        <button class="pill" style="color:var(--green);background:var(--greenbg);border-color:var(--green)" onclick="m5paid()">Mark as paid</button>
+        <button class="pill" style="color:var(--dream);background:#eef4fa;border-color:var(--dream)" onclick="m5link()">Create payment link</button>
+        <button class="pill" style="color:var(--marilyn);background:#f3eefa;border-color:var(--marilyn)" onclick="m5vf()">Vintage Films</button>
+      </div>
+      <div class="msg" id="m5msg" style="color:var(--green)"></div>
+    </div>
+    <div class="task">YOUR TASK: Priya paid by e-transfer this morning. Do the right thing.</div>
+    <div class="done-note" id="m5done"><span class="check">✓</span>Marked paid. The PAID stamp now shows on the calendar, and her receipt reflects it.</div>
+  </div>
+
+  <!-- ============ MODULE 6: CANCELLATIONS ============ -->
+  <div class="card hidden mod" id="mod6">
+    <div class="modhead"><i style="background:var(--marilyn)"></i><h2>6 · Cancellations</h2></div>
+    <p>One red <b style="color:var(--grand)">Cancel</b> button, three choices. <b>With credit</b>: outside the window (48 hours, or 7 days on Christmas weekends), their payment becomes account credit and they get an email. <b>Without credit</b>: inside the window, no credit, a gentle policy email. <b>Quiet cancel</b>: no email at all, for bookings never paid or never confirmed to the client.</p>
+    <div class="task">SCENARIO 1: Marcus paid in full and is cancelling <b>6 days before</b> his regular (non-Christmas) booking. Cancel him the right way.</div>
+    <div class="daycard" style="border-left-color:var(--grand)">
+      <div class="who">Marcus T <span class="tag tag-booking">Booking</span><span class="paidstamp">PAID</span></div>
+      <div class="meta">Grand Room · 6 days from now</div>
+      <div class="actions"><button class="pill" style="color:#fff;background:var(--grand);border-color:var(--grand)" onclick="togChooser('c1')">Cancel</button></div>
+      <div class="chooser" id="c1"><div class="h">How should this be cancelled?</div>
+        <div class="actions" style="margin-top:0">
+          <button class="pill" style="color:var(--red)" onclick="m6pick(1,'credit')">With credit</button>
+          <button class="pill" style="color:#8a6a2b" onclick="m6pick(1,'nocredit')">Without credit</button>
+          <button class="pill" style="color:#6b665e" onclick="m6pick(1,'quiet')">Quiet cancel · no email</button>
+        </div>
+      </div>
+      <div class="msg" id="m6msg1"></div>
+    </div>
+    <div class="task" id="m6t2" style="opacity:.45">SCENARIO 2: a pencilled-in booking was <b>never paid and the client was never emailed</b>. They texted to say don't bother. Clear it the right way.</div>
+    <div class="daycard" id="m6card2" style="border-left-color:var(--dream);opacity:.45;pointer-events:none">
+      <div class="who">Walk-in inquiry <span class="tag tag-booking">Booking</span></div>
+      <div class="meta">Dream Room · never confirmed, never paid</div>
+      <div class="actions"><button class="pill" style="color:#fff;background:var(--grand);border-color:var(--grand)" onclick="togChooser('c2')">Cancel</button></div>
+      <div class="chooser" id="c2"><div class="h">How should this be cancelled?</div>
+        <div class="actions" style="margin-top:0">
+          <button class="pill" style="color:var(--red)" onclick="m6pick(2,'credit')">With credit</button>
+          <button class="pill" style="color:#8a6a2b" onclick="m6pick(2,'nocredit')">Without credit</button>
+          <button class="pill" style="color:#6b665e" onclick="m6pick(2,'quiet')">Quiet cancel · no email</button>
+        </div>
+      </div>
+      <div class="msg" id="m6msg2"></div>
+    </div>
+    <div class="done-note" id="m6done"><span class="check">✓</span>Both right. When in doubt on a cancellation, ask Kelly before tapping.</div>
+  </div>
+
+  <!-- ============ COMPLETION ============ -->
+  <div class="card hidden" id="certCard">
+    <div class="cert">
+      <h2>Training complete 🎉</h2>
+      <p style="margin:8px 0 0"><b id="certName"></b> finished Staff App training on <b id="certDate"></b>.</p>
+      <div class="list" id="certList"></div>
+      <p class="muted">Screenshot this card and send it to Kelly.</p>
+      <button class="btn ghost" onclick="resetTraining()" style="margin-top:6px">Restart training</button>
+    </div>
+  </div>
+
+</div>
+<script>
+/* ================= state ================= */
+var MODS=['Sign in','Reading the schedule','Find a client','Adding a booking','Payments','Cancellations'];
+var COLORS=['#7c7268','#c0392b','#2e6f9e','#3f8a52','#8a5a2b','#7a4fa3'];
+var S={name:'',done:[false,false,false,false,false,false]};
+function save(){ try{ localStorage.setItem('vl_training', JSON.stringify(S)); }catch(e){} }
+function load(){ try{ var r=localStorage.getItem('vl_training'); if(r){ var p=JSON.parse(r); if(p&&p.name){ S=p; return true; } } }catch(e){} return false; }
+function $(id){ return document.getElementById(id); }
+
+/* ================= flow ================= */
+function startTraining(){
+  var n=$('traineeName').value.trim();
+  if(!n){ $('gateMsg').textContent='Please type your first name so Kelly knows who trained.'; return; }
+  S.name=n.charAt(0).toUpperCase()+n.slice(1); save(); boot();
+}
+function boot(){
+  $('gate').classList.add('hidden');
+  $('trackerWrap').classList.remove('hidden');
+  $('helloLbl').textContent='Trainee: '+S.name;
+  renderTracker(); revealMods();
+}
+function renderTracker(){
+  var t=$('tracker'); t.innerHTML='';
+  var n=0;
+  for(var i=0;i<6;i++){ var d=document.createElement('div'); d.className='sw'+(S.done[i]?' done':''); if(S.done[i]){ d.style.background=COLORS[i]; n++; } t.appendChild(d); }
+  $('progLbl').textContent=n+' of 6 complete';
+}
+function revealMods(){
+  var next=S.done.indexOf(false);
+  for(var i=0;i<6;i++){
+    var el=$('mod'+(i+1));
+    el.classList.toggle('hidden', !(S.done[i] || i===next));
+    if(S.done[i]) markDone(i+1,true);
+  }
+  if(next===-1) showCert();
+}
+function complete(m){
+  if(S.done[m-1]) return;
+  S.done[m-1]=true; save(); markDone(m,false); renderTracker();
+  setTimeout(revealMods, 700);
+}
+function markDone(m,instant){ var d=$('m'+m+'done'); if(d) d.style.display='block'; }
+function showCert(){
+  $('certName').textContent=S.name;
+  $('certDate').textContent=new Date().toLocaleDateString('en-CA',{year:'numeric',month:'long',day:'numeric'});
+  var l=$('certList'); l.innerHTML='';
+  MODS.forEach(function(mn,i){ var d=document.createElement('div'); d.innerHTML='<span class="check" style="background:'+COLORS[i]+'">✓</span>'+mn; l.appendChild(d); });
+  $('certCard').classList.remove('hidden');
+  window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});
+}
+function resetTraining(){ if(!confirm('Start over from module 1?')) return; try{ localStorage.removeItem('vl_training'); }catch(e){} location.reload(); }
+
+/* ================= module 1 ================= */
+function m1go(){
+  if($('m1pw').value.trim().toLowerCase()==='training'){ $('m1msg').textContent=''; complete(1); }
+  else $('m1msg').textContent='Not quite — the practice code is the word "training".';
+}
+
+/* ================= module 2 ================= */
+var M2=[
+  {name:'Katrina J', room:'Grand Room', color:'#c0392b', time:'10:00 AM – 11:00 AM', paid:true},
+  {name:'Early arrival setup', room:'Grand Room', color:'#c0392b', time:'11:15 AM – 11:30 AM', setup:true},
+  {name:'Kelly LeMay', room:'Grand Room', color:'#c0392b', time:'11:30 AM – 1:15 PM', paid:true, vf:true},
+  {name:'Devon R', room:'Dream Room', color:'#2e6f9e', time:'2:00 PM – 4:00 PM', paid:false}
+];
+function m2render(){
+  var box=$('m2cards'); box.innerHTML='';
+  M2.forEach(function(b,i){
+    var c=document.createElement('div'); c.className='daycard'; c.style.borderLeftColor=b.color;
+    if(b.setup){
+      c.style.opacity='.85';
+      c.innerHTML='<div class="who">'+b.name+' <span class="tag tag-hold">Setup</span></div><div class="meta">'+b.time+' · part of the booking that follows</div>';
+    } else {
+      c.innerHTML='<div class="who">'+b.name+' <span class="tag tag-booking">Booking</span>'+(b.vf?' <span class="tag" style="background:#f3eefa;color:#7a4fa3">Owner use</span>':'')+'</div><div class="meta">'+b.room+' · '+b.time+'</div>'+(b.paid?'<span class="paidstamp">PAID</span>':'');
+      c.style.cursor='pointer';
+      c.onclick=function(){ m2pick(b,c); };
+    }
+    box.appendChild(c);
+  });
+}
+function m2pick(b,c){
+  if(S.done[1]) return;
+  if(!b.paid){ $('m2msg').textContent=''; c.style.borderColor='#2e6b34'; complete(2); }
+  else $('m2msg').textContent=b.vf?'That one is Vintage Films — owner use counts as paid.':'That one has the PAID stamp. Look for the card without one.';
+}
+
+/* ================= module 3 ================= */
+var SARAH={name:'Sarah Miller', phone:'905-555-0142', email:'sarah@example.com', credit:75, note:'Boss Babe! Likes caramel coffee taken black… and long walks on the beach.'};
+function m3search(){
+  var q=$('m3search').value.trim().toLowerCase(); var box=$('m3result');
+  if(q.length<2){ box.innerHTML=''; return; }
+  if('sarah miller'.indexOf(q)===-1 && 'sarah'.indexOf(q)===-1){ box.innerHTML='<div class="muted" style="margin-top:8px">No matches — try "Sarah".</div>'; return; }
+  box.innerHTML='<div class="daycard" style="border-left-color:#2e6f9e">'
+    +'<div class="who">'+SARAH.name+'</div>'
+    +'<div class="meta">'+SARAH.phone+' · '+SARAH.email+'</div>'
+    +'<div style="background:#f6f5f3;border-radius:8px;padding:9px 11px;margin-top:8px;font-size:14px"><b>Account credit:</b> $'+SARAH.credit.toFixed(2)+'</div>'
+    +'<div class="notewrap"><div class="notehdr" id="m3notehdr" onclick="m3note()">Notes about this client<span id="m3chev">▾</span></div><div id="m3notebody" class="hidden" style="margin-top:6px;font-size:14px">'+SARAH.note+'</div></div>'
+    +'</div>';
+  $('m3quiz').classList.remove('hidden');
+}
+var m3noteOpened=false;
+function m3note(){
+  var b=$('m3notebody'); var open=b.classList.contains('hidden');
+  b.classList.toggle('hidden'); $('m3chev').textContent=open?'▴':'▾';
+  if(open) m3noteOpened=true;
+}
+function m3check(){
+  var v=parseFloat(($('m3amt').value||'').replace('$',''));
+  if(!m3noteOpened){ $('m3msg').textContent='Open her note first — tap the "Notes about this client" header.'; return; }
+  if(v===75){ $('m3msg').textContent=''; complete(3); }
+  else $('m3msg').textContent='Check the Account credit line on her card.';
+}
+
+/* ================= module 4 ================= */
+function m4go(){
+  var room=$('m4room').value, hrs=$('m4hrs').value, pet=$('m4pet').checked, notify=$('m4notify').checked;
+  var m=$('m4msg');
+  if(room!=='gatsby'){ m.textContent='The task asks for the Gatsby studio.'; return; }
+  if(hrs!=='2'){ m.textContent='Set it to 2 hours.'; return; }
+  if(!pet){ m.textContent='They\'re bringing a dog — tick the Pet fee.'; return; }
+  if(!notify){ m.textContent='Keep Notify client ticked so they get their payment link.'; return; }
+  m.textContent=''; complete(4);
+}
+
+/* ================= module 5 ================= */
+function m5paid(){ if(S.done[4])return; $('m5msg').textContent=''; complete(5); }
+function m5link(){ $('m5msg').style.color='#a33'; $('m5msg').textContent='She already paid by e-transfer — no link needed. Record the money you received.'; }
+function m5vf(){ $('m5msg').style.color='#a33'; $('m5msg').textContent='Vintage Films is only for Kelly\'s own studio use, never for client bookings.'; }
+
+/* ================= module 6 ================= */
+var m6first=false;
+function togChooser(id){ var c=$(id); c.style.display=(c.style.display==='block')?'none':'block'; }
+function m6pick(sc,choice){
+  var msg=$('m6msg'+sc);
+  if(sc===1){
+    if(m6first) return;
+    if(choice==='credit'){ msg.style.color='#2e6b34'; msg.textContent='✓ Right — 6 days out is well past 48 hours, so his payment becomes account credit automatically.'; m6first=true; $('c1').style.display='none';
+      $('m6t2').style.opacity='1'; var c2=$('m6card2'); c2.style.opacity='1'; c2.style.pointerEvents='auto';
+    }
+    else if(choice==='nocredit') msg.textContent='He\'s outside the cancellation window — he\'s entitled to credit.';
+    else msg.textContent='He paid and was confirmed — he needs to be told, and he\'s owed credit.';
+  } else {
+    if(!m6first || S.done[5]) return;
+    if(choice==='quiet'){ msg.style.color='#2e6b34'; msg.textContent='✓ Right — never paid, never emailed, so nothing to credit and no email to send.'; $('c2').style.display='none'; complete(6); }
+    else if(choice==='credit') msg.textContent='They never paid, so there\'s nothing to credit.';
+    else msg.textContent='"Without credit" still emails them a policy notice — but they were never told about this booking at all.';
+  }
+}
+
+/* ================= boot ================= */
+m2render();
+if(load()) boot();
+</script>
+</body>
+</html>
