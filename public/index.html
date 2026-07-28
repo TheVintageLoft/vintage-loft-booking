@@ -245,20 +245,8 @@
           <p class="hint" style="margin:0 0 12px">A few quick questions so we can prep the studio just for you.</p>
 
           <div class="field" style="margin-bottom:12px">
-            <label>What best describes why you're renting? <span style="color:var(--red)">*</span></label>
-            <select id="inReason" style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff">
-              <option value="">Choose one…</option>
-              <option>I am a Photographer/Videographer hosting my client(s)</option>
-              <option>I am a Client/Content Creator and my Photographer/Videographer will be working with us.</option>
-              <option>I am a Client/Content Creator that is pretty damn handy with my own equipment!</option>
-              <option>I am hosting a Class (workshop, yoga, meditation)</option>
-              <option>I am a Client hosting a meeting or workshop with more than 8 ppl (I know I need to book either the North Wing or South Wing for capacity & noise control)</option>
-              <option>Bride/Bridal party coming in for Wedding Portraits (if over 8 guests, I know to book the North Wing, not just the Grand Room)</option>
-              <option>I am a Musician that loves the studios acoustics (practice/recording/filming)</option>
-              <option>I am an Actor that is recording a self tape (please advise further if you want us to film)</option>
-              <option>I am an Artist showcasing my work</option>
-              <option>None of the above... I LOVE thinking outside of these boxes!!</option>
-            </select>
+            <label>What best describes why you're renting? <span style="color:var(--red)">*</span> <span style="color:var(--muted,#8a8375);font-weight:normal;font-size:13px">(check any that apply)</span></label>
+            <div id="inReason" style="display:flex;flex-direction:column;gap:8px;margin-top:6px"></div>
           </div>
 
           <div class="field" style="margin-bottom:12px">
@@ -333,6 +321,24 @@
           S.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-size:13px;display:flex;align-items:center;gap:6px;background:#f6f5f3;border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer'; l.innerHTML='<input type="checkbox" value="'+s+'" style="width:auto"> '+s; box.appendChild(l); });
           // "This doesn't apply to me" is mutually exclusive with the session types
           box.addEventListener('change', function(e){ var t=e.target; if(!t||t.type!=='checkbox'||!t.checked) return; var cbs=box.querySelectorAll('input[type=checkbox]'); if(t.value===NA){ cbs.forEach(function(c){ if(c.value!==NA) c.checked=false; }); } else { cbs.forEach(function(c){ if(c.value===NA) c.checked=false; }); } });
+        })();
+        // "What best describes why you're renting?" — checkboxes (multi-select), styled like the rest of the form.
+        function reasonList(){ return Array.prototype.map.call(document.querySelectorAll('#inReason input:checked'), function(c){ return c.value; }); }
+        (function(){
+          var NONE='None of the above... I LOVE thinking outside of these boxes!!';
+          var R=['I am a Photographer/Videographer hosting my client(s)',
+            'I am a Client/Content Creator and my Photographer/Videographer will be working with us.',
+            'I am a Client/Content Creator that is pretty damn handy with my own equipment!',
+            'I am hosting a Class (workshop, yoga, meditation)',
+            'I am a Client hosting a meeting or workshop with more than 8 ppl (I know I need to book either the North Wing or South Wing for capacity & noise control)',
+            'Bride/Bridal party coming in for Wedding Portraits (if over 8 guests, I know to book the North Wing, not just the Grand Room)',
+            'I am a Musician that loves the studios acoustics (practice/recording/filming)',
+            'I am an Actor that is recording a self tape (please advise further if you want us to film)',
+            'I am an Artist showcasing my work', NONE];
+          var box=document.getElementById('inReason'); if(!box) return;
+          R.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-size:13px;display:flex;align-items:flex-start;gap:8px;background:#f6f5f3;border:1px solid var(--line);border-radius:8px;padding:9px 12px;cursor:pointer;line-height:1.4'; l.innerHTML='<input type="checkbox" value="'+s.replace(/"/g,'&quot;')+'" style="width:auto;margin-top:2px;flex:0 0 auto"> <span>'+s+'</span>'; box.appendChild(l); });
+          // "None of the above" is mutually exclusive with the rest
+          box.addEventListener('change', function(e){ var t=e.target; if(!t||t.type!=='checkbox'||!t.checked) return; var cbs=box.querySelectorAll('input[type=checkbox]'); if(t.value===NONE){ cbs.forEach(function(c){ if(c.value!==NONE) c.checked=false; }); } else { cbs.forEach(function(c){ if(c.value===NONE) c.checked=false; }); } });
         })();
         </script>
 
@@ -1064,10 +1070,10 @@ async function payNow(){
   const email = (document.getElementById('custEmail')||{}).value?.trim();
   if(!name || !email){ toast('Please add your name and email'); return; }
   if(!order.length){ toast('Add a studio first'); return; }
-  const inReason = (document.getElementById('inReason')||{}).value || '';
-  if(!inReason){ toast('Please tell us what best describes your visit'); const r=document.getElementById('inReason'); if(r) r.focus(); return; }
+  const reasons = reasonList();
+  if(!reasons.length){ toast('Please tell us what best describes your visit'); const r0=document.querySelector('#inReason input'); if(r0) r0.focus(); return; }
   const intake = {
-    reason: inReason,
+    reason: reasons.join('; '),
     sessions: Array.prototype.map.call(document.querySelectorAll('#inSessions input:checked'), function(c){return c.value;}),
     photographer: ((document.getElementById('inPhotographer')||{}).value||'').trim(),
     details: ((document.getElementById('inDetails')||{}).value||'').trim()
@@ -1462,9 +1468,9 @@ function bookingPayloadCheck(){
   const email = (document.getElementById('custEmail')||{}).value?.trim();
   if(!name || !email){ toast('Please add your name and email'); return null; }
   if(!order.length){ toast('Add a studio first'); return null; }
-  const inReason = (document.getElementById('inReason')||{}).value || '';
-  if(!inReason){ toast('Please tell us what best describes your visit'); const r=document.getElementById('inReason'); if(r) r.focus(); return null; }
-  const intake = { reason:inReason, sessions:Array.prototype.map.call(document.querySelectorAll('#inSessions input:checked'),function(c){return c.value;}), photographer:((document.getElementById('inPhotographer')||{}).value||'').trim(), details:((document.getElementById('inDetails')||{}).value||'').trim() };
+  const reasons = reasonList();
+  if(!reasons.length){ toast('Please tell us what best describes your visit'); const r0=document.querySelector('#inReason input'); if(r0) r0.focus(); return null; }
+  const intake = { reason:reasons.join('; '), sessions:Array.prototype.map.call(document.querySelectorAll('#inSessions input:checked'),function(c){return c.value;}), photographer:((document.getElementById('inPhotographer')||{}).value||'').trim(), details:((document.getElementById('inDetails')||{}).value||'').trim() };
   const items = order.map(it=>({ room:it.roomId, date:it.date, start:it.start, end:it.end, addons:it.addons, addonOptions:it.addonOpts||{} }));
   return { name, email, intake, items, code: appliedCode?appliedCode.code:undefined };
 }

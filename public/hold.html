@@ -160,20 +160,8 @@
     </div>
 
     <div id="intakeFields" style="display:none">
-      <label class="fld">What best describes this booking?</label>
-      <select id="inReason">
-        <option value="">Choose one…</option>
-        <option>I am a Photographer/Videographer hosting my client(s)</option>
-        <option>I am a Client/Content Creator and my Photographer/Videographer will be working with us.</option>
-        <option>I am a Client/Content Creator that is pretty damn handy with my own equipment!</option>
-        <option>I am hosting a Class (workshop, yoga, meditation)</option>
-        <option>I am a Client hosting a meeting or workshop with more than 8 ppl (I know I need to book either the North Wing or South Wing for capacity & noise control)</option>
-        <option>Bride/Bridal party coming in for Wedding Portraits (if over 8 guests, I know to book the North Wing, not just the Grand Room)</option>
-        <option>I am a Musician that loves the studios acoustics (practice/recording/filming)</option>
-        <option>I am an Actor that is recording a self tape (please advise further if you want us to film)</option>
-        <option>I am an Artist showcasing my work</option>
-        <option>None of the above... I LOVE thinking outside of these boxes!!</option>
-      </select>
+      <label class="fld">What best describes this booking? (check any that apply)</label>
+      <div id="inReason" style="display:flex;flex-direction:column;gap:8px;margin-top:2px"></div>
 
       <label class="fld">If you are a photographer or coming in with a photographer, what kind of session? (helps us prep the studio with the right props)</label>
       <div id="inSessions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:2px"></div>
@@ -408,8 +396,24 @@ function entryAddons(e){ try{ var j=JSON.parse(e.addons_json||'{}'); return {ite
   S.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-family:Arial,sans-serif;font-size:13px;display:flex;align-items:center;gap:6px;background:#f6f5f3;border:1px solid #e7e5e2;border-radius:8px;padding:6px 10px;cursor:pointer'; l.innerHTML='<input type="checkbox" value="'+s+'" style="width:auto"> '+s; box.appendChild(l); });
   box.addEventListener('change', function(e){ var t=e.target; if(!t||t.type!=='checkbox'||!t.checked) return; var cbs=box.querySelectorAll('input[type=checkbox]'); if(t.value===NA){ cbs.forEach(function(c){ if(c.value!==NA) c.checked=false; }); } else { cbs.forEach(function(c){ if(c.value===NA) c.checked=false; }); } });
 })();
+// "What best describes this booking?" — checkboxes (multi-select), matching the form.
+(function(){
+  var NONE='None of the above... I LOVE thinking outside of these boxes!!';
+  var R=['I am a Photographer/Videographer hosting my client(s)',
+    'I am a Client/Content Creator and my Photographer/Videographer will be working with us.',
+    'I am a Client/Content Creator that is pretty damn handy with my own equipment!',
+    'I am hosting a Class (workshop, yoga, meditation)',
+    'I am a Client hosting a meeting or workshop with more than 8 ppl (I know I need to book either the North Wing or South Wing for capacity & noise control)',
+    'Bride/Bridal party coming in for Wedding Portraits (if over 8 guests, I know to book the North Wing, not just the Grand Room)',
+    'I am a Musician that loves the studios acoustics (practice/recording/filming)',
+    'I am an Actor that is recording a self tape (please advise further if you want us to film)',
+    'I am an Artist showcasing my work', NONE];
+  var box=document.getElementById('inReason'); if(!box) return;
+  R.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-family:Arial,sans-serif;font-size:13px;display:flex;align-items:flex-start;gap:8px;background:#f6f5f3;border:1px solid #e7e5e2;border-radius:8px;padding:9px 12px;cursor:pointer;line-height:1.4'; l.innerHTML='<input type="checkbox" value="'+s.replace(/"/g,'&quot;')+'" style="width:auto;margin-top:2px;flex:0 0 auto"> <span>'+s+'</span>'; box.appendChild(l); });
+  box.addEventListener('change', function(e){ var t=e.target; if(!t||t.type!=='checkbox'||!t.checked) return; var cbs=box.querySelectorAll('input[type=checkbox]'); if(t.value===NONE){ cbs.forEach(function(c){ if(c.value!==NONE) c.checked=false; }); } else { cbs.forEach(function(c){ if(c.value===NONE) c.checked=false; }); } });
+})();
 function collectIntake(){
-  var reason=(document.getElementById('inReason')||{}).value||'';
+  var reason=Array.prototype.map.call(document.querySelectorAll('#inReason input:checked'),function(c){return c.value;}).join('; ');
   var sessions=Array.prototype.map.call(document.querySelectorAll('#inSessions input:checked'),function(c){return c.value;});
   var photographer=((document.getElementById('inPhotographer')||{}).value||'').trim();
   var details=((document.getElementById('inDetails')||{}).value||'').trim();
@@ -417,7 +421,7 @@ function collectIntake(){
   return {reason:reason, sessions:sessions, photographer:photographer, details:details};
 }
 function clearIntake(){
-  var r=document.getElementById('inReason'); if(r) r.value='';
+  Array.prototype.forEach.call(document.querySelectorAll('#inReason input:checked'),function(c){c.checked=false;});
   Array.prototype.forEach.call(document.querySelectorAll('#inSessions input:checked'),function(c){c.checked=false;});
   var p=document.getElementById('inPhotographer'); if(p) p.value='';
   var d=document.getElementById('inDetails'); if(d) d.value='';
