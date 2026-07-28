@@ -1147,13 +1147,29 @@ function showClientBookings(name){
   var mine=allEntries().filter(function(it){ return (it.e.label||'').trim().toLowerCase()===name.toLowerCase(); })
     .sort(function(a,b){ return (a.date+String(a.e.start).padStart(6,'0'))<(b.date+String(b.e.start).padStart(6,'0'))?-1:1; });
   if(!mine.length){ var m=document.createElement('div'); m.className='muted'; m.textContent='No bookings found.'; res.appendChild(m); return; }
-  mine.forEach(function(it){
+  function bkRow(it){
     var e=it.e;
     var card=document.createElement('div'); card.style.cssText='border-left:4px solid '+(RCOLOR[e.room]||'#ccc')+';background:#faf9f7;border-radius:8px;padding:9px 12px;margin:6px 0;cursor:pointer;font-family:Arial,sans-serif;font-size:14px';
     card.innerHTML='<b>'+esc(fdate(it.date))+'</b><div class="muted" style="margin-top:2px">'+esc(rname(e.room))+'  ·  '+tLabel(e.start)+' – '+tLabel(e.end)+'</div>';
     card.onclick=function(){ jumpToDay(it.date); };
-    res.appendChild(card);
-  });
+    return card;
+  }
+  var today=todayISO();
+  var upcoming=mine.filter(function(it){ return it.date>=today; });
+  var past=mine.filter(function(it){ return it.date<today; });
+  // Upcoming first, shown straight away
+  if(upcoming.length){ upcoming.forEach(function(it){ res.appendChild(bkRow(it)); }); }
+  else { var none=document.createElement('div'); none.className='muted'; none.style.margin='6px 0'; none.textContent='No upcoming bookings.'; res.appendChild(none); }
+  // Past bookings collapsed under a dropdown (most recent first) so the list stays short
+  if(past.length){
+    var toggle=document.createElement('div'); toggle.style.cssText='cursor:pointer;user-select:none;font-family:Arial,sans-serif;font-size:14px;color:#7c7268;margin:14px 0 4px;display:flex;align-items:center;gap:8px';
+    var car=document.createElement('span'); car.textContent='▸'; car.style.cssText='font-size:12px;width:12px;display:inline-block;text-align:center';
+    var lbl=document.createElement('span'); lbl.innerHTML='<b>Past bookings</b> ('+past.length+')';
+    toggle.appendChild(car); toggle.appendChild(lbl); res.appendChild(toggle);
+    var box=document.createElement('div'); box.style.display='none'; res.appendChild(box);
+    past.slice().reverse().forEach(function(it){ box.appendChild(bkRow(it)); });
+    toggle.onclick=function(){ var open=box.style.display!=='none'; box.style.display=open?'none':''; car.textContent=open?'▸':'▾'; };
+  }
 }
 function jumpToDay(date){
   var p=date.split('-'); CAL.y=+p[0]; CAL.m=+p[1]-1; CAL.sel=date;
