@@ -653,15 +653,16 @@ function isXmasWeekend(dateStr) {
 function cancelWindowHours(dateStr) { return isXmasWeekend(dateStr) ? XMAS_CANCEL_HOURS : 48; }
 function cancelWindowLabel(dateStr) { return isXmasWeekend(dateStr) ? '7 days' : '48 hours'; }
 
-// cancel a real booking (bookings table) and issue full account credit if outside the cancellation window
-function cancelBookingWithCredit(b) {
+// cancel a real booking (bookings table) and issue full account credit if outside the cancellation window.
+// allowCredit=false (staff "cancel without credit" / quiet cancel) cancels but never issues credit.
+function cancelBookingWithCredit(b, allowCredit) {
   db.prepare(`UPDATE bookings SET status='cancelled' WHERE id=?`).run(b.id);
   removeSetupBlocks(b.id);   // free the reserved early-arrival window, if any
   const hrs = hoursUntil(b.date, b.start);
   const win = cancelWindowHours(b.date);
   const already = db.prepare(`SELECT 1 FROM credit_ledger WHERE booking_id=? AND amount>0`).get(b.id);
   let credited = 0;
-  if (hrs >= win && !already && (b.paid || 0) > 0 && b.customer_email) { credited = VL.round2(b.paid); addCredit(b.customer_email, credited, 'Cancellation credit', b.id); }
+  if (allowCredit !== false && hrs >= win && !already && (b.paid || 0) > 0 && b.customer_email) { credited = VL.round2(b.paid); addCredit(b.customer_email, credited, 'Cancellation credit', b.id); }
   return { credited, hoursOut: Math.round(hrs), windowHours: win, newBalance: b.customer_email ? creditBalance(b.customer_email) : 0 };
 }
 function validTimes(start, end) {
@@ -1348,7 +1349,7 @@ const ADMIN_KEY = process.env.ADMIN_KEY || 'loft-admin';
 const OWNER_KEY = process.env.OWNER_KEY || ADMIN_KEY;
 function keyOf(req) { return ((req.query && req.query.key) || (req.body && req.body.key) || ''); }
 function admin(req, res, next) { const k = keyOf(req); if (k === ADMIN_KEY || k === OWNER_KEY) return next(); res.status(401).json({ error: 'unauthorized' }); }
-function owner(req, res, next) { const k = keyOf(req); if (k === OWNER_KEY) return next(); res.status(403).json({ error: 'Only the owner can charge saved cards.' }); }
+function owner(req, res, next) { const k = keyOf(req); if (k === OWNER_KEY) return next(); res.status(403).json({ error: 'This action is owner-only.' }); }
 // Lets the Staff App know whether the signed-in code is the owner (so it shows the charge button only to you).
 app.get('/api/admin/whoami', admin, (req, res) => res.json({ role: keyOf(req) === OWNER_KEY ? 'owner' : 'staff', ownerSeparate: OWNER_KEY !== ADMIN_KEY }));
 
@@ -1378,7 +1379,8 @@ app.post('/api/admin/cancel', admin, (req, res) => {
   const b = db.prepare(`SELECT * FROM bookings WHERE id=?`).get(+req.body.id);
   if (!b) return res.json({ ok: false });
   if (b.status === 'cancelled') return res.json({ ok: true, credited: 0 });
-  const r = cancelBookingWithCredit(b);
+  // credit:false = staff chose "cancel without credit" (or a quiet cancel) — never issue credit
+  const r = cancelBookingWithCredit(b, req.body.credit === false ? false : undefined);
   if (b.customer_email && req.body.notify !== false) sendEmail({ to: b.customer_email, subject: 'Your booking has been cancelled — The Vintage Loft', html: cancellationEmail({ name: b.customer_name || 'there', confirmation: b.confirmation, bookings: [{ roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end }], credited: r.credited, email: b.customer_email }) }).catch(e => console.error('[email] cancellation error:', e.message));
   res.json({ ok: true, credited: r.credited, hoursOut: r.hoursOut, newBalance: r.newBalance, email: b.customer_email });
 });
@@ -1402,8 +1404,9 @@ app.post('/api/admin/client-note', admin, (req, res) => {
   res.json({ ok: true });
 });
 
-// Staff: adjust a client's credit by hand (goodwill, corrections, manual cancellation credit)
-app.post('/api/admin/adjust-credit', admin, (req, res) => {
+// OWNER-ONLY: adjust a client's credit by hand (comps, goodwill, corrections). Staff can view
+// balances (GET /api/admin/credit) but cannot change them — cancellation credits are automatic.
+app.post('/api/admin/adjust-credit', owner, (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const amount = VL.round2(parseFloat(req.body.amount));
   const reason = (req.body.reason || 'Manual adjustment').toString().slice(0, 120);
@@ -1735,6 +1738,8 @@ app.post('/api/admin/import-clients', admin, (req, res) => {
 app.post('/api/admin/delete-block', admin, (req, res) => {
   const id = +req.body.id;
   if (!id) return res.status(400).json({ error: 'id required' });
+  const bl = db.prepare(`SELECT booking_id FROM blocks WHERE id=?`).get(id);
+  if (bl && bl.booking_id) return res.status(400).json({ error: 'This early-arrival time is part of a booking. It moves and cancels with the booking itself.' });
   const info = db.prepare(`DELETE FROM blocks WHERE id=?`).run(id);
   res.json({ ok: true, deleted: info.changes });
 });
@@ -1861,7 +1866,9 @@ app.post('/api/admin/mark-paid', admin, (req, res) => {
     return res.json({ ok: true, paid: 0, mode: 'owner' });
   }
   // Comp "on the house" (marketing / goodwill): settle at $0, tag as comp, tracked in the Comps year-end total.
+  // OWNER-ONLY: only Kelly can comp a booking.
   if (req.body.comp) {
+    if (keyOf(req) !== OWNER_KEY) return res.status(403).json({ error: 'Only the owner can comp a booking.' });
     db.prepare(`UPDATE blocks SET paid=0, paid_at=?, pay_mode='comp' WHERE confirmation=? AND kind='booking'`).run(nowISO(), b.confirmation);
     return res.json({ ok: true, paid: 0, mode: 'comp' });
   }
@@ -1949,6 +1956,10 @@ app.post('/api/admin/edit-entry', admin, (req, res) => {
   const date = (req.body.date || '').toString();
   const s = +req.body.start, e = +req.body.end;
   if (!id) return res.status(400).json({ error: 'id required' });
+  if (source === 'block') {
+    const bl0 = db.prepare(`SELECT booking_id FROM blocks WHERE id=?`).get(id);
+    if (bl0 && bl0.booking_id) return res.status(400).json({ error: 'This early-arrival time is part of a booking. Edit the booking itself and this time moves with it.' });
+  }
   if (!VL.roomById(room)) return res.status(400).json({ error: 'Unknown studio.' });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Please choose a valid date.' });
   if (!(e > s)) return res.status(400).json({ error: 'The end time must be after the start time.' });
@@ -1991,6 +2002,8 @@ app.post('/api/admin/set-kind', admin, (req, res) => {
   const id = +req.body.id;
   const kind = req.body.kind === 'booking' ? 'booking' : 'hold';
   if (!id) return res.status(400).json({ error: 'id required' });
+  const bl = db.prepare(`SELECT booking_id FROM blocks WHERE id=?`).get(id);
+  if (bl && bl.booking_id) return res.status(400).json({ error: 'This early-arrival time is part of a booking and stays a reserved hold.' });
   const info = db.prepare(`UPDATE blocks SET kind=? WHERE id=?`).run(kind, id);
   res.json({ ok: true, changed: info.changes, kind });
 });
