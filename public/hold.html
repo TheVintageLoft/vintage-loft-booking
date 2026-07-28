@@ -196,8 +196,9 @@
       <a id="addLine" style="font-family:Arial,sans-serif;font-size:14px;color:#7c7268;cursor:pointer;text-decoration:underline">+ Add another studio or time to this booking</a>
     </div>
 
-    <label id="sendConfirmRow" style="font-family:Arial,sans-serif;font-size:14px;color:#3a352f;display:flex;align-items:center;gap:7px;margin:18px 0 6px;cursor:pointer">
-      <input id="sendConfirm" type="checkbox" checked style="width:auto"> Email them the confirmation <b>with a payment link</b>
+    <label id="sendConfirmRow" style="font-family:Arial,sans-serif;font-size:14px;color:#3a352f;display:flex;align-items:flex-start;gap:7px;margin:18px 0 6px;cursor:pointer">
+      <input id="sendConfirm" type="checkbox" checked style="width:auto;margin-top:2px">
+      <span>Notify client<span class="muted" style="display:block;font-size:12px;font-weight:normal;margin-top:1px">Sends email with payment link</span></span>
     </label>
     <button id="go" style="margin-top:4px">Add to calendar</button>
     <div id="msg"></div>
@@ -670,7 +671,7 @@ function loadCalendar(){
     fetch('/api/admin/bookings?key='+encodeURIComponent(getKey())).then(chk)
   ]).then(function(res){
     var idx={};
-    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,pay_mode:b.pay_mode||'',pay_method:b.pay_method||'',addons_json:b.addons_json||'',intake:b.intake||'',inspoCount:(b.inspoCount||0)}); });
+    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,booking_id:b.booking_id||null,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,pay_mode:b.pay_mode||'',pay_method:b.pay_method||'',addons_json:b.addons_json||'',intake:b.intake||'',inspoCount:(b.inspoCount||0)}); });
     (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||'',inspoCount:(b.inspoCount||0),customer_email:b.customer_email||''}); });
     CAL.items=idx; cm.textContent='';
     renderMonth(); renderHoldings();
@@ -749,6 +750,16 @@ function selectDay(iso){
       var card=document.createElement('div'); card.className='daycard'; card.style.borderLeftColor=RCOLOR[rid]; card.id='dc-'+x.source+'-'+x.id;
       var who=document.createElement('div'); who.className='who';
       who.appendChild(document.createTextNode(x.label+(x.sample?' (sample)':'')));
+      // A hold linked to a booking (the reserved 15-min early-arrival window) is part of that booking:
+      // it moves when the booking is edited and disappears when it's cancelled. No controls of its own.
+      if(x.source==='block' && x.booking_id){
+        card.style.opacity='0.85';
+        var stag=document.createElement('span'); stag.className='tag tag-hold'; stag.textContent='Setup'; who.appendChild(stag);
+        card.appendChild(who);
+        var smeta=document.createElement('div'); smeta.className='meta'; smeta.textContent=tLabel(x.start)+' – '+tLabel(x.end)+'  ·  part of the booking that follows'; card.appendChild(smeta);
+        var snote=document.createElement('div'); snote.className='muted'; snote.style.cssText='font-size:12px;margin-top:4px'; snote.textContent='Edits and cancellations happen on the booking itself; this reserved time moves with it.'; card.appendChild(snote);
+        body.appendChild(card); return;
+      }
       var tag=document.createElement('span');
       if(x.kind==='booking'){ tag.className='tag tag-booking'; tag.textContent='Booking'; }
       else { tag.className='tag tag-hold'; tag.textContent='Hold'; }
@@ -995,8 +1006,13 @@ function selectDay(iso){
             else if(comp){ A('Undo comp', unpay, '#a33'); }
             else if(!paid){
               A('Mark as paid', function(){ markPaidForm(); });
-              A('Owner use (no charge)', function(){ settle({owner:true},'owner'); }, '#6b4a8a');
-              A('Comp (no charge)', function(){ settle({comp:true},'comp'); }, '#1f6b6b');
+              // Vintage Films = the owner's own studio use. Staff can record it (they take the calls),
+              // the full value is tallied for financials, nothing is charged. Confirm keeps it deliberate.
+              var vf=pillBtn('Vintage Films','#6b4a8a','#f3eefa');
+              vf.onclick=function(){ if(window.confirm('Record this as Vintage Films studio use?\n\nThe full value is tallied for the owner\u2019s records \u2014 no charge to anyone.')) settle({owner:true},'owner'); };
+              row.appendChild(vf);
+              // OWNER-ONLY: only Kelly can comp a booking
+              if(vlIsOwner) A('Comp (no charge)', function(){ settle({comp:true},'comp'); }, '#1f6b6b');
             }
             else { A('Mark unpaid', unpay, '#a33'); }
             if(email && !owner && !comp){
@@ -1015,11 +1031,32 @@ function selectDay(iso){
       }
       var lbl=fdate(iso)+'  ·  '+r[1]+'  ·  '+tLabel(x.start)+' – '+tLabel(x.end)+'  ·  '+x.label;
       var actions=document.createElement('div'); actions.style.cssText='margin-top:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center';
-      if(x.source==='booking'){
-        var btn=pillBtn('Cancel booking','#a33','#fdf3f3'); (function(id,lbl,btn){ btn.onclick=function(){ cancelBooking(id,btn,lbl); }; })(x.id,lbl,btn); actions.appendChild(btn);
-      } else if(x.kind==='booking'){
-        var b1=pillBtn('Cancel with credit','#a33','#fdf3f3'); (function(id,lbl,b){ b.onclick=function(){ cancelManualBooking(id,b,lbl,true); }; })(x.id,lbl,b1); actions.appendChild(b1);
-        var b2=pillBtn('Cancel without credit','#8a6a2b','#fbf6ec'); (function(id,lbl,b){ b.onclick=function(){ cancelManualBooking(id,b,lbl,false); }; })(x.id,lbl,b2); actions.appendChild(b2);
+      if(x.source==='booking' || x.kind==='booking'){
+        // ONE red Cancel button → chooser: with credit / without credit / quiet (no email)
+        var cbtn=pillBtn('Cancel','#fff','#c0392b'); cbtn.style.border='1px solid #c0392b';
+        (function(entry,lbl,cbtn){ cbtn.onclick=function(){
+          var open=card.querySelector('.cancelopts'); if(open){ open.remove(); return; }
+          var opts=document.createElement('div'); opts.className='cancelopts';
+          opts.style.cssText='margin-top:10px;background:#fdf3f3;border:1px solid #f0d9d9;border-radius:8px;padding:11px 13px;display:flex;flex-wrap:wrap;gap:8px;align-items:center';
+          var h=document.createElement('div'); h.style.cssText='width:100%;font-family:Arial,sans-serif;font-size:11px;color:#a33;text-transform:uppercase;letter-spacing:.5px;font-weight:bold'; h.textContent='How should this be cancelled?'; opts.appendChild(h);
+          var o1=pillBtn('With credit','#a33','#fff');
+          var o2=pillBtn('Without credit','#8a6a2b','#fff');
+          var o3=pillBtn('Quiet cancel \u00b7 no email','#6b665e','#fff');
+          var never=document.createElement('a'); never.textContent='Never mind'; never.style.cssText=LINKSTYLE; never.onclick=function(){ opts.remove(); };
+          if(entry.source==='booking'){
+            o1.onclick=function(){ cancelBooking(entry.id,o1,lbl,{credit:true}); };
+            o2.onclick=function(){ cancelBooking(entry.id,o2,lbl,{credit:false}); };
+            o3.onclick=function(){ cancelBooking(entry.id,o3,lbl,{credit:false,notify:false}); };
+          } else {
+            o1.onclick=function(){ cancelManualBooking(entry.id,o1,lbl,true); };
+            o2.onclick=function(){ cancelManualBooking(entry.id,o2,lbl,false); };
+            o3.onclick=function(){ deleteQuiet(entry.id,lbl); };
+          }
+          var hint=document.createElement('div'); hint.className='muted'; hint.style.cssText='width:100%;font-size:12px'; hint.textContent='Quiet cancel sends no email \u2014 for bookings the client hasn\u2019t paid for or was never told about.';
+          opts.appendChild(o1); opts.appendChild(o2); opts.appendChild(o3); opts.appendChild(never); opts.appendChild(hint);
+          card.appendChild(opts);
+        }; })(x,lbl,cbtn);
+        actions.appendChild(cbtn);
       } else {
         var btn=pillBtn('Remove hold','#a33','#fdf3f3'); (function(id,lbl,btn){ btn.onclick=function(){ removeHold(id,btn,lbl); }; })(x.id,lbl,btn); actions.appendChild(btn);
       }
@@ -1064,14 +1101,7 @@ function selectDay(iso){
         (function(id,toKind){ flip.onclick=function(){ setKind(id,toKind); }; })(x.id,toKind);
         actions.appendChild(flip);
       }
-      // Quiet delete: remove a manual booking with NO email (for entries the client was never told about)
-      if(x.source==='block' && x.kind==='booking'){
-        var del=document.createElement('a');
-        del.style.cssText='font-family:Arial,sans-serif;font-size:13px;color:#a49d92;cursor:pointer;text-decoration:underline;margin-left:6px';
-        del.textContent='Delete (no email)';
-        (function(id,lbl){ del.onclick=function(){ deleteQuiet(id,lbl); }; })(x.id,lbl);
-        actions.appendChild(del);
-      }
+      // (Quiet delete now lives inside the red Cancel button's chooser as "Quiet cancel · no email".)
       card.appendChild(actions); body.appendChild(card);
     });
   });
@@ -1124,7 +1154,7 @@ function renderDayTimeline(container, items, setMode){
       var left='calc(4px + ('+w+' + 3px) * '+x._sl+')';
       var b=document.createElement('div');
       b.style.cssText='position:absolute;top:'+top+'px;height:'+h+'px;left:'+left+';width:'+w+';background:'+(isHold?'#fbfaf7':hexTint(col,0.16))+';border:1px solid '+hexTint(col,0.5)+';border-left:3px solid '+col+';border-radius:6px;padding:3px 6px;box-sizing:border-box;overflow:hidden;cursor:pointer;font-family:Arial,sans-serif'+(isHold?';border-style:dashed':'');
-      b.innerHTML='<div style="font-size:11px;font-weight:bold;color:#3a352f;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.label||'')+(isHold?' <span style="font-weight:normal;color:#8a6a2b">· hold</span>':'')+'</div>'
+      b.innerHTML='<div style="font-size:11px;font-weight:bold;color:#3a352f;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.label||'')+(isHold?' <span style="font-weight:normal;color:#8a6a2b">· '+((x.source==='block'&&x.booking_id)?'setup':'hold')+'</span>':'')+'</div>'
         +(h>40?'<div style="font-size:10px;color:#8a8375;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+tLabel(x.start)+'–'+tLabel(x.end)+'</div>':'');
       b.title=(x.label||'')+' · '+rname(x.room)+' · '+tLabel(x.start)+'–'+tLabel(x.end);
       b.onclick=(function(entry){ return function(){ setMode('list'); var el=document.getElementById('dc-'+entry.source+'-'+entry.id); if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); var ob=el.style.background; el.style.transition='background .4s'; el.style.background='#fff6e2'; setTimeout(function(){ el.style.background=ob||''; },1300); } }; })(x);
@@ -1254,15 +1284,25 @@ function cancelManualBooking(id,btn,label,withCredit){
     .catch(function(err){btn.disabled=false;btn.textContent=origText;alert('Network error: '+err.message);});
 }
 
-function cancelBooking(id,btn,label){
-  if(!window.confirm('Are you sure you want to cancel this booking?\n\n'+(label||'')+'\n\nIf it is 48h+ away, the client is automatically issued full account credit.')) return;
+function cancelBooking(id,btn,label,opts){
+  opts=opts||{credit:true};
+  var quiet=(opts.notify===false), withCredit=(opts.credit!==false);
+  var msg = withCredit
+    ? ('Cancel this booking?\n\n'+(label||'')+'\n\nIf it is outside the cancellation window, the client is automatically issued full account credit. They get an email letting them know.')
+    : quiet
+      ? ('Quiet cancel?\n\n'+(label||'')+'\n\nNo credit is given and NO email is sent. Use this for bookings the client hasn\u2019t paid for or was never told about.')
+      : ('Cancel this booking WITHOUT credit?\n\n'+(label||'')+'\n\nNo account credit is given (payment is forfeited under the cancellation policy). They get a gentle email explaining this.');
+  if(!window.confirm(msg)) return;
+  var origText=btn.textContent;
   btn.disabled=true; btn.textContent='Cancelling…';
-  fetch('/api/admin/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:id})})
+  fetch('/api/admin/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),id:id,credit:withCredit,notify:!quiet})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
-    .then(function(x){ if(!x.ok||!x.d.ok){btn.disabled=false;btn.textContent='Cancel booking';alert('Could not cancel.');return;}
+    .then(function(x){ if(!x.ok||!x.d.ok){btn.disabled=false;btn.textContent=origText;alert('Could not cancel.');return;}
       if(x.d.credited>0) alert('Cancelled. $'+x.d.credited.toFixed(2)+' account credit issued to '+(x.d.email||'the client')+'.');
+      else if(quiet) alert('Cancelled quietly \u2014 no email sent, no credit given.');
+      else if(!withCredit) alert('Cancelled without credit. A cancellation email was sent.');
       loadCalendar(); })
-    .catch(function(err){btn.disabled=false;btn.textContent='Cancel booking';alert('Network error: '+err.message);});
+    .catch(function(err){btn.disabled=false;btn.textContent=origText;alert('Network error: '+err.message);});
 }
 
 // ---------- client search ----------
@@ -1332,14 +1372,26 @@ function jumpToDay(date){
 // keyed by the client's email (or name). compact=true is the day-view card version (link until a note exists).
 function renderClientNote(container, email, name, compact){
   var wrap=document.createElement('div'); container.appendChild(wrap);
+  var expanded=false;   // notes start collapsed to keep the booking card compact; tap the header to open
   function render(note, editing){
     wrap.innerHTML='';
     if(compact && !note && !editing){
       wrap.style.cssText='margin-top:8px';
-      var add=document.createElement('a'); add.textContent='+ Note about this client'; add.style.cssText=LINKSTYLE+';font-size:13px'; add.onclick=function(){ render('', true); }; wrap.appendChild(add); return;
+      var add=document.createElement('a'); add.textContent='+ Note about this client'; add.style.cssText=LINKSTYLE+';font-size:13px'; add.onclick=function(){ expanded=true; render('', true); }; wrap.appendChild(add); return;
     }
     wrap.style.cssText='margin:10px 0;background:#f3ece2;border:1px solid #e6dcc9;border-radius:8px;padding:11px 13px';
-    var lbl=document.createElement('div'); lbl.style.cssText='text-transform:uppercase;font-size:11px;letter-spacing:.5px;color:#8a7d63;margin-bottom:6px;font-family:Arial,sans-serif;font-weight:bold'; lbl.textContent='Notes about this client'; wrap.appendChild(lbl);
+    var lbl=document.createElement('div'); lbl.style.cssText='text-transform:uppercase;font-size:11px;letter-spacing:.5px;color:#8a7d63;font-family:Arial,sans-serif;font-weight:bold;cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none';
+    var chev=document.createElement('span'); chev.style.cssText='font-size:12px;color:#8a7d63;letter-spacing:0';
+    lbl.appendChild(document.createTextNode('Notes about this client')); lbl.appendChild(chev); wrap.appendChild(lbl);
+    // Collapsed: just the tappable header (keeps the day card short). Tap to slide the note open.
+    if(note && !editing && !expanded){
+      chev.textContent='\u25BE';
+      lbl.onclick=function(){ expanded=true; render(note, false); };
+      return;
+    }
+    chev.textContent=(note && !editing)?'\u25B4':'';
+    if(note && !editing) lbl.onclick=function(){ expanded=false; render(note, false); };
+    lbl.style.marginBottom='6px';
     if(editing){
       var ta=document.createElement('textarea'); ta.value=note||''; ta.placeholder='Style, preferences, special requests, coffee order, anything staff should know…'; ta.style.cssText='width:100%;min-height:78px;font-family:Arial,sans-serif;font-size:14px;padding:9px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box'; wrap.appendChild(ta);
       var save=document.createElement('button'); save.className='del'; save.style.cssText='margin:6px 14px 0 0'; save.textContent='Save'; wrap.appendChild(save);
@@ -1360,7 +1412,8 @@ function renderClientCredit(container, email){
   function draw(bal){
     box.innerHTML='';
     var line=document.createElement('div'); line.innerHTML='<b>Account credit:</b> $'+(bal||0).toFixed(2); box.appendChild(line);
-    var adj=document.createElement('a'); adj.textContent='Adjust credit'; adj.style.cssText=LINKSTYLE+';display:inline-block;margin-top:6px'; adj.onclick=function(){ edit(bal); }; box.appendChild(adj);
+    // OWNER-ONLY: staff see the balance but only Kelly can change it (cancellation credits are automatic)
+    if(vlIsOwner){ var adj=document.createElement('a'); adj.textContent='Adjust credit'; adj.style.cssText=LINKSTYLE+';display:inline-block;margin-top:6px'; adj.onclick=function(){ edit(bal); }; box.appendChild(adj); }
   }
   function edit(bal){
     box.innerHTML='<div style="font-family:Arial,sans-serif;font-size:13px;color:#8a8375;margin-bottom:6px">Add credit (use a minus to remove). Current: $'+(bal||0).toFixed(2)+'</div>';
