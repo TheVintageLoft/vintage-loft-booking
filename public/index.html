@@ -244,12 +244,12 @@
           <h3 style="font-size:20px;margin:0 0 12px">Tell us about your visit</h3>
 
           <div class="field" style="margin-bottom:12px">
-            <label>What best describes why you're renting? <span style="color:var(--red)">*</span> <span style="color:var(--muted,#8a8375);font-weight:normal;font-size:9px">(check any that apply)</span></label>
+            <label style="color:var(--ink,#3a352f);font-weight:700">What best describes why you're renting? <span style="color:var(--red)">*</span> <span style="color:var(--muted,#8a8375);font-weight:normal;font-size:9px">(check any that apply)</span></label>
             <div id="inReason" style="display:flex;flex-direction:column;gap:8px;margin-top:6px"></div>
           </div>
 
           <div class="field" style="margin-bottom:12px">
-            <label>If you are a photographer or coming in with a photographer, can you tell us what kind of session you are coming in for? This helps us prepare your studio for you with specific props.</label>
+            <label style="color:var(--ink,#3a352f);font-weight:700">If you are a photographer or coming in with a photographer, can you tell us what kind of session you are coming in for? This helps us prepare your studio for you with specific props.</label>
             <div id="inSessions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px"></div>
           </div>
 
@@ -317,7 +317,7 @@
           var NA="This doesn't apply to me";
           var S=[NA,'Family','Newborn','Maternity','Engagements','Headshots','Branding/Content','Boudoir','Fashion','Cakesmash','Graduation Portraits','Wedding Portraits','Product Photography'];
           var box=document.getElementById('inSessions'); if(!box) return;
-          S.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-size:14px;text-transform:none;letter-spacing:normal;color:var(--ink,#3a352f);display:flex;align-items:center;gap:6px;background:#f6f5f3;border:1px solid var(--line);border-radius:8px;padding:7px 11px;cursor:pointer'; l.innerHTML='<input type="checkbox" value="'+s+'" style="width:auto"> '+s; box.appendChild(l); });
+          S.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-size:14px;text-transform:none;letter-spacing:normal;color:#6f6a61;display:flex;align-items:center;gap:6px;background:#fbfaf8;border:1px solid #ece9e4;border-radius:8px;padding:7px 11px;cursor:pointer'; l.innerHTML='<input type="checkbox" value="'+s+'" style="width:auto"> '+s; box.appendChild(l); });
           // "This doesn't apply to me" is mutually exclusive with the session types
           box.addEventListener('change', function(e){ var t=e.target; if(!t||t.type!=='checkbox'||!t.checked) return; var cbs=box.querySelectorAll('input[type=checkbox]'); if(t.value===NA){ cbs.forEach(function(c){ if(c.value!==NA) c.checked=false; }); } else { cbs.forEach(function(c){ if(c.value===NA) c.checked=false; }); } });
         })();
@@ -335,7 +335,7 @@
             'I am an Actor that is recording a self tape (please advise further if you want us to film)',
             'I am an Artist showcasing my work', NONE];
           var box=document.getElementById('inReason'); if(!box) return;
-          R.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-size:14px;text-transform:none;letter-spacing:normal;color:var(--ink,#3a352f);display:flex;align-items:flex-start;gap:8px;background:#f6f5f3;border:1px solid var(--line);border-radius:8px;padding:9px 12px;cursor:pointer;line-height:1.4'; l.innerHTML='<input type="checkbox" value="'+s.replace(/"/g,'&quot;')+'" style="width:auto;margin-top:2px;flex:0 0 auto"> <span>'+s+'</span>'; box.appendChild(l); });
+          R.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-size:14px;text-transform:none;letter-spacing:normal;color:#6f6a61;display:flex;align-items:flex-start;gap:8px;background:#fbfaf8;border:1px solid #ece9e4;border-radius:8px;padding:9px 12px;cursor:pointer;line-height:1.4'; l.innerHTML='<input type="checkbox" value="'+s.replace(/"/g,'&quot;')+'" style="width:auto;margin-top:2px;flex:0 0 auto"> <span>'+s+'</span>'; box.appendChild(l); });
           // "None of the above" is mutually exclusive with the rest
           box.addEventListener('change', function(e){ var t=e.target; if(!t||t.type!=='checkbox'||!t.checked) return; var cbs=box.querySelectorAll('input[type=checkbox]'); if(t.value===NONE){ cbs.forEach(function(c){ if(c.value!==NONE) c.checked=false; }); } else { cbs.forEach(function(c){ if(c.value===NONE) c.checked=false; }); } });
         })();

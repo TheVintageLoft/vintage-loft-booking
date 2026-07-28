@@ -160,10 +160,10 @@
     </div>
 
     <div id="intakeFields" style="display:none">
-      <label class="fld">What best describes this booking? (check any that apply)</label>
+      <label class="fld" style="color:#3a352f;font-weight:bold">What best describes this booking? (check any that apply)</label>
       <div id="inReason" style="display:flex;flex-direction:column;gap:8px;margin-top:2px"></div>
 
-      <label class="fld">If you are a photographer or coming in with a photographer, what kind of session? (helps us prep the studio with the right props)</label>
+      <label class="fld" style="color:#3a352f;font-weight:bold">If you are a photographer or coming in with a photographer, what kind of session? (helps us prep the studio with the right props)</label>
       <div id="inSessions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:2px"></div>
 
       <label class="fld">Photographer</label>
@@ -393,7 +393,7 @@ function entryAddons(e){ try{ var j=JSON.parse(e.addons_json||'{}'); return {ite
   var NA="This doesn't apply to me";
   var S=[NA,'Family','Newborn','Maternity','Engagements','Headshots','Branding/Content','Boudoir','Fashion','Cakesmash','Graduation Portraits','Wedding Portraits','Product Photography'];
   var box=document.getElementById('inSessions'); if(!box) return;
-  S.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-family:Arial,sans-serif;font-size:13px;display:flex;align-items:center;gap:6px;background:#f6f5f3;border:1px solid #e7e5e2;border-radius:8px;padding:6px 10px;cursor:pointer'; l.innerHTML='<input type="checkbox" value="'+s+'" style="width:auto"> '+s; box.appendChild(l); });
+  S.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-family:Arial,sans-serif;font-size:13px;color:#6f6a61;display:flex;align-items:center;gap:6px;background:#fbfaf8;border:1px solid #ece9e4;border-radius:8px;padding:6px 10px;cursor:pointer'; l.innerHTML='<input type="checkbox" value="'+s+'" style="width:auto"> '+s; box.appendChild(l); });
   box.addEventListener('change', function(e){ var t=e.target; if(!t||t.type!=='checkbox'||!t.checked) return; var cbs=box.querySelectorAll('input[type=checkbox]'); if(t.value===NA){ cbs.forEach(function(c){ if(c.value!==NA) c.checked=false; }); } else { cbs.forEach(function(c){ if(c.value===NA) c.checked=false; }); } });
 })();
 // "What best describes this booking?" — checkboxes (multi-select), matching the form.
@@ -409,7 +409,7 @@ function entryAddons(e){ try{ var j=JSON.parse(e.addons_json||'{}'); return {ite
     'I am an Actor that is recording a self tape (please advise further if you want us to film)',
     'I am an Artist showcasing my work', NONE];
   var box=document.getElementById('inReason'); if(!box) return;
-  R.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-family:Arial,sans-serif;font-size:13px;display:flex;align-items:flex-start;gap:8px;background:#f6f5f3;border:1px solid #e7e5e2;border-radius:8px;padding:9px 12px;cursor:pointer;line-height:1.4'; l.innerHTML='<input type="checkbox" value="'+s.replace(/"/g,'&quot;')+'" style="width:auto;margin-top:2px;flex:0 0 auto"> <span>'+s+'</span>'; box.appendChild(l); });
+  R.forEach(function(s){ var l=document.createElement('label'); l.style.cssText='font-family:Arial,sans-serif;font-size:13px;color:#6f6a61;display:flex;align-items:flex-start;gap:8px;background:#fbfaf8;border:1px solid #ece9e4;border-radius:8px;padding:9px 12px;cursor:pointer;line-height:1.4'; l.innerHTML='<input type="checkbox" value="'+s.replace(/"/g,'&quot;')+'" style="width:auto;margin-top:2px;flex:0 0 auto"> <span>'+s+'</span>'; box.appendChild(l); });
   box.addEventListener('change', function(e){ var t=e.target; if(!t||t.type!=='checkbox'||!t.checked) return; var cbs=box.querySelectorAll('input[type=checkbox]'); if(t.value===NONE){ cbs.forEach(function(c){ if(c.value!==NONE) c.checked=false; }); } else { cbs.forEach(function(c){ if(c.value===NONE) c.checked=false; }); } });
 })();
 function collectIntake(){
