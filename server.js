@@ -1105,9 +1105,16 @@ app.get('/api/my-bookings', (req, res) => {
   res.json({ bookings: rows.map(r => ({ ...r, roomName: (VL.roomById(r.room_id) || {}).name || r.room_id })) });
 });
 
-/* ---------- admin (manual blocking + view). Simple shared key for Phase 1. ---------- */
+/* ---------- staff access. Two codes: a general staff code, and an owner code.
+   Set OWNER_KEY to a DIFFERENT value than ADMIN_KEY to restrict card-charging (and the audit log)
+   to the owner only. If OWNER_KEY is unset it equals ADMIN_KEY (single-user mode, nothing changes). ---------- */
 const ADMIN_KEY = process.env.ADMIN_KEY || 'loft-admin';
-function admin(req, res, next) { if ((req.query.key || req.body.key) === ADMIN_KEY) return next(); res.status(401).json({ error: 'unauthorized' }); }
+const OWNER_KEY = process.env.OWNER_KEY || ADMIN_KEY;
+function keyOf(req) { return (req.query.key || req.body.key || ''); }
+function admin(req, res, next) { const k = keyOf(req); if (k === ADMIN_KEY || k === OWNER_KEY) return next(); res.status(401).json({ error: 'unauthorized' }); }
+function owner(req, res, next) { const k = keyOf(req); if (k === OWNER_KEY) return next(); res.status(403).json({ error: 'Only the owner can charge saved cards.' }); }
+// Lets the Staff App know whether the signed-in code is the owner (so it shows the charge button only to you).
+app.get('/api/admin/whoami', admin, (req, res) => res.json({ role: keyOf(req) === OWNER_KEY ? 'owner' : 'staff', ownerSeparate: OWNER_KEY !== ADMIN_KEY }));
 
 app.get('/api/admin/bookings', admin, (_req, res) => {
   const rows = db.prepare(`SELECT * FROM bookings ORDER BY date DESC, start DESC`).all();
@@ -1618,7 +1625,7 @@ app.post('/api/admin/mark-paid', admin, (req, res) => {
 });
 
 // Staff: list a client's saved cards (for charging on file with their permission).
-app.get('/api/admin/saved-cards', admin, async (req, res) => {
+app.get('/api/admin/saved-cards', owner, async (req, res) => {
   const email = (req.query.email || '').toString().trim().toLowerCase();
   if (!email) return res.json({ cards: [], squareEnabled: SQ.enabled });
   let cards = [];
@@ -1627,7 +1634,7 @@ app.get('/api/admin/saved-cards', admin, async (req, res) => {
 });
 
 // Staff: charge a client's saved card on file (merchant-initiated, with prior permission), then mark the booking paid.
-app.post('/api/admin/charge-card', admin, async (req, res) => {
+app.post('/api/admin/charge-card', owner, async (req, res) => {
   const b = db.prepare(`SELECT * FROM blocks WHERE id=?`).get(+req.body.id);
   if (!b || b.kind !== 'booking') return res.status(400).json({ error: 'This is not a booking entry.' });
   if (!b.confirmation) b.confirmation = ensureBlockConfirmation(b.id);
@@ -1648,7 +1655,7 @@ app.post('/api/admin/charge-card', admin, async (req, res) => {
 });
 
 // Staff: view the card audit trail (most recent first).
-app.get('/api/admin/audit', admin, (_req, res) => res.json({ log: db.prepare(`SELECT * FROM audit_log ORDER BY id DESC LIMIT 500`).all() }));
+app.get('/api/admin/audit', owner, (_req, res) => res.json({ log: db.prepare(`SELECT * FROM audit_log ORDER BY id DESC LIMIT 500`).all() }));
 
 // One-time pre-launch helper: mark every currently-unpaid manual booking as paid at its full computed price.
 app.post('/api/admin/mark-all-paid', admin, (req, res) => {

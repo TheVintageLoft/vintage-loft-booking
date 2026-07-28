@@ -286,7 +286,14 @@ function showApp(){
   document.getElementById('loginCard').style.display='none';
   document.getElementById('signedbar').style.display='block';
   var cards=document.querySelectorAll('.appcard'); for(var i=0;i<cards.length;i++){ cards[i].style.display=''; }
-  loadClients();
+  loadClients(); loadRole();
+}
+// Is the signed-in code the owner? Only the owner sees the "Charge saved card" option.
+var vlIsOwner=false;
+function loadRole(){
+  if(!getKey()) return;
+  fetch('/api/admin/whoami?key='+encodeURIComponent(getKey())).then(function(r){return r.json();})
+    .then(function(d){ vlIsOwner=!!(d&&d.role==='owner'); if(CAL&&CAL.sel) selectDay(CAL.sel); }).catch(function(){});
 }
 // known clients for autocomplete
 var CLIENTS={};
@@ -887,7 +894,7 @@ function selectDay(iso){
             } else if(!email && !owner && !comp){ var n=document.createElement('span'); n.className='meta'; n.textContent='(add a client email to send the confirmation)'; row.appendChild(n); }
             box.appendChild(row); box.appendChild(msg);
             if(paid && !owner && !comp) checkAdjust();
-            if(!paid && !owner && !comp && email) loadSavedCards(entry, email, box, msg);
+            if(!paid && !owner && !comp && email && vlIsOwner) loadSavedCards(entry, email, box, msg);
           }
           render();
           card.appendChild(box);
