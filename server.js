@@ -98,6 +98,16 @@ db.exec(`CREATE TABLE IF NOT EXISTS card_consents (id INTEGER PRIMARY KEY AUTOIN
 db.exec(`CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, actor TEXT, action TEXT, email TEXT, detail TEXT)`);
 // Private, staff-only notes ABOUT a client (style, preferences, special requests) — persists across all their bookings.
 db.exec(`CREATE TABLE IF NOT EXISTS client_notes (ckey TEXT PRIMARY KEY, email TEXT, name TEXT, notes TEXT, updated_at TEXT)`);
+// Gift cards: a sold card carries a dollar balance that is drawn down across bookings, with the remainder carried over.
+//   kind 'dollar' = a plain money card; 'package' = a specialty-package certificate (redeemed as a fixed dollar value).
+//   status 'active' | 'depleted' | 'void'. balance starts at `original` and decreases as it is spent.
+db.exec(`CREATE TABLE IF NOT EXISTS gift_cards (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE, kind TEXT, package_key TEXT, original REAL, balance REAL, status TEXT, purchaser_name TEXT, purchaser_email TEXT, recipient_name TEXT, recipient_email TEXT, message TEXT, payment_ref TEXT, payment_mode TEXT, created_at TEXT, redeemed_at TEXT)`);
+// Every time a gift card is spent against a booking, one row here records how much and on which confirmation.
+db.exec(`CREATE TABLE IF NOT EXISTS gift_redemptions (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT, confirmation TEXT, amount REAL, at TEXT)`);
+// Self-serve promo codes Kelly creates from the Staff App (no redeploy). Merged with the built-in CODES at validation time.
+//   type 'percent' (off is a fraction, e.g. 0.20) or 'fixed' (amount in dollars). scope 'room' | 'all' | 'total'.
+//   max_uses null = unlimited; a number caps redemptions. expires 'YYYY-MM-DD' or null. active 0 turns it off.
+db.exec(`CREATE TABLE IF NOT EXISTS promo_codes (code TEXT PRIMARY KEY, type TEXT, off REAL, amount REAL, scope TEXT, kind TEXT, max_uses INTEGER, uses INTEGER NOT NULL DEFAULT 0, expires TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT, created_by TEXT)`);
 
 /* ---------- one-time clean reset (owner-only, no button) ----------
    Set WIPE_ONCE to any word in the host environment to clear ALL bookings + holds
@@ -556,6 +566,8 @@ async function sendConfirmationEmail({ email, name, confirmation, bookings, gran
 
 /* ---------- helpers ---------- */
 const nowISO = () => new Date().toISOString();
+// Escape text before dropping it into email HTML (client-supplied names/messages).
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 // Confirmation date code in the studio's local time zone (Eastern), as YYMMDD.
 // The host runs in UTC, so we format explicitly for America/Toronto or a late-evening
 // booking could roll onto the next day's number.
@@ -791,30 +803,67 @@ const CODES = (() => {
 const normCode = s => (s || '').toString().toUpperCase().replace(/\s+/g, '');
 // A short, customer-safe label describing what a code does (no other codes revealed).
 function codeLabel(c) {
+  if (c.giftCard) return 'Gift card — $' + Number(c.balance || 0).toFixed(2) + ' available';
   if (c.type === 'fixed') return '$' + c.amount.toFixed(2) + ' credit';
   if (c.kind === 'Comp') return 'On the house';
   if (c.off >= 1) return 'Free (owner)';
-  return Math.round(c.off * 100) + '% off the studio';
+  const scope = (c.scope === 'all') ? '' : ' the studio';
+  return Math.round(c.off * 100) + '% off' + scope;
 }
-// Look up a code; returns null if unknown. Does NOT check single-use here.
+// Today's date in Toronto as 'YYYY-MM-DD' (for comparing against a promo code's expiry).
+function torontoToday() { try { return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' }); } catch (_) { return new Date().toISOString().slice(0, 10); } }
+// Look up a code; returns null if unknown. Does NOT check expiry/limits here (see codeUnavailable).
+// Order: the built-in CODES catalog, then Kelly's self-serve promo codes, then gift cards.
 function lookupCode(input) {
   const k = normCode(input);
-  return CODES[k] ? Object.assign({ code: k }, CODES[k]) : null;
+  if (CODES[k]) return Object.assign({ code: k }, CODES[k]);
+  try {
+    const p = db.prepare('SELECT * FROM promo_codes WHERE code=? AND active=1').get(k);
+    if (p) {
+      const maxU = (p.max_uses == null ? null : p.max_uses);
+      return { code: k, type: p.type, off: p.off || 0, amount: p.amount || 0, scope: p.scope || 'room',
+        reusable: (maxU == null), kind: p.kind || 'Promo', promo: true, maxUses: maxU, uses: p.uses || 0, expires: p.expires || null };
+    }
+  } catch (_) {}
+  try {
+    const g = db.prepare('SELECT * FROM gift_cards WHERE code=?').get(k);
+    if (g) return { code: k, type: 'fixed', amount: VL.round2(g.balance || 0), scope: 'total',
+      reusable: false, kind: 'Gift card', giftCard: true, cardId: g.id, balance: VL.round2(g.balance || 0), status: g.status };
+  } catch (_) {}
+  return null;
 }
 // Has a non-reusable code already been redeemed?
 function codeUsed(code) {
   return !!db.prepare('SELECT 1 FROM code_redemptions WHERE code=?').get(code);
 }
+// Why a (valid) code can't be applied right now: expired, used up, or a spent/void gift card. null = good to use.
+function codeUnavailable(c) {
+  if (!c) return 'That code is not valid. Please check the spelling.';
+  if (c.giftCard) {
+    if (c.status === 'void') return 'That gift card is no longer valid.';
+    if (!(c.balance > 0) || c.status === 'depleted') return 'That gift card has no balance left.';
+    return null;
+  }
+  if (c.promo) {
+    if (c.expires && torontoToday() > c.expires) return 'That code has expired.';
+    if (c.maxUses != null && c.uses >= c.maxUses) return 'That code has reached its usage limit.';
+    if (!c.reusable && codeUsed(c.code)) return 'That code has already been used.';
+    return null;
+  }
+  if (!c.reusable && codeUsed(c.code)) return 'That code has already been used.';
+  return null;
+}
 // A safe, browser-facing descriptor (never includes the raw catalog).
 function publicCode(c) {
-  return { code: c.code, type: c.type, off: c.off || 0, amount: c.amount || 0, scope: c.scope, kind: c.kind, label: codeLabel(c) };
+  return { code: c.code, type: c.type, off: c.off || 0, amount: c.amount || 0, scope: c.scope, kind: c.kind, giftCard: !!c.giftCard, balance: c.balance || 0, label: codeLabel(c) };
 }
 
 // Validate a code (and, if provided, the order items) and return its effect + the new total.
 app.post('/api/apply-code', (req, res) => {
   const c = lookupCode(req.body && req.body.code);
   if (!c) return res.status(404).json({ ok: false, error: 'That code is not valid. Please check the spelling.' });
-  if (!c.reusable && codeUsed(c.code)) return res.status(409).json({ ok: false, error: 'That code has already been used.' });
+  const un = codeUnavailable(c);
+  if (un) return res.status(409).json({ ok: false, error: un });
   let breakdown = null;
   try {
     const items = Array.isArray(req.body.items) ? req.body.items : [];
@@ -840,6 +889,141 @@ function quoteOrderWithCode(items, c) {
     : VL.round2(discounted.reduce((s, q) => s + (q.discount || 0), 0));
   return { quotes: discounted, grandTotal, discountTotal, fixedCredit };
 }
+
+/* ---------- gift cards ----------
+   Sold through the app (Square takes the money), redeemed at booking. A card carries a dollar
+   balance that is drawn down; any remainder stays on the card for next time. Gift cards are NOT
+   taxed at purchase — HST is charged when the card is spent on a taxable booking. */
+const GIFT_DENOMS = [50, 100, 200, 300];
+// Generate an unguessable, unambiguous gift-card code (no I/L/O/0/1) that isn't already taken.
+function genGiftCode() {
+  const alpha = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const bytes = crypto.randomBytes(8); let s = '';
+    for (let i = 0; i < 8; i++) s += alpha[bytes[i] % alpha.length];
+    const code = 'VLGC' + s;
+    if (!db.prepare('SELECT 1 FROM gift_cards WHERE code=?').get(code)) return code;
+  }
+  return 'VLGC' + crypto.randomBytes(6).toString('hex').toUpperCase();
+}
+function giftCardEmailHtml({ code, amount, recipientName, message, forRecipient, purchaserName }) {
+  const greet = forRecipient ? (recipientName ? ('Hi ' + esc(recipientName) + ',') : 'Hello,') : (purchaserName ? ('Hi ' + esc(purchaserName) + ',') : 'Hello,');
+  const intro = forRecipient
+    ? ((purchaserName ? esc(purchaserName) : 'Someone') + ' has sent you a gift card to The Vintage Loft!')
+    : 'Thank you for your gift card purchase. Here are the details' + (recipientName ? ' — a copy has also been sent to ' + esc(recipientName) + '.' : '.');
+  const note = (forRecipient && message) ? `<tr><td style="padding:8px 0 0;font-style:italic;color:#6b5b52">"${esc(message)}"</td></tr>` : '';
+  return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#3a352f">
+    <div style="text-align:center;margin:0 0 16px"><img src="${LOGO_URL}" alt="The Vintage Loft" style="max-width:200px;height:auto"></div>
+    <h2 style="font-weight:normal;color:#7c7268;text-align:center;margin:0 0 14px">A Gift Card for The Vintage Loft</h2>
+    <p style="margin:0 0 12px;line-height:1.6">${greet}</p>
+    <p style="margin:0 0 16px;line-height:1.6">${intro}</p>
+    <table style="width:100%;border-collapse:collapse;background:#f7f3ee;border:1px solid #e6dcc9;border-radius:10px">
+      <tr><td style="padding:18px 20px;text-align:center">
+        <div style="font-size:13px;letter-spacing:1px;color:#9a8f82;text-transform:uppercase">Gift card value</div>
+        <div style="font-size:30px;font-weight:bold;margin:4px 0 12px">${emMoney(amount)}</div>
+        <div style="font-size:13px;letter-spacing:1px;color:#9a8f82;text-transform:uppercase">Your code</div>
+        <div style="font-size:24px;font-weight:bold;letter-spacing:3px;font-family:'Courier New',monospace;margin:4px 0">${esc(code)}</div>
+        ${note}
+      </td></tr>
+    </table>
+    <p style="margin:16px 0 0;line-height:1.6">To use it, enter this code in the <b>gift card or discount code</b> box when you book online at <a href="https://www.thevintageloft.ca/book" style="color:#7c7268">thevintageloft.ca</a>. If your booking costs less than the card, the remaining balance stays on the card for next time.</p>
+    <p style="margin:14px 0 0;line-height:1.6;color:#9a8f82;font-size:13px">The Vintage Loft &middot; Whitby, ON &middot; Questions? Reply to this email.</p>
+  </div>`;
+}
+async function giftCardEmails({ code, amount, purchaserName, purchaserEmail, recipientName, recipientEmail, message }) {
+  const hasRecipient = recipientEmail && recipientEmail !== purchaserEmail;
+  if (hasRecipient) {
+    await sendEmail({ to: recipientEmail, subject: 'You\'ve received a Vintage Loft gift card', html: giftCardEmailHtml({ code, amount, recipientName, message, forRecipient: true, purchaserName }) });
+    if (purchaserEmail) await sendEmail({ to: purchaserEmail, subject: 'Your Vintage Loft gift card purchase', html: giftCardEmailHtml({ code, amount, recipientName, forRecipient: false, purchaserName }) });
+  } else if (purchaserEmail) {
+    await sendEmail({ to: purchaserEmail, subject: 'Your Vintage Loft gift card', html: giftCardEmailHtml({ code, amount, recipientName, forRecipient: false, purchaserName }) });
+  }
+}
+// Settings for the gift-card checkout page (Square keys for the card form + the amounts offered).
+app.get('/api/giftcards/config', (_req, res) => res.json({ enabled: SQ.enabled, appId: SQ.appId || null, locationId: SQ.locationId || null, env: SQ.env, denominations: GIFT_DENOMS }));
+
+// Buy a gift card: charge the card for the face value, mint a code, store it, and email it out.
+app.post('/api/giftcards/purchase', async (req, res) => {
+  const amount = Math.round(Number(req.body.amount));
+  if (!GIFT_DENOMS.includes(amount)) return res.status(400).json({ error: 'Please choose one of the gift card amounts.' });
+  const purchaserName = (req.body.purchaserName || '').toString().trim().slice(0, 120);
+  const purchaserEmail = (req.body.purchaserEmail || '').toString().trim().toLowerCase().slice(0, 160);
+  if (!purchaserName || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(purchaserEmail)) return res.status(400).json({ error: 'Please add your name and a valid email address.' });
+  const recipientName = (req.body.recipientName || '').toString().trim().slice(0, 120);
+  const recipientEmail = (req.body.recipientEmail || '').toString().trim().toLowerCase().slice(0, 160);
+  if (recipientEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipientEmail)) return res.status(400).json({ error: 'That recipient email doesn\'t look right.' });
+  const message = (req.body.message || '').toString().slice(0, 500);
+  const pay = await payments.charge({ amountCents: amount * 100, sourceId: req.body.paymentToken, idempotencyKey: 'vlgift-' + (req.body.paymentToken || '').toString().slice(0, 40) });
+  if (!pay.ok) return res.status(402).json({ error: pay.error || 'Payment could not be processed. Please check your card and try again.' });
+  const code = genGiftCode();
+  try {
+    db.prepare(`INSERT INTO gift_cards (code,kind,original,balance,status,purchaser_name,purchaser_email,recipient_name,recipient_email,message,payment_ref,payment_mode,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(code, 'dollar', amount, amount, 'active', purchaserName, purchaserEmail, recipientName || null, recipientEmail || null, message || null, pay.ref, pay.mode, nowISO());
+  } catch (e) { console.error('[giftcard] insert error:', e.message); return res.status(500).json({ error: 'The payment went through but the card could not be saved — please contact us and we\'ll sort it out.' }); }
+  audit('giftcard-purchase', 'giftcard_sold', purchaserEmail, code + ' ' + emMoney(amount) + (recipientEmail ? ' -> ' + recipientEmail : ''));
+  giftCardEmails({ code, amount, purchaserName, purchaserEmail, recipientName, recipientEmail, message }).catch(e => console.error('[giftcard] email error:', e.message));
+  res.json({ ok: true, code, amount, emailedTo: (recipientEmail && recipientEmail !== purchaserEmail) ? recipientEmail : purchaserEmail });
+});
+
+// Staff: list gift cards (sold + issued), with balances.
+app.get('/api/admin/gift-cards', admin, (_req, res) => {
+  const cards = db.prepare(`SELECT id,code,kind,original,balance,status,purchaser_name,purchaser_email,recipient_name,recipient_email,payment_mode,created_at,redeemed_at FROM gift_cards ORDER BY id DESC`).all();
+  res.json({ cards });
+});
+// Staff: void a gift card (e.g. reported lost or issued in error).
+app.post('/api/admin/gift-cards/void', admin, (req, res) => {
+  const code = normCode(req.body.code); if (!code) return res.status(400).json({ error: 'Missing code.' });
+  const info = db.prepare("UPDATE gift_cards SET status='void' WHERE code=?").run(code);
+  if (!info.changes) return res.status(404).json({ error: 'No gift card with that code.' });
+  audit(keyOf(req) === OWNER_KEY ? 'owner' : 'staff', 'giftcard_void', '', code);
+  res.json({ ok: true });
+});
+// Staff: hand-issue a gift card without a payment (a prize, a comp, a make-good). Optionally email the recipient.
+app.post('/api/admin/gift-cards/issue', admin, async (req, res) => {
+  const amount = VL.round2(Number(req.body.amount));
+  if (!(amount > 0)) return res.status(400).json({ error: 'Enter a dollar amount greater than 0.' });
+  const recipientName = (req.body.recipientName || '').toString().trim().slice(0, 120);
+  const recipientEmail = (req.body.recipientEmail || '').toString().trim().toLowerCase().slice(0, 160);
+  const message = (req.body.message || '').toString().slice(0, 500);
+  const code = genGiftCode();
+  db.prepare(`INSERT INTO gift_cards (code,kind,original,balance,status,purchaser_name,purchaser_email,recipient_name,recipient_email,message,payment_ref,payment_mode,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(code, 'dollar', amount, amount, 'active', 'Studio-issued', '', recipientName || null, recipientEmail || null, message || null, 'MANUAL', 'manual', nowISO());
+  audit(keyOf(req) === OWNER_KEY ? 'owner' : 'staff', 'giftcard_issued', recipientEmail, code + ' ' + emMoney(amount));
+  if (recipientEmail && req.body.sendEmail !== false) giftCardEmails({ code, amount, purchaserName: 'The Vintage Loft', purchaserEmail: '', recipientName, recipientEmail, message }).catch(e => console.error('[giftcard] issue email error:', e.message));
+  res.json({ ok: true, code, amount });
+});
+
+/* ---------- self-serve promo codes (Staff App) ----------
+   Kelly creates occasional discount codes here without a redeploy. They merge with the built-in
+   CODES at validation time. Percent or dollar; studio-only or everything; optional usage cap + expiry. */
+app.get('/api/admin/promo-codes', admin, (_req, res) => {
+  const codes = db.prepare(`SELECT code,type,off,amount,scope,kind,max_uses,uses,expires,active,created_at FROM promo_codes ORDER BY created_at DESC`).all();
+  res.json({ codes });
+});
+app.post('/api/admin/promo-codes', admin, (req, res) => {
+  const code = normCode(req.body.code);
+  if (!code || code.length < 3) return res.status(400).json({ error: 'Enter a code of at least 3 characters (letters and numbers).' });
+  if (CODES[code]) return res.status(409).json({ error: 'That code is reserved by the system. Please pick a different word.' });
+  if (db.prepare('SELECT 1 FROM gift_cards WHERE code=?').get(code)) return res.status(409).json({ error: 'That code is already in use by a gift card.' });
+  const type = req.body.type === 'fixed' ? 'fixed' : 'percent';
+  let off = 0, amount = 0;
+  if (type === 'percent') { off = VL.round2(Number(req.body.percent) / 100); if (!(off > 0 && off <= 1)) return res.status(400).json({ error: 'Enter a percent between 1 and 100.' }); }
+  else { amount = VL.round2(Number(req.body.amount)); if (!(amount > 0)) return res.status(400).json({ error: 'Enter a dollar amount greater than 0.' }); }
+  const scope = req.body.scope === 'all' ? 'all' : (type === 'fixed' ? 'total' : 'room');
+  const maxUses = (req.body.maxUses == null || req.body.maxUses === '') ? null : Math.max(1, Math.round(Number(req.body.maxUses)));
+  const expires = (req.body.expires || '').toString().slice(0, 10) || null;
+  const by = keyOf(req) === OWNER_KEY ? 'owner' : 'staff';
+  const exists = db.prepare('SELECT 1 FROM promo_codes WHERE code=?').get(code);
+  if (exists) db.prepare('UPDATE promo_codes SET type=?,off=?,amount=?,scope=?,kind=?,max_uses=?,expires=?,active=1 WHERE code=?').run(type, off, amount, scope, 'Promo', maxUses, expires, code);
+  else db.prepare('INSERT INTO promo_codes (code,type,off,amount,scope,kind,max_uses,uses,expires,active,created_at,created_by) VALUES (?,?,?,?,?,?,?,0,?,1,?,?)').run(code, type, off, amount, scope, 'Promo', maxUses, expires, nowISO(), by);
+  res.json({ ok: true, code });
+});
+app.post('/api/admin/promo-codes/deactivate', admin, (req, res) => {
+  const code = normCode(req.body.code); if (!code) return res.status(400).json({ error: 'Missing code.' });
+  const info = db.prepare('UPDATE promo_codes SET active=? WHERE code=?').run(req.body.reactivate ? 1 : 0, code);
+  if (!info.changes) return res.status(404).json({ error: 'No promo code with that name.' });
+  res.json({ ok: true });
+});
 
 app.get('/api/rooms', (_req, res) => res.json({ rooms: VL.ROOMS, addons: VL.ADDONS, config: {
   minHours: VL.CONFIG.minHours, incrementMin: VL.CONFIG.incrementMin, hstRate: VL.CONFIG.hstRate } }));
@@ -1002,7 +1186,8 @@ app.post('/api/bookings', async (req, res) => {
   if (req.body.code && normCode(req.body.code)) {
     codeInfo = lookupCode(req.body.code);
     if (!codeInfo) return res.status(400).json({ error: 'That discount code is not valid.' });
-    if (!codeInfo.reusable && codeUsed(codeInfo.code)) return res.status(409).json({ error: 'That code has already been used.' });
+    const un = codeUnavailable(codeInfo);
+    if (un) return res.status(409).json({ error: un });
   }
 
   // 1) Reserve the slots atomically (no await inside the transaction)
@@ -1092,8 +1277,21 @@ app.post('/api/bookings', async (req, res) => {
   const confirmation = prefix + cn;
   const upd = db.prepare(`UPDATE bookings SET status='confirmed', pre=?, hst=?, total=?, paid=?, discount=?, code=?, payment_ref=?, payment_mode=?, confirmation=? WHERE id=?`);
   reservedIds.forEach((id, i) => upd.run(finals[i].pre, finals[i].hst, finals[i].total, finals[i].paid, finals[i].discount, codeInfo ? codeInfo.code : null, pay.ref, pay.mode, confirmation, id));
-  // Retire a single-use code (reschedule credits, gift cards) so it can't be used again.
-  if (codeInfo && !codeInfo.reusable) {
+  // Record the code's redemption. Gift cards draw their balance down (remainder carries over);
+  // promo codes tick a usage counter; other single-use codes retire so they can't be reused.
+  const consumedFromCode = VL.round2(finals.reduce((s, f) => s + (f.discount || 0), 0));
+  if (codeInfo && codeInfo.giftCard) {
+    try {
+      const g = db.prepare('SELECT balance FROM gift_cards WHERE id=?').get(codeInfo.cardId);
+      const spent = VL.round2(Math.min(consumedFromCode, (g && g.balance) || 0));
+      const newBal = VL.round2(((g && g.balance) || 0) - spent);
+      db.prepare("UPDATE gift_cards SET balance=?, status=?, redeemed_at=? WHERE id=?").run(newBal, newBal <= 0 ? 'depleted' : 'active', nowISO(), codeInfo.cardId);
+      db.prepare('INSERT INTO gift_redemptions (code, confirmation, amount, at) VALUES (?,?,?,?)').run(codeInfo.code, confirmation, spent, nowISO());
+    } catch (e) { console.error('[giftcard] redeem error:', e.message); }
+  } else if (codeInfo && codeInfo.promo) {
+    try { db.prepare('UPDATE promo_codes SET uses=uses+1 WHERE code=?').run(codeInfo.code); } catch (_) {}
+    if (!codeInfo.reusable) { try { db.prepare('INSERT OR IGNORE INTO code_redemptions (code, confirmation, used_at) VALUES (?,?,?)').run(codeInfo.code, confirmation, nowISO()); } catch (_) {} }
+  } else if (codeInfo && !codeInfo.reusable) {
     try { db.prepare('INSERT OR IGNORE INTO code_redemptions (code, confirmation, used_at) VALUES (?,?,?)').run(codeInfo.code, confirmation, nowISO()); } catch (_) {}
   }
   // Debit the client's wallet for any credit they applied (only now that the booking is confirmed).
@@ -1119,7 +1317,7 @@ app.get('/api/my-bookings', (req, res) => {
    to the owner only. If OWNER_KEY is unset it equals ADMIN_KEY (single-user mode, nothing changes). ---------- */
 const ADMIN_KEY = process.env.ADMIN_KEY || 'loft-admin';
 const OWNER_KEY = process.env.OWNER_KEY || ADMIN_KEY;
-function keyOf(req) { return (req.query.key || req.body.key || ''); }
+function keyOf(req) { return ((req.query && req.query.key) || (req.body && req.body.key) || ''); }
 function admin(req, res, next) { const k = keyOf(req); if (k === ADMIN_KEY || k === OWNER_KEY) return next(); res.status(401).json({ error: 'unauthorized' }); }
 function owner(req, res, next) { const k = keyOf(req); if (k === OWNER_KEY) return next(); res.status(403).json({ error: 'Only the owner can charge saved cards.' }); }
 // Lets the Staff App know whether the signed-in code is the owner (so it shows the charge button only to you).

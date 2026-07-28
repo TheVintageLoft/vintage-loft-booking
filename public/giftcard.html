@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Vintage Loft — Gift Cards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#4a423b; --muted:#9a9086; --line:#e8e2da; --paper:#F0EEEE;
+    --card:#ffffff; --gold:#786C66; --gold-d:#5f5550; --green:#5f8361;
+    --red:#a95f51; --shadow:0 10px 34px rgba(74,66,59,.12); --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',-apple-system,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--paper);line-height:1.5}
+  h1,h2,h3{font-family:'Cormorant Garamond',Georgia,'Times New Roman',serif;font-weight:600;font-style:italic;margin:0;letter-spacing:.3px}
+  a{color:var(--gold-d)}
+  button{font-family:inherit;cursor:pointer}
+  .wrap{max-width:640px;margin:0 auto;padding:0 18px}
+  header{background:#fff;border-bottom:1px solid var(--line)}
+  .bar{display:flex;align-items:center;justify-content:center;height:74px;flex-direction:column;gap:2px}
+  .brand{font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;font-size:26px;color:var(--ink);text-decoration:none}
+  .brand small{display:block;font-family:'Segoe UI',sans-serif;font-style:normal;font-size:9px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;text-align:center;margin-top:3px}
+  main{padding:26px 0 80px}
+  .hero{text-align:center;padding:6px 0 20px}
+  .hero h1{font-size:32px}
+  .hero p{color:var(--muted);margin:8px 0 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;margin-bottom:18px}
+  .lbl{display:block;font-weight:700;color:var(--ink);margin:0 0 8px;font-size:15px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 14px}
+  input[type=text],input[type=email],textarea{width:100%;padding:12px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-family:inherit;color:var(--ink);background:#fff}
+  input:focus,textarea:focus{outline:none;border-color:var(--gold)}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:520px){.row2{grid-template-columns:1fr}}
+  .field{margin:0 0 14px}
+  .amounts{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  @media(max-width:520px){.amounts{grid-template-columns:1fr 1fr}}
+  .amt{border:1.5px solid var(--line);background:#fff;border-radius:12px;padding:16px 4px;font-size:20px;font-weight:700;color:var(--ink);transition:.12s;font-family:'Cormorant Garamond',serif;font-style:italic}
+  .amt:hover{border-color:var(--gold)}
+  .amt.sel{border-color:var(--gold);background:#f7f3ee;box-shadow:0 4px 14px rgba(120,108,102,.18)}
+  .togline{display:flex;align-items:center;gap:10px;margin:4px 0 0;font-size:14px;color:var(--ink)}
+  .togline input{width:18px;height:18px;accent-color:var(--gold)}
+  #giftFields{display:none;margin-top:14px;padding-top:6px;border-top:1px dashed var(--line)}
+  #sqCardWrap{display:none;margin:8px 0 4px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+  #sq-card{min-height:44px}
+  .sq-err{color:var(--red);font-size:13px;min-height:16px;margin-top:6px}
+  .standin{background:#fff7ea;border:1px solid #f0dcae;color:#6b5326;border-radius:10px;padding:10px 12px;font-size:12.5px;margin:8px 0}
+  .terms{color:var(--muted);font-size:12px;margin:14px 0}
+  .paybtn{width:100%;background:var(--gold);color:#fff;border:0;padding:15px;border-radius:12px;font-size:16px;font-weight:700;letter-spacing:.3px}
+  .paybtn:disabled{opacity:.55;cursor:default}
+  .total{text-align:center;font-size:15px;color:var(--muted);margin:0 0 12px}
+  .total b{color:var(--ink);font-size:22px;font-family:'Cormorant Garamond',serif;font-style:italic}
+  .ok-wrap{text-align:center;padding:8px 0}
+  .ok-code{font-family:'Courier New',monospace;font-size:26px;font-weight:bold;letter-spacing:3px;background:#f7f3ee;border:1px solid #e6dcc9;border-radius:12px;padding:16px;margin:14px 0}
+  .msg{color:var(--red);font-size:14px;text-align:center;min-height:18px;margin:8px 0}
+</style>
+</head>
+<body>
+<header><div class="wrap"><div class="bar">
+  <a class="brand" href="https://www.thevintageloft.ca">The Vintage Loft<small>Whitby &middot; Ontario</small></a>
+</div></div></header>
+
+<main><div class="wrap">
+  <div class="hero">
+    <h1>Gift Cards</h1>
+    <p>The gift of studio time, portraits &amp; special moments.</p>
+  </div>
+
+  <div id="buyView">
+    <div class="card">
+      <span class="lbl">Choose an amount</span>
+      <p class="sub">Redeemable toward any studio rental, wardrobe &amp; prop rental, or photography session.</p>
+      <div class="amounts" id="amounts"></div>
+    </div>
+
+    <div class="card">
+      <span class="lbl">Your details</span>
+      <div class="row2">
+        <div class="field"><input type="text" id="buyerName" placeholder="Your name" autocomplete="name"></div>
+        <div class="field"><input type="email" id="buyerEmail" placeholder="Your email" autocomplete="email" autocapitalize="none"></div>
+      </div>
+      <label class="togline"><input type="checkbox" id="isGift"> This is a gift for someone else</label>
+      <div id="giftFields">
+        <div class="row2">
+          <div class="field"><input type="text" id="recName" placeholder="Recipient's name"></div>
+          <div class="field"><input type="email" id="recEmail" placeholder="Recipient's email" autocapitalize="none"></div>
+        </div>
+        <div class="field"><textarea id="recMsg" rows="2" placeholder="A short message (optional)"></textarea></div>
+        <p class="sub" style="margin:0">We'll email the gift card to your recipient, and send you a copy too.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="lbl">Payment</span>
+      <div id="standin" class="standin" style="display:none">Test mode — no live card needed. Payment is simulated until Square is connected.</div>
+      <div id="sqCardWrap"><div id="sq-card"></div></div>
+      <div id="sq-errors" class="sq-err"></div>
+      <p class="terms">Gift cards are not taxed at purchase — HST applies when the card is redeemed on a taxable booking. Gift cards don't expire and any unused balance carries over.</p>
+      <div class="total">Total today: <b id="totalTxt">$0.00</b></div>
+      <div id="buyMsg" class="msg"></div>
+      <button class="paybtn" id="payBtn" disabled>Select an amount</button>
+    </div>
+  </div>
+
+  <div id="doneView" class="card" style="display:none">
+    <div class="ok-wrap">
+      <h2 style="font-size:26px;color:var(--green)">Thank you!</h2>
+      <p id="doneLead" style="margin:10px 0 0"></p>
+      <div class="ok-code" id="doneCode"></div>
+      <p class="sub" id="doneNote"></p>
+      <p style="margin:16px 0 0"><a href="https://www.thevintageloft.ca/book">Book a studio &rarr;</a></p>
+    </div>
+  </div>
+</div></main>
+
+<script>
+var DENOMS=[], amount=0, cfg=null, sqPayments=null, sqCard=null;
+function $(id){return document.getElementById(id);}
+function money(n){return '$'+Number(n||0).toFixed(2);}
+async function fetchJSON(url,opts){ const r=await fetch(url,opts); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Something went wrong.'); return d; }
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('sdk')); document.head.appendChild(s); }); }
+
+function renderAmounts(){
+  var box=$('amounts'); box.innerHTML='';
+  DENOMS.forEach(function(v){
+    var b=document.createElement('button'); b.className='amt'+(v===amount?' sel':''); b.textContent='$'+v;
+    b.onclick=function(){ amount=v; renderAmounts(); updateTotal(); };
+    box.appendChild(b);
+  });
+}
+function updateTotal(){
+  $('totalTxt').textContent=money(amount);
+  var btn=$('payBtn');
+  if(amount>0){ btn.disabled=false; btn.textContent='Pay '+money(amount)+' & send gift card'; }
+  else { btn.disabled=true; btn.textContent='Select an amount'; }
+}
+
+async function init(){
+  try{ cfg=await fetchJSON('/api/giftcards/config'); }catch(e){ cfg={enabled:false,denominations:[50,100,200,300]}; }
+  DENOMS=cfg.denominations||[50,100,200,300];
+  // Preselect from ?amount= if valid
+  var pre=parseInt((new URLSearchParams(location.search)).get('amount'),10);
+  if(DENOMS.indexOf(pre)>=0) amount=pre;
+  renderAmounts(); updateTotal();
+  if(cfg.enabled){
+    var url = cfg.env==='production' ? 'https://web.squarecdn.com/v1/square.js' : 'https://sandbox.web.squarecdn.com/v1/square.js';
+    try{
+      await loadScript(url);
+      sqPayments = await window.Square.payments(cfg.appId, cfg.locationId);
+      $('sqCardWrap').style.display='block';
+      sqCard = await sqPayments.card(); await sqCard.attach('#sq-card');
+    }catch(e){ sqPayments=null; $('standin').style.display='block'; }
+  } else {
+    $('standin').style.display='block';
+  }
+}
+
+$('isGift').addEventListener('change',function(){ $('giftFields').style.display=this.checked?'block':'none'; });
+
+$('payBtn').addEventListener('click', async function(){
+  var msg=$('buyMsg'); msg.textContent='';
+  var name=$('buyerName').value.trim(), email=$('buyerEmail').value.trim();
+  if(!amount){ msg.textContent='Please choose an amount.'; return; }
+  if(!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ msg.textContent='Please add your name and a valid email.'; return; }
+  var isGift=$('isGift').checked;
+  var recName=isGift?$('recName').value.trim():'', recEmail=isGift?$('recEmail').value.trim():'', recMsg=isGift?$('recMsg').value.trim():'';
+  if(isGift && recEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recEmail)){ msg.textContent='That recipient email doesn\'t look right.'; return; }
+  var btn=$('payBtn'); var l0=btn.textContent; btn.disabled=true; btn.textContent='Processing…';
+  var paymentToken;
+  if(sqPayments){
+    if(!sqCard){ msg.textContent='Card form is still loading — one moment.'; btn.disabled=false; btn.textContent=l0; return; }
+    var result; try{ result=await sqCard.tokenize(); }catch(e){ $('sq-errors').textContent='Card error, please retry.'; btn.disabled=false; btn.textContent=l0; return; }
+    if(result.status!=='OK'){ $('sq-errors').textContent=(result.errors&&result.errors[0]&&(result.errors[0].message||result.errors[0].detail))||'Please check your card details.'; btn.disabled=false; btn.textContent=l0; return; }
+    $('sq-errors').textContent=''; paymentToken=result.token;
+  }
+  try{
+    var d=await fetchJSON('/api/giftcards/purchase',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ amount:amount, paymentToken:paymentToken, purchaserName:name, purchaserEmail:email, recipientName:recName, recipientEmail:recEmail, message:recMsg }) });
+    showDone(d, isGift, recName);
+  }catch(e){ msg.textContent=e.message; btn.disabled=false; btn.textContent=l0; }
+});
+
+function showDone(d, isGift, recName){
+  $('buyView').style.display='none';
+  var dv=$('doneView'); dv.style.display='block';
+  $('doneLead').textContent = isGift
+    ? ('Your '+money(d.amount)+' gift card is on its way'+(recName?(' to '+recName):'')+'.')
+    : ('Your '+money(d.amount)+' gift card is ready.');
+  $('doneCode').textContent=d.code;
+  $('doneNote').textContent = 'We\'ve emailed the code to '+(d.emailedTo||'you')+'. Keep it handy — enter it in the gift card box when booking online.';
+  window.scrollTo(0,0);
+}
+
+init();
+</script>
+</body>
+</html>

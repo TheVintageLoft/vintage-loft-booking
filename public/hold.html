@@ -209,6 +209,69 @@
   </div>
 </div>
 
+<!-- DISCOUNT / PROMO CODES -->
+<div class="card appcard" style="display:none">
+  <div class="hd"><h1>Discount codes</h1><p>Make your own code for a sale or a one-off special — it works the moment you save it. No need to ask anyone.</p></div>
+  <div class="body">
+    <label class="fld">Code</label>
+    <input id="pcCode" type="text" placeholder="e.g. SUMMER25" autocapitalize="characters" autocorrect="off" spellcheck="false" style="text-transform:uppercase">
+    <div style="display:flex;gap:12px;margin-top:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:150px">
+        <label class="fld" style="margin-top:0">Discount type</label>
+        <select id="pcType"><option value="percent">Percent off</option><option value="fixed">Dollar amount off</option></select>
+      </div>
+      <div style="flex:1;min-width:150px" id="pcPctWrap">
+        <label class="fld" style="margin-top:0">Percent off (%)</label>
+        <input id="pcPct" type="number" min="1" max="100" inputmode="numeric" placeholder="20">
+      </div>
+      <div style="flex:1;min-width:150px;display:none" id="pcAmtWrap">
+        <label class="fld" style="margin-top:0">Dollar amount ($)</label>
+        <input id="pcAmt" type="number" min="1" inputmode="decimal" placeholder="25">
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;margin-top:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:150px">
+        <label class="fld" style="margin-top:0">Applies to</label>
+        <select id="pcScope"><option value="room">Studio rental only</option><option value="all">Everything (incl. add-ons)</option></select>
+      </div>
+      <div style="flex:1;min-width:120px">
+        <label class="fld" style="margin-top:0">Max uses</label>
+        <input id="pcMax" type="number" min="1" inputmode="numeric" placeholder="Unlimited">
+      </div>
+      <div style="flex:1;min-width:140px">
+        <label class="fld" style="margin-top:0">Expires (optional)</label>
+        <input id="pcExp" type="date">
+      </div>
+    </div>
+    <button id="pcSave">Create code</button>
+    <div id="pcMsg" style="font-family:Arial,sans-serif;font-size:14px;margin-top:12px;display:none;padding:10px 12px;border-radius:8px"></div>
+    <hr style="border:0;border-top:1px solid #eee;margin:20px 0">
+    <div class="studiohdr" style="margin-top:0">Your codes</div>
+    <div id="pcList"><div class="muted">Loading…</div></div>
+  </div>
+</div>
+
+<!-- GIFT CARDS -->
+<div class="card appcard" style="display:none">
+  <div class="hd"><h1>Gift cards</h1><p>Every gift card that's been sold or issued, with its balance. Clients redeem them at checkout and the balance draws down on its own.</p></div>
+  <div class="body">
+    <div id="gcList"><div class="muted">Loading…</div></div>
+    <div class="allrow" style="margin-top:10px"><a onclick="loadGiftCards()">Refresh</a></div>
+    <hr style="border:0;border-top:1px solid #eee;margin:20px 0">
+    <div class="studiohdr" style="margin-top:0">Issue a gift card by hand</div>
+    <p class="muted" style="margin:0 0 10px">For a prize, a comp, or a make-good — no payment is taken. Add a recipient email and we'll send them the code.</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:120px"><label class="fld" style="margin-top:0">Amount ($)</label><input id="giAmt" type="number" min="1" inputmode="decimal" placeholder="50"></div>
+      <div style="flex:1;min-width:150px"><label class="fld" style="margin-top:0">Recipient name</label><input id="giName" type="text" placeholder="Optional"></div>
+      <div style="flex:1;min-width:170px"><label class="fld" style="margin-top:0">Recipient email</label><input id="giEmail" type="email" autocapitalize="none" placeholder="Optional — to email the code"></div>
+    </div>
+    <label class="fld">Message (optional)</label>
+    <input id="giMsg" type="text" placeholder="A short note for the recipient">
+    <button id="giSave">Issue gift card</button>
+    <div id="giMsgBox" style="font-family:Arial,sans-serif;font-size:14px;margin-top:12px;display:none;padding:10px 12px;border-radius:8px"></div>
+  </div>
+</div>
+
 <!-- CLEANUP -->
 <div class="card appcard" style="display:none">
   <div class="hd"><h1>Pre-launch cleanup</h1><p>Use these once, before you go live, to clear out testing data.</p></div>
@@ -289,7 +352,7 @@ function showApp(){
   document.getElementById('loginCard').style.display='none';
   document.getElementById('signedbar').style.display='block';
   var cards=document.querySelectorAll('.appcard'); for(var i=0;i<cards.length;i++){ cards[i].style.display=''; }
-  loadClients(); loadRole();
+  loadClients(); loadRole(); loadPromoCodes(); loadGiftCards();
 }
 // Is the signed-in code the owner? Only the owner sees the "Charge saved card" option.
 var vlIsOwner=false;
@@ -1300,4 +1363,94 @@ renderMonth();  // draw an empty current month behind the scenes
   if(ok){ showApp(); try{ loadCalendar(); }catch(e){} }
   else { showLogin(); }
 })();
+/* ===== Discount codes (self-serve promo codes) ===== */
+function pcFlash(box, ok, text){ box.style.display='block'; box.textContent=text; box.style.background=ok?'#e5efe7':'#fbe7e3'; box.style.color=ok?'#2e6b34':'#a33'; }
+function pcTypeSync(){ var t=document.getElementById('pcType').value; document.getElementById('pcPctWrap').style.display=(t==='percent')?'':'none'; document.getElementById('pcAmtWrap').style.display=(t==='fixed')?'':'none'; }
+document.getElementById('pcType').addEventListener('change', pcTypeSync);
+function loadPromoCodes(){
+  if(!getKey()) return;
+  fetch('/api/admin/promo-codes?key='+encodeURIComponent(getKey())).then(function(r){return r.json();})
+    .then(function(d){ renderPromoCodes(d.codes||[]); }).catch(function(){});
+}
+function renderPromoCodes(list){
+  var box=document.getElementById('pcList'); if(!box) return;
+  var active=list.filter(function(c){return c.active;});
+  if(!active.length){ box.innerHTML='<div class="muted">No custom codes yet. Create one above.</div>'; return; }
+  box.innerHTML=active.map(function(c){
+    var val=(c.type==='percent')?(Math.round(c.off*100)+'% off'):('$'+Number(c.amount).toFixed(2)+' off');
+    var scope=(c.scope==='all')?'everything':'studio only';
+    var usage=(c.max_uses==null)?('used '+c.uses+'×'):('used '+c.uses+' of '+c.max_uses);
+    var exp=c.expires?(' · expires '+fdate(c.expires)):'';
+    return '<div class="daycard" style="border-left-color:#7c7268;display:flex;justify-content:space-between;align-items:center;gap:10px">'
+      +'<div><span class="who" style="font-family:monospace;letter-spacing:1px">'+esc(c.code)+'</span>'
+      +'<div class="meta">'+val+' · '+scope+' · '+usage+exp+'</div></div>'
+      +'<button class="del" onclick="deactivatePromo(\''+esc(c.code)+'\')">Turn off</button></div>';
+  }).join('');
+}
+document.getElementById('pcSave').onclick=function(){
+  var box=document.getElementById('pcMsg');
+  var body={ key:getKey(),
+    code:(document.getElementById('pcCode').value||'').trim(),
+    type:document.getElementById('pcType').value,
+    scope:document.getElementById('pcScope').value,
+    percent:document.getElementById('pcPct').value,
+    amount:document.getElementById('pcAmt').value,
+    maxUses:document.getElementById('pcMax').value,
+    expires:document.getElementById('pcExp').value };
+  if(!body.code){ pcFlash(box,false,'Please enter a code.'); return; }
+  var btn=this; btn.disabled=true;
+  fetch('/api/admin/promo-codes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d};});})
+    .then(function(x){ btn.disabled=false;
+      if(!x.ok){ pcFlash(box,false,x.d.error||'Could not create the code.'); return; }
+      pcFlash(box,true,'Code “'+x.d.code+'” is live.');
+      document.getElementById('pcCode').value=''; document.getElementById('pcPct').value=''; document.getElementById('pcAmt').value=''; document.getElementById('pcMax').value=''; document.getElementById('pcExp').value='';
+      loadPromoCodes();
+    }).catch(function(){ btn.disabled=false; pcFlash(box,false,'Network problem — please try again.'); });
+};
+function deactivatePromo(code){
+  fetch('/api/admin/promo-codes/deactivate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),code:code})})
+    .then(function(){ loadPromoCodes(); }).catch(function(){});
+}
+
+/* ===== Gift cards ===== */
+function giFlash(box, ok, text){ box.style.display='block'; box.textContent=text; box.style.background=ok?'#e5efe7':'#fbe7e3'; box.style.color=ok?'#2e6b34':'#a33'; }
+function loadGiftCards(){
+  if(!getKey()) return;
+  fetch('/api/admin/gift-cards?key='+encodeURIComponent(getKey())).then(function(r){return r.json();})
+    .then(function(d){ renderGiftCards(d.cards||[]); }).catch(function(){});
+}
+function renderGiftCards(list){
+  var box=document.getElementById('gcList'); if(!box) return;
+  if(!list.length){ box.innerHTML='<div class="muted">No gift cards yet.</div>'; return; }
+  box.innerHTML=list.map(function(c){
+    var col=(c.status==='depleted')?'#b3a99c':(c.status==='void')?'#a33':'#3f8a52';
+    var who=c.recipient_name||c.recipient_email||c.purchaser_name||c.purchaser_email||'';
+    var statusTxt=(c.status==='void')?'Voided':(c.status==='depleted')?'Fully used':'Active';
+    var voidBtn=(c.status==='void')?'':'<button class="del" onclick="voidGiftCard(\''+esc(c.code)+'\')">Void</button>';
+    return '<div class="daycard" style="border-left-color:'+col+';display:flex;justify-content:space-between;align-items:center;gap:10px">'
+      +'<div><span class="who" style="font-family:monospace;letter-spacing:1px">'+esc(c.code)+'</span>'
+      +'<div class="meta"><b style="color:#3a352f">$'+Number(c.balance).toFixed(2)+'</b> of $'+Number(c.original).toFixed(2)+' · '+statusTxt+(who?(' · '+esc(who)):'')+'</div></div>'
+      +voidBtn+'</div>';
+  }).join('');
+}
+function voidGiftCard(code){
+  fetch('/api/admin/gift-cards/void',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),code:code})})
+    .then(function(){ loadGiftCards(); }).catch(function(){});
+}
+document.getElementById('giSave').onclick=function(){
+  var box=document.getElementById('giMsgBox');
+  var amt=parseFloat(document.getElementById('giAmt').value);
+  if(!(amt>0)){ giFlash(box,false,'Enter a dollar amount.'); return; }
+  var btn=this; btn.disabled=true;
+  var body={ key:getKey(), amount:amt, recipientName:document.getElementById('giName').value.trim(), recipientEmail:document.getElementById('giEmail').value.trim(), message:document.getElementById('giMsg').value.trim() };
+  fetch('/api/admin/gift-cards/issue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d};});})
+    .then(function(x){ btn.disabled=false;
+      if(!x.ok){ giFlash(box,false,x.d.error||'Could not issue the card.'); return; }
+      giFlash(box,true,'Gift card '+x.d.code+' for $'+Number(x.d.amount).toFixed(2)+' issued'+(body.recipientEmail?' and emailed.':'.'));
+      document.getElementById('giAmt').value=''; document.getElementById('giName').value=''; document.getElementById('giEmail').value=''; document.getElementById('giMsg').value='';
+      loadGiftCards();
+    }).catch(function(){ btn.disabled=false; giFlash(box,false,'Network problem — please try again.'); });
+};
 </script></body></html>
