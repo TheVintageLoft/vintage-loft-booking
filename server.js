@@ -291,6 +291,9 @@ function orderGrandTotal(items, codeStr, token, useCredit) {
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const EMAIL_FROM = process.env.EMAIL_FROM || 'The Vintage Loft <info@thevintageloft.ca>';
 const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || 'info@thevintageloft.ca';
+// A blind copy of client emails goes here so the studio keeps a record of every confirmation that went out.
+// Set BOOKINGS_BCC='' in the host env to turn it off. Reminders skip this (see sendEmail bcc:null).
+const BOOKINGS_BCC = (process.env.BOOKINGS_BCC != null ? process.env.BOOKINGS_BCC : 'bookings@thevintageloft.ca').trim();
 const emailEnabled = !!RESEND_API_KEY;
 // Images are served from the app's own /public folder so they load reliably in email clients.
 const PUBLIC_URL = (process.env.PUBLIC_URL || 'https://vintage-loft-booking.onrender.com').replace(/\/$/, '');
@@ -298,13 +301,17 @@ const LOGO_URL = PUBLIC_URL + '/email-logo.png';
 const ARRIVAL_URL = PUBLIC_URL + '/email-arrival.jpg';
 const CONTRACT_URL = process.env.CONTRACT_URL || 'https://www.thevintageloft.ca/rental-contract';
 
-async function sendEmail({ to, subject, html }) {
+async function sendEmail({ to, subject, html, bcc }) {
   if (!emailEnabled) { console.log('[email] skipped (no RESEND_API_KEY):', subject, '->', to); return { ok: false, skipped: true }; }
   try {
+    // Default: blind-copy the studio's Bookings inbox for the record. Pass bcc:null to skip (e.g. reminders).
+    const bccAddr = (bcc === undefined) ? BOOKINGS_BCC : bcc;
+    const payload = { from: EMAIL_FROM, to: [to], reply_to: EMAIL_REPLY_TO, subject, html };
+    if (bccAddr && bccAddr.toLowerCase() !== (to || '').toLowerCase()) payload.bcc = [bccAddr];
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + RESEND_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: EMAIL_FROM, to: [to], reply_to: EMAIL_REPLY_TO, subject, html })
+      body: JSON.stringify(payload)
     });
     const d = await r.json().catch(() => ({}));
     if (r.ok) return { ok: true, id: d.id };
@@ -1784,7 +1791,7 @@ async function sendRemindersForTomorrow() {
     const g = groups[k]; const first = g[0];
     if (!first.customer_email) continue;
     const bookingsForEmail = g.map(b => ({ roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end }));
-    const r = await sendEmail({ to: first.customer_email, subject: 'See you tomorrow at The Vintage Loft!', html: reminderEmail({ name: first.customer_name, confirmation: first.confirmation, bookings: bookingsForEmail }) });
+    const r = await sendEmail({ to: first.customer_email, subject: 'See you tomorrow at The Vintage Loft!', html: reminderEmail({ name: first.customer_name, confirmation: first.confirmation, bookings: bookingsForEmail }), bcc: null });
     if (r.ok) { const mark = db.prepare(`UPDATE bookings SET reminder_sent=1 WHERE id=?`); g.forEach(b => mark.run(b.id)); sent++; }
     else if (!r.skipped) failed++;
   }
@@ -1799,7 +1806,7 @@ async function sendRemindersForTomorrow() {
     name = g[0].reason || 'there';
     if (!email) { const mark = db.prepare(`UPDATE blocks SET reminder_sent=1 WHERE id=?`); g.forEach(b => mark.run(b.id)); continue; }  // no email: don't retry forever
     const bookingsForEmail = g.map(b => ({ roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end }));
-    const r = await sendEmail({ to: email, subject: 'See you tomorrow at The Vintage Loft!', html: reminderEmail({ name, confirmation: g[0].confirmation || '', bookings: bookingsForEmail }) });
+    const r = await sendEmail({ to: email, subject: 'See you tomorrow at The Vintage Loft!', html: reminderEmail({ name, confirmation: g[0].confirmation || '', bookings: bookingsForEmail }), bcc: null });
     if (r.ok) { const mark = db.prepare(`UPDATE blocks SET reminder_sent=1 WHERE id=?`); g.forEach(b => mark.run(b.id)); sent++; }
     else if (!r.skipped) failed++;
   }
