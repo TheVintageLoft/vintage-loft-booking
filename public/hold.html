@@ -83,8 +83,12 @@
 
 <!-- SIGNED-IN BAR -->
 <div id="signedbar" style="display:none">
-  <span class="appname">Staff App</span>
-  <span><a onclick="window.open('/staff-guide.html','_blank')">Guide</a> &nbsp;·&nbsp; Signed in &nbsp;·&nbsp; <a onclick="signOut()">Sign out</a></span>
+  <div class="appname">Staff App</div>
+  <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
+    <span style="display:inline-block;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;color:#3f7a4a;background:#eaf3ec;border:1px solid #cfe3d4;border-radius:999px;padding:6px 14px">Signed in</span>
+    <button onclick="window.open('/staff-guide.html','_blank')" style="font-family:Arial,sans-serif;font-size:13px;font-weight:bold;background:#7c7268;color:#fff;border:0;border-radius:999px;padding:7px 18px;margin:0;cursor:pointer">Guide</button>
+    <button onclick="signOut()" style="font-family:Arial,sans-serif;font-size:13px;font-weight:bold;background:#fff;color:#7c7268;border:1px solid #d8d2c8;border-radius:999px;padding:7px 18px;margin:0;cursor:pointer">Sign out</button>
+  </div>
 </div>
 
 <!-- CALENDAR (primary view — check who's booked) -->
