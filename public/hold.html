@@ -491,7 +491,7 @@ function renderAddonPicker(){
     var priceTxt = f>0 ? ('$'+f.toFixed(2)) : 'Free';
     html+='<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;font-family:Arial,sans-serif;font-size:14px;cursor:pointer">'
       +'<input type="checkbox" data-aid="'+a.id+'" '+(on?'checked':'')+' style="width:auto;margin-top:3px"> '
-      +'<span><b>'+esc(a.name)+'</b> &middot; '+priceTxt+'<br><span class="muted" style="font-size:12px">'+esc(a.desc||'')+'</span></span></label>';
+      +'<span><b>'+esc(a.name)+'</b> &middot; '+priceTxt+'<br><span class="muted" style="font-size:12px">'+(a.desc||'')+'</span></span></label>';
     if(a.options && a.options.length){
       html+='<select data-aopt="'+a.id+'" style="margin:0 0 8px 26px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px">';
       a.options.forEach(function(o){ html+='<option '+(addonSel.options[a.id]===o.label?'selected':'')+' value="'+esc(o.label)+'">'+esc(o.label)+(o.price>0?(' ($'+o.price+')'):'')+'</option>'; });
