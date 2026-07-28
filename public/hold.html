@@ -212,6 +212,15 @@
   </div>
 </div>
 
+<!-- HOLDING RESERVATIONS -->
+<div class="card appcard" style="display:none">
+  <div class="hd"><h1>Holding reservations <span id="holdCount" style="font-size:15px;color:#8a8375;font-weight:normal"></span></h1><p>All your upcoming holds in one place. Review these weekly: tap one to jump to its day, then cancel it or change it into a booking.</p></div>
+  <div class="body">
+    <div id="holdList"><div class="muted">Loading…</div></div>
+    <div class="allrow" style="margin-top:10px"><a onclick="loadCalendar()">Refresh</a></div>
+  </div>
+</div>
+
 <!-- CLEANUP -->
 <div class="card appcard" style="display:none">
   <div class="hd"><h1>Pre-launch cleanup</h1><p>Use these once, before you go live, to clear out testing data.</p></div>
@@ -591,7 +600,7 @@ function loadCalendar(){
     (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,pay_mode:b.pay_mode||'',pay_method:b.pay_method||'',addons_json:b.addons_json||'',intake:b.intake||'',inspoCount:(b.inspoCount||0)}); });
     (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||'',inspoCount:(b.inspoCount||0)}); });
     CAL.items=idx; cm.textContent='';
-    renderMonth();
+    renderMonth(); renderHoldings();
     if(CAL.sel) selectDay(CAL.sel);
   }).catch(function(err){ if(err&&err.__auth){ signOut('For your security, please sign in again.'); return; } cm.textContent='Network error: '+err.message; });
 }
@@ -1019,6 +1028,25 @@ function removeHold(id,btn,label){
     .catch(function(err){btn.disabled=false;btn.textContent='Remove';alert('Network error: '+err.message);});
 }
 
+// Upcoming HOLDS in one list — a weekly cleanup view. Tap one to jump to its day to cancel or convert it.
+function renderHoldings(){
+  var box=document.getElementById('holdList'); if(!box) return;
+  var today=todayISO(); var rows=[];
+  Object.keys(CAL.items||{}).forEach(function(date){ if(date<today) return; (CAL.items[date]||[]).forEach(function(x){ if(x.kind==='hold') rows.push({date:date,x:x}); }); });
+  rows.sort(function(a,b){ return (a.date+String(a.x.start).padStart(6,'0'))<(b.date+String(b.x.start).padStart(6,'0'))?-1:1; });
+  var cnt=document.getElementById('holdCount'); if(cnt) cnt.textContent=rows.length?('('+rows.length+')'):'';
+  if(!rows.length){ box.innerHTML='<div class="muted">No upcoming holds right now. All clear.</div>'; return; }
+  box.innerHTML='';
+  rows.forEach(function(r){
+    var row=document.createElement('div'); row.style.cssText='display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #e7e5e2;border-radius:8px;margin-bottom:6px;cursor:pointer;background:#faf9f7;font-family:Arial,sans-serif;font-size:14px';
+    var dot=document.createElement('span'); dot.style.cssText='width:11px;height:11px;border-radius:3px;display:inline-block;flex:0 0 auto;background:'+(RCOLOR[r.x.room]||'#ccc');
+    var txt=document.createElement('div'); txt.style.flex='1';
+    txt.innerHTML='<b>'+esc(r.x.label||'Hold')+'</b> <span style="color:#8a8375">· '+esc(rname(r.x.room))+'</span><br><span class="muted">'+fdate(r.date)+' · '+tLabel(r.x.start)+' – '+tLabel(r.x.end)+'</span>';
+    row.appendChild(dot); row.appendChild(txt);
+    (function(date){ row.onclick=function(){ CAL.sel=date; renderMonth(); selectDay(date); var dd=document.getElementById('dayDetail'); if(dd) dd.scrollIntoView({behavior:'smooth',block:'start'}); }; })(r.date);
+    box.appendChild(row);
+  });
+}
 // Saved cards on file (Square): show the client's card and let staff charge it with permission.
 function loadSavedCards(entry, email, box, msg){
   fetch('/api/admin/saved-cards?key='+encodeURIComponent(getKey())+'&email='+encodeURIComponent(email)).then(chk).then(function(d){
