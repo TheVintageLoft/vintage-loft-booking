@@ -1387,12 +1387,13 @@ app.post('/api/admin/import-blocks', admin, async (req, res) => {
   const intakeStr = (req.body.intake && typeof req.body.intake === 'object')
     ? JSON.stringify(req.body.intake).slice(0, 4000) : null;
   const inspoStr = sanitizeInspo(req.body.inspo);   // inspiration photos attached to this manual booking
+  const notesStr = (req.body.notes || '').toString().slice(0, 4000) || null;   // free-text note (e.g. event details on a Hold)
   // optional coupon / discount code entered at booking time (validated up front)
   const codeStr = (req.body.code || '').toString().trim();
   let codeInfo = null;
   if (codeStr) { codeInfo = lookupCode(codeStr); if (!codeInfo) return res.status(400).json({ error: 'That discount code is not valid.' }); }
   const codeToStore = codeInfo ? codeInfo.code : null;
-  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,client,addons_json,intake,inspo,code,confirmation,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,client,addons_json,intake,inspo,code,confirmation,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const retag = db.prepare(`UPDATE blocks SET kind=? WHERE id=?`);
   let inserted = 0, skipped = 0, bad = 0;
   const madeForEmail = [];
@@ -1403,7 +1404,7 @@ app.post('/api/admin/import-blocks', admin, async (req, res) => {
     const found = exists.get(room, date, s, e);
     if (found) { retag.run(kind, found.id); skipped++; continue; }   // re-tag existing so labels can be corrected
     const addonsStr = JSON.stringify({ items: (b.addons && typeof b.addons === 'object') ? b.addons : {}, options: (b.addonOptions && typeof b.addonOptions === 'object') ? b.addonOptions : {} });
-    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, client, addonsStr, (kind === 'booking' ? intakeStr : null), (kind === 'booking' ? inspoStr : null), (kind === 'booking' ? codeToStore : null), (kind === 'booking' ? manualConf : null), nowISO());
+    ins.run(room, date, s, e, (b.reason || 'Imported').toString().slice(0, 120), kind, client, addonsStr, (kind === 'booking' ? intakeStr : null), (kind === 'booking' ? inspoStr : null), (kind === 'booking' ? codeToStore : null), (kind === 'booking' ? manualConf : null), notesStr, nowISO());
     inserted++;
     madeForEmail.push({ roomName: (VL.roomById(room) || {}).name || room, date, start: s, end: e });
   }

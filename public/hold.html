@@ -151,6 +151,11 @@
       </label>
     </div>
 
+    <div id="holdNoteWrap" style="display:none">
+      <label class="fld">Notes (optional)</label>
+      <textarea id="holdNote" rows="3" placeholder="Event details, what they're asking about, anything to remember about this hold…" style="font-family:Arial,sans-serif;font-size:15px;padding:10px 12px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;width:100%;resize:vertical"></textarea>
+    </div>
+
     <div id="couponWrap" style="display:none">
       <label class="fld">Coupon / discount code (optional)</label>
       <input id="couponCode" type="text" placeholder="e.g. STEVEVIP" autocomplete="off" style="text-transform:uppercase">
@@ -452,6 +457,8 @@ function renderAddonPicker(){
   if(intakeF) intakeF.style.display=isBooking?'block':'none';
   var couponW=document.getElementById('couponWrap');
   if(couponW) couponW.style.display=isBooking?'block':'none';
+  var holdNoteW=document.getElementById('holdNoteWrap');   // Holds get a Notes box (bookings use the Details field instead)
+  if(holdNoteW) holdNoteW.style.display=isBooking?'none':'block';
   var wrap=document.getElementById('addonWrap'), box=document.getElementById('addonPick');
   if(!wrap||!box) return;
   var kind=document.getElementById('entrykind').value;
@@ -543,6 +550,7 @@ document.getElementById('go').onclick=function(){
   var payload={key:key,blocks:blocks,kind:kind};
   if(client) payload.client=client;
   if(kind==='booking'){ var intake=collectIntake(); if(intake) payload.intake=intake; if(staffInspo.length) payload.inspo=staffInspo; var cc=(document.getElementById('couponCode').value||'').trim(); if(cc) payload.code=cc; }
+  if(kind==='hold'){ var hn=(document.getElementById('holdNote').value||'').trim(); if(hn) payload.notes=hn; }
   if(kind==='booking' && email && sendConfirm) payload.sendConfirmation=true;
   var lastDate=lines[lines.length-1].date;
   var btn=this; btn.disabled=true; btn.textContent='Saving…';
@@ -558,7 +566,7 @@ document.getElementById('go').onclick=function(){
       var oneConf=(kind==='booking'&&added>1)?' All on one confirmation.':'';
       showMsg(msg,'<b>'+word+' saved.</b> '+added+' studio'+(added===1?'':'s')+' booked.'+oneConf+(skip?' ('+skip+' already on the calendar.)':'')+emailed,'ok');
       pendingLines=[]; renderPending();
-      document.getElementById('clientPhone').value=''; document.getElementById('clientEmail').value=''; document.getElementById('reason').value=''; var cc2=document.getElementById('couponCode'); if(cc2) cc2.value=''; clearIntake();
+      document.getElementById('clientPhone').value=''; document.getElementById('clientEmail').value=''; document.getElementById('reason').value=''; var cc2=document.getElementById('couponCode'); if(cc2) cc2.value=''; var hn2=document.getElementById('holdNote'); if(hn2) hn2.value=''; clearIntake();
       setAll(false); addonSel={items:{},options:{}}; renderAddonPicker();
       CAL.sel=lastDate; loadCalendar(); loadClients();
     })
