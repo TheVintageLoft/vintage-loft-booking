@@ -950,7 +950,7 @@ function selectDay(iso){
               var mrow=document.createElement('div'); mrow.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;width:100%';
               var mlab=document.createElement('span'); mlab.className='meta'; mlab.textContent='Paid by';
               var msel=document.createElement('select'); msel.style.cssText='font-family:Arial,sans-serif;font-size:14px;padding:7px 9px;border:1px solid #ddd;border-radius:8px';
-              [['card','Credit card'],['etransfer','E-transfer'],['cash','Cash'],['debit','In-person debit (Square machine)']].forEach(function(o){ var op=document.createElement('option'); op.value=o[0]; op.textContent=o[1]; msel.appendChild(op); });
+              [['square','Square'],['paypal','PayPal'],['etransfer','E-transfer'],['cash','Cash'],['debit','Square machine (in person)']].forEach(function(o){ var op=document.createElement('option'); op.value=o[0]; op.textContent=o[1]; msel.appendChild(op); });
               var dlab=document.createElement('span'); dlab.className='meta'; dlab.textContent='on';
               var pdt=document.createElement('input'); pdt.type='date'; pdt.value=todayISO(); pdt.style.cssText='font-family:Arial,sans-serif;font-size:14px;padding:6px 9px;border:1px solid #ddd;border-radius:8px';
               mrow.appendChild(mlab); mrow.appendChild(msel); mrow.appendChild(dlab); mrow.appendChild(pdt);
@@ -1380,7 +1380,7 @@ function jumpToDay(date){
 /* ===== PAYMENT section on every booking card =====
    Shows the money story at a glance: total price, discount, exactly how and when they paid
    (with the processor reference on online bookings), and any balance still owed. */
-function payMethodLabel(m){ return ({card:'Credit card',etransfer:'E-transfer',cash:'Cash',debit:'In-person debit (Square machine)'})[m]||m||''; }
+function payMethodLabel(m){ return ({square:'Square',paypal:'PayPal',card:'Card',etransfer:'E-transfer',cash:'Cash',debit:'Square machine (in person)'})[m]||m||''; }
 function payModeLabel(m){
   if(m==='free') return 'Free (100% code)';
   if(m==='standin') return 'Test mode';

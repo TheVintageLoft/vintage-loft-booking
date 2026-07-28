@@ -86,7 +86,10 @@
     <div class="modhead"><i style="background:var(--brown)"></i><h2>1 · Signing in</h2></div>
     <p>The Staff App lives at <b>/hold.html</b> and is installed on the studio phone and iPad as an app. You sign in once with the staff code and stay signed in for 30 days. Kelly will give you the real code in person; it is never written down in emails or texts.</p>
     <div class="task">YOUR TASK: sign in to the practice app with the practice code <b>training</b></div>
-    <input type="password" id="m1pw" placeholder="Practice code">
+    <div style="position:relative">
+      <input type="password" id="m1pw" placeholder="Practice code" style="padding-right:64px">
+      <a id="m1show" onclick="m1toggle()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--brown);cursor:pointer;text-decoration:underline;user-select:none">Show</a>
+    </div>
     <div class="msg" id="m1msg"></div>
     <button class="btn" style="margin-top:8px" onclick="m1go()">Sign in</button>
     <div class="done-note" id="m1done"><span class="check">✓</span>Signed in. This is exactly how the real app works.</div>
@@ -258,9 +261,14 @@ function showCert(){
 function resetTraining(){ if(!confirm('Start over from module 1?')) return; try{ localStorage.removeItem('vl_training'); }catch(e){} location.reload(); }
 
 /* ================= module 1 ================= */
+function m1toggle(){
+  var i=$('m1pw'), a=$('m1show');
+  var show=i.type==='password';
+  i.type=show?'text':'password'; a.textContent=show?'Hide':'Show';
+}
 function m1go(){
   if($('m1pw').value.trim().toLowerCase()==='training'){ $('m1msg').textContent=''; complete(1); }
-  else $('m1msg').textContent='Not quite — the practice code is the word "training".';
+  else $('m1msg').textContent='Not quite. The practice code is the word "training" (tap Show to check your typing).';
 }
 
 /* ================= module 2 ================= */

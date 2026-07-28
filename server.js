@@ -276,7 +276,7 @@ async function ppCaptureOrder(orderId) {
     const token = await ppToken();
     const r = await fetch(PP.apiBase + '/v2/checkout/orders/' + encodeURIComponent(orderId) + '/capture', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' } });
     const d = await r.json().catch(() => ({}));
-    if (r.ok && d.status === 'COMPLETED') return { ok: true, ref: orderId };
+    if (r.ok && d.status === 'COMPLETED') return { ok: true, ref: orderId, mode: 'paypal' };
     return { ok: false, error: (d && d.message) || ('PayPal payment not completed (' + (d && d.status) + ')') };
   } catch (e) { return { ok: false, error: e.message }; }
 }
@@ -1879,8 +1879,8 @@ app.post('/api/admin/mark-paid', admin, (req, res) => {
   if (codeStr) { const ci = lookupCode(codeStr); if (ci) db.prepare(`UPDATE blocks SET code=? WHERE confirmation=? AND kind='booking'`).run(ci.code, b.confirmation); }
   const o = manualOrder(b.confirmation);   // re-read AFTER saving the code so grandTotal is the discounted total
   const amt = (req.body.paid != null && req.body.paid !== '') ? VL.round2(parseFloat(req.body.paid)) : (o ? o.grandTotal : 0);
-  // how they paid (card / etransfer / cash / debit) and, for e-transfer or cash, the date it landed
-  const method = ['card', 'etransfer', 'cash', 'debit'].indexOf(req.body.method) >= 0 ? req.body.method : null;
+  // how they paid (square / paypal / etransfer / cash / debit; 'card' kept for older rows)
+  const method = ['square', 'paypal', 'card', 'etransfer', 'cash', 'debit'].indexOf(req.body.method) >= 0 ? req.body.method : null;
   let paidAt = nowISO();
   const pon = (req.body.paidOn || '').toString().trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(pon)) paidAt = pon + 'T12:00:00.000Z';   // noon UTC so the calendar date reads correctly
