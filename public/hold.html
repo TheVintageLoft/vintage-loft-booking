@@ -598,7 +598,7 @@ function loadCalendar(){
   ]).then(function(res){
     var idx={};
     (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,pay_mode:b.pay_mode||'',pay_method:b.pay_method||'',addons_json:b.addons_json||'',intake:b.intake||'',inspoCount:(b.inspoCount||0)}); });
-    (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||'',inspoCount:(b.inspoCount||0)}); });
+    (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||'',inspoCount:(b.inspoCount||0),customer_email:b.customer_email||''}); });
     CAL.items=idx; cm.textContent='';
     renderMonth(); renderHoldings();
     if(CAL.sel) selectDay(CAL.sel);
@@ -672,6 +672,10 @@ function selectDay(iso){
         if(cc && (cc.phone||cc.email)){
           card.appendChild(contactRow(cc.phone,cc.email));
         }
+      }
+      // ---- notes about this client (standing profile note; bookings only) ----
+      if(x.kind==='booking'){
+        (function(){ var cEmail='', cName=x.label||''; if(x.client){ try{ var cj=JSON.parse(x.client); cEmail=cj.email||''; }catch(e){} } if(!cEmail && x.customer_email) cEmail=x.customer_email; if(cEmail||cName) renderClientNote(card, cEmail, cName, true); })();
       }
       // ---- client intake form answers (read-only, from the booking checkout) ----
       if(x.intake){
@@ -1139,6 +1143,7 @@ function showClientBookings(name){
   var contact=CLIENTS[name.toLowerCase()];
   if(contact && (contact.phone||contact.email)){ var c=contactRow(contact.phone,contact.email); c.style.marginBottom='8px'; res.appendChild(c); }
   if(contact && contact.email){ renderClientCredit(res, contact.email); }
+  renderClientNote(res, (contact&&contact.email)||'', name, false);
   var mine=allEntries().filter(function(it){ return (it.e.label||'').trim().toLowerCase()===name.toLowerCase(); })
     .sort(function(a,b){ return (a.date+String(a.e.start).padStart(6,'0'))<(b.date+String(b.e.start).padStart(6,'0'))?-1:1; });
   if(!mine.length){ var m=document.createElement('div'); m.className='muted'; m.textContent='No bookings found.'; res.appendChild(m); return; }
@@ -1156,6 +1161,32 @@ function jumpToDay(date){
   try{ document.querySelector('.appcard .cal-head').scrollIntoView({behavior:'smooth', block:'start'}); }catch(e){}
 }
 // staff view of a client's credit balance, with a manual adjust control
+// Standing "notes about this client" — style, preferences, special requests. Editable, shared by staff,
+// keyed by the client's email (or name). compact=true is the day-view card version (link until a note exists).
+function renderClientNote(container, email, name, compact){
+  var wrap=document.createElement('div'); container.appendChild(wrap);
+  function render(note, editing){
+    wrap.innerHTML='';
+    if(compact && !note && !editing){
+      wrap.style.cssText='margin-top:8px';
+      var add=document.createElement('a'); add.textContent='+ Note about this client'; add.style.cssText=LINKSTYLE+';font-size:13px'; add.onclick=function(){ render('', true); }; wrap.appendChild(add); return;
+    }
+    wrap.style.cssText='margin:10px 0;background:#f3ece2;border:1px solid #e6dcc9;border-radius:8px;padding:11px 13px';
+    var lbl=document.createElement('div'); lbl.style.cssText='text-transform:uppercase;font-size:11px;letter-spacing:.5px;color:#8a7d63;margin-bottom:6px;font-family:Arial,sans-serif;font-weight:bold'; lbl.textContent='Notes about this client'; wrap.appendChild(lbl);
+    if(editing){
+      var ta=document.createElement('textarea'); ta.value=note||''; ta.placeholder='Style, preferences, special requests, coffee order, anything staff should know…'; ta.style.cssText='width:100%;min-height:78px;font-family:Arial,sans-serif;font-size:14px;padding:9px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box'; wrap.appendChild(ta);
+      var save=document.createElement('button'); save.className='del'; save.style.cssText='margin:6px 14px 0 0'; save.textContent='Save'; wrap.appendChild(save);
+      var canc=document.createElement('a'); canc.textContent='Cancel'; canc.style.cssText=LINKSTYLE; canc.onclick=function(){ render(note, false); }; wrap.appendChild(canc);
+      save.onclick=function(){ save.disabled=true; save.textContent='Saving…'; fetch('/api/admin/client-note',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:getKey(),email:email||'',name:name||'',notes:ta.value})}).then(chk).then(function(){ render(ta.value.trim(), false); }).catch(function(){ save.disabled=false; save.textContent='Save'; alert('Could not save the note.'); }); };
+      ta.focus();
+    } else {
+      if(note){ var t=document.createElement('div'); t.style.cssText='white-space:pre-wrap;font-family:Arial,sans-serif;font-size:14px;color:#3a352f;line-height:1.5;margin-bottom:6px'; t.textContent=note; wrap.appendChild(t); }
+      else { var em=document.createElement('div'); em.className='muted'; em.style.cssText='font-size:13px;margin-bottom:6px'; em.textContent='No notes yet.'; wrap.appendChild(em); }
+      var a=document.createElement('a'); a.textContent=note?'Edit':'Add a note'; a.style.cssText=LINKSTYLE; a.onclick=function(){ render(note, true); }; wrap.appendChild(a);
+    }
+  }
+  fetch('/api/admin/client-note?key='+encodeURIComponent(getKey())+'&email='+encodeURIComponent(email||'')+'&name='+encodeURIComponent(name||'')).then(chk).then(function(d){ render(((d&&d.notes)||'').trim(), false); }).catch(function(){ render('', false); });
+}
 function renderClientCredit(container, email){
   var box=document.createElement('div'); box.style.cssText='background:#f6f5f3;border-radius:8px;padding:10px 12px;margin:0 0 10px;font-family:Arial,sans-serif;font-size:14px';
   box.textContent='Loading credit…'; container.appendChild(box);

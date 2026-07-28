@@ -96,6 +96,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS saved_cards (id INTEGER PRIMARY KEY AUTOINCR
 db.exec(`CREATE TABLE IF NOT EXISTS card_consents (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, consent_text TEXT, source TEXT, ip TEXT, consented_at TEXT)`);
 // Append-only audit trail of sensitive card actions (who did what, when).
 db.exec(`CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, actor TEXT, action TEXT, email TEXT, detail TEXT)`);
+// Private, staff-only notes ABOUT a client (style, preferences, special requests) — persists across all their bookings.
+db.exec(`CREATE TABLE IF NOT EXISTS client_notes (ckey TEXT PRIMARY KEY, email TEXT, name TEXT, notes TEXT, updated_at TEXT)`);
 
 /* ---------- one-time clean reset (owner-only, no button) ----------
    Set WIPE_ONCE to any word in the host environment to clear ALL bookings + holds
@@ -1146,6 +1148,26 @@ app.post('/api/admin/cancel', admin, (req, res) => {
   if (b.customer_email && req.body.notify !== false) sendEmail({ to: b.customer_email, subject: 'Your booking has been cancelled — The Vintage Loft', html: cancellationEmail({ name: b.customer_name || 'there', confirmation: b.confirmation, bookings: [{ roomName: (VL.roomById(b.room_id) || {}).name || b.room_id, date: b.date, start: b.start, end: b.end }], credited: r.credited, email: b.customer_email }) }).catch(e => console.error('[email] cancellation error:', e.message));
   res.json({ ok: true, credited: r.credited, hoursOut: r.hoursOut, newBalance: r.newBalance, email: b.customer_email });
 });
+// Private notes ABOUT a client (keyed by email when we have one, else by name). Shared by all staff,
+// shown wherever that client appears. Not per-booking — this is the client's standing profile note.
+function clientKey(email, name) { email = (email || '').trim().toLowerCase(); name = (name || '').trim().toLowerCase(); return email || ('name:' + name); }
+app.get('/api/admin/client-note', admin, (req, res) => {
+  const ckey = clientKey(req.query.email, req.query.name);
+  if (ckey === 'name:') return res.json({ ok: true, notes: '' });
+  const row = db.prepare(`SELECT notes, updated_at FROM client_notes WHERE ckey=?`).get(ckey);
+  res.json({ ok: true, notes: row ? row.notes : '', updatedAt: row ? row.updated_at : null });
+});
+app.post('/api/admin/client-note', admin, (req, res) => {
+  const email = (req.body.email || '').toString().trim(), name = (req.body.name || '').toString().trim();
+  const ckey = clientKey(email, name);
+  if (ckey === 'name:') return res.status(400).json({ error: 'Need a client email or name to save a note.' });
+  const notes = (req.body.notes == null ? '' : String(req.body.notes)).slice(0, 4000);
+  db.prepare(`INSERT INTO client_notes (ckey,email,name,notes,updated_at) VALUES (?,?,?,?,?)
+    ON CONFLICT(ckey) DO UPDATE SET email=excluded.email, name=excluded.name, notes=excluded.notes, updated_at=excluded.updated_at`)
+    .run(ckey, email.toLowerCase(), name, notes, nowISO());
+  res.json({ ok: true });
+});
+
 // Staff: adjust a client's credit by hand (goodwill, corrections, manual cancellation credit)
 app.post('/api/admin/adjust-credit', admin, (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
