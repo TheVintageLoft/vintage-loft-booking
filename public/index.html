@@ -396,7 +396,6 @@
           <div id="paypal-buttons"></div>
         </div>
         <div style="display:flex;gap:10px;margin-top:18px">
-          <button class="btn btn-ghost" onclick="addAnotherStudio()">+ Add another space</button>
           <button class="btn btn-gold" style="flex:1" id="payBtn" onclick="payNow()">Pay & confirm</button>
         </div>
         <div class="hint" id="cxPolicy"></div>
@@ -1035,6 +1034,8 @@ function priceItem(it){
   return { xmas, roomBase, tier, roomTotal, addonTotal, pre, hst, total: r2(pre+hst) };
 }
 function addRoomToOrder(){ if(!cart){ go('search'); return; } order.push(JSON.parse(JSON.stringify(cart))); cart = null; go('review'); }
+// Add the studio being configured to the cart, then go straight to picking the next one
+function addStudioAndAnother(){ if(!cart){ go('search'); return; } order.push(JSON.parse(JSON.stringify(cart))); cart = null; go('search'); }
 function addAnotherStudio(){ cart = null; go('search'); }
 function removeOrderItem(i){ order.splice(i,1); if(!order.length) go('search'); else renderReview(); }
 
@@ -1095,7 +1096,8 @@ function renderReviewSummary(){
     + fixedLine
     + creditLine
     + giftLine
-    + `<div class="sum-row total"><span>Total due now</span><span>${money(totalSum)}</span></div>`;
+    + `<div class="sum-row total"><span>Total due now</span><span>${money(totalSum)}</span></div>`
+    + (window.VL_LOCK?'':`<button class="btn btn-ghost" style="width:100%;margin-top:14px" onclick="addAnotherStudio()">+ Add another studio</button>`);
   orderTotalDue = totalSum;
   const free = totalSum <= 0;
   const ps=document.getElementById('paymentSection'); if(ps) ps.style.display = free ? 'none' : '';
@@ -1451,8 +1453,9 @@ function renderSide(sel, showNext){
   rows += addonRows();
   rows += `<div class="sum-row"><span>HST (13%)</span><span>${money(p.hst)}</span></div>`;
   rows += `<div class="sum-row total"><span>Total due now</span><span>${money(p.total)}</span></div>`;
-  if(showNext) rows += `<button class="btn btn-gold" style="width:100%;margin-top:16px" onclick="addRoomToOrder()">Add to booking →</button>
-    <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="go('search')">← Change studio / time</button>`;
+  if(showNext) rows += `<button class="btn btn-gold" style="width:100%;margin-top:16px" onclick="addRoomToOrder()">Add to cart →</button>
+    ${window.VL_LOCK?'':`<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="addStudioAndAnother()">+ Add another studio</button>
+    <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="go('search')">← Change studio / time</button>`}`;
   document.querySelector(sel).innerHTML = rows;
 }
 /* (single-room renderReviewSummary removed — the multi-room order summary above handles review) */
