@@ -811,8 +811,8 @@ function selectDay(iso){
             var lbl=document.createElement('div'); lbl.style.cssText='font-family:Arial,sans-serif;font-size:13px;font-weight:bold;color:#3a352f;margin-bottom:4px'; lbl.textContent='Notes'; wrap.appendChild(lbl);
             var box=document.createElement('div'); box.style.cssText='white-space:pre-wrap;font-family:Arial,sans-serif;font-size:14px;color:#3a352f;padding:9px 11px;border:1px solid #ddd;border-radius:8px;background:#fff;box-sizing:border-box'; box.textContent=entry.notes; wrap.appendChild(box);
           }
-          var a=document.createElement('a'); a.style.cssText='display:inline-block;margin-top:6px;font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline';
-          a.textContent=entry.notes?'Edit note':'Add note'; a.onclick=function(){ edit(); }; wrap.appendChild(a);
+          var a=pillBtn(entry.notes?'Edit note':'Add note','#8a6a2b','#fbf6ec'); a.style.marginTop='6px';
+          a.onclick=function(){ edit(); }; wrap.appendChild(a);
         }
         function edit(){
           wrap.innerHTML='';
@@ -840,7 +840,7 @@ function selectDay(iso){
               var copy=document.createElement('a'); copy.textContent='Copy link'; copy.style.cssText=LINKSTYLE; copy.onclick=function(){ copyText(entry.pay_link); }; pw.appendChild(copy);
               var nw=document.createElement('a'); nw.textContent='New link'; nw.style.cssText=LINKSTYLE+';margin-left:16px'; nw.onclick=function(){ form(); }; pw.appendChild(nw);
             } else {
-              var mk=document.createElement('a'); mk.textContent='Create payment link'; mk.style.cssText=LINKSTYLE; mk.onclick=function(){ form(); }; pw.appendChild(mk);
+              var mk=pillBtn('Create payment link','#2e6f9e','#eef4fa'); mk.onclick=function(){ form(); }; pw.appendChild(mk);
             }
           }
           function form(){
@@ -1006,14 +1006,14 @@ function selectDay(iso){
             if(owner){ A('Undo owner use', unpay, '#a33'); }
             else if(comp){ A('Undo comp', unpay, '#a33'); }
             else if(!paid){
-              A('Mark as paid', function(){ markPaidForm(); });
+              var mp=pillBtn('Mark as paid','#2e6b34','#e5efe7'); mp.onclick=function(){ markPaidForm(); }; row.appendChild(mp);
               // Vintage Films = the owner's own studio use. Staff can record it (they take the calls),
               // the full value is tallied for financials, nothing is charged. Confirm keeps it deliberate.
               var vf=pillBtn('Vintage Films','#6b4a8a','#f3eefa');
               vf.onclick=function(){ if(window.confirm('Record this as Vintage Films studio use?\n\nThe full value is tallied for the owner\u2019s records \u2014 no charge to anyone.')) settle({owner:true},'owner'); };
               row.appendChild(vf);
               // OWNER-ONLY: only Kelly can comp a booking
-              if(vlIsOwner) A('Comp (no charge)', function(){ settle({comp:true},'comp'); }, '#1f6b6b');
+              if(vlIsOwner){ var cp=pillBtn('Comp (no charge)','#1f6b6b','#e8f2f2'); cp.onclick=function(){ settle({comp:true},'comp'); }; row.appendChild(cp); }
             }
             else { A('Mark unpaid', unpay, '#a33'); }
             if(email && !owner && !comp){
@@ -1095,10 +1095,9 @@ function selectDay(iso){
       })(x, iso);
       actions.appendChild(editLink);
       if(x.source==='block'){
-        var flip=document.createElement('a');
-        flip.style.cssText='font-family:Arial,sans-serif;font-size:13px;color:#7c7268;cursor:pointer;text-decoration:underline;margin-left:6px';
         var toKind=(x.kind==='booking')?'hold':'booking';
-        flip.textContent=(x.kind==='booking')?'Change to Hold':'Change to Booking';
+        // used least, so it gets the lightest colour
+        var flip=pillBtn((x.kind==='booking')?'Change to Hold':'Change to Booking','#a49d92','#fafaf8');
         (function(id,toKind){ flip.onclick=function(){ setKind(id,toKind); }; })(x.id,toKind);
         actions.appendChild(flip);
       }
