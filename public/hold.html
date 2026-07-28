@@ -711,20 +711,38 @@ function selectDay(iso){
   var htxt=document.createElement('span'); htxt.textContent=fdate(iso);
   var count=document.createElement('span'); count.style.cssText='font-family:Arial,sans-serif;font-size:12px;color:#a49d92;font-weight:normal';
   h.appendChild(caret); h.appendChild(htxt); h.appendChild(count); det.appendChild(h);
-  var body=document.createElement('div'); det.appendChild(body);
-  var hintBase='';
-  h.onclick=function(){ var open=body.style.display!=='none'; body.style.display=open?'none':''; caret.textContent=open?'▸':'▾'; count.textContent=hintBase?(hintBase+(open?' · tap to show)':' · tap to hide)')):''; };
+  var outer=document.createElement('div'); det.appendChild(outer);
+  var bar=document.createElement('div'); outer.appendChild(bar);        // List / Timeline toggle
+  var body=document.createElement('div'); outer.appendChild(body);      // the detailed list (unchanged)
+  var tlWrap=document.createElement('div'); tlWrap.style.display='none'; outer.appendChild(tlWrap);  // the timeline
+  var hintBase=''; var setMode=null;
+  h.onclick=function(){ var open=outer.style.display!=='none'; outer.style.display=open?'none':''; caret.textContent=open?'▸':'▾'; count.textContent=hintBase?(hintBase+(open?' · tap to show)':' · tap to hide)')):''; };
   if(dowOf(iso)===1){ var m=document.createElement('div'); m.className='muted'; m.textContent='Closed on Mondays.'; body.appendChild(m); return; }
   var items=(CAL.items[iso]||[]).slice().sort(function(a,b){return a.start-b.start;});
   if(!items.length){ var m2=document.createElement('div'); m2.className='muted'; m2.textContent='Nothing booked. This day is completely open.'; body.appendChild(m2); return; }
   hintBase='('+items.length+' booking'+(items.length===1?'':'s');
   count.textContent=hintBase+' · tap to hide)';
+  // List / Timeline toggle — List shows the full detail + action buttons; Timeline is a visual at-a-glance schedule.
+  (function(){
+    bar.style.cssText='display:flex;gap:6px;margin:8px 0 2px';
+    function mk(txt){ var b=document.createElement('button'); b.textContent=txt; b.style.cssText='font-family:Arial,sans-serif;font-size:13px;font-weight:bold;border-radius:999px;padding:6px 16px;margin:0;cursor:pointer;border:1px solid #d8d2c8'; return b; }
+    var listBtn=mk('List'), tlBtn=mk('Timeline');
+    setMode=function(mode){
+      CAL.dayMode=mode;
+      body.style.display=(mode==='timeline')?'none':'';
+      tlWrap.style.display=(mode==='timeline')?'':'none';
+      [[listBtn,mode!=='timeline'],[tlBtn,mode==='timeline']].forEach(function(p){ var b=p[0],on=p[1]; b.style.background=on?'#7c7268':'#fff'; b.style.color=on?'#fff':'#7c7268'; b.style.borderColor=on?'#7c7268':'#d8d2c8'; });
+      if(mode==='timeline' && !tlWrap._built){ renderDayTimeline(tlWrap, items, setMode); tlWrap._built=true; }
+    };
+    listBtn.onclick=function(){ setMode('list'); }; tlBtn.onclick=function(){ setMode('timeline'); };
+    bar.appendChild(listBtn); bar.appendChild(tlBtn);
+  })();
   ROOMS.forEach(function(r){
     var rid=r[0]; var list=items.filter(function(x){return x.room===rid;});
     if(!list.length) return;
     var hdr=document.createElement('div'); hdr.className='studiohdr'; hdr.innerHTML='<i style="background:'+RCOLOR[rid]+'"></i>'+r[1]; body.appendChild(hdr);
     list.forEach(function(x){
-      var card=document.createElement('div'); card.className='daycard'; card.style.borderLeftColor=RCOLOR[rid];
+      var card=document.createElement('div'); card.className='daycard'; card.style.borderLeftColor=RCOLOR[rid]; card.id='dc-'+x.source+'-'+x.id;
       var who=document.createElement('div'); who.className='who';
       who.appendChild(document.createTextNode(x.label+(x.sample?' (sample)':'')));
       var tag=document.createElement('span');
@@ -1053,6 +1071,46 @@ function selectDay(iso){
       card.appendChild(actions); body.appendChild(card);
     });
   });
+  if(setMode) setMode(CAL.dayMode||'list');
+}
+
+// A light tinted background from a studio's hex colour (for timeline blocks).
+function hexTint(hex,a){ var m=/^#?([0-9a-fA-F]{6})$/.exec(hex||''); if(!m) return 'rgba(124,114,104,'+a+')'; var n=parseInt(m[1],16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
+// Full-day timeline view: hours down the side, each booking a block placed by time, coloured by studio.
+// Overlapping bookings sit in side-by-side lanes. Tapping a block jumps to its full detail in the List view.
+function renderDayTimeline(container, items, setMode){
+  var START=8, END=20, PXH=48, RAIL=42;
+  var height=(END-START)*PXH;
+  var sorted=items.slice().sort(function(a,b){ return (a.start-b.start) || (a.end-b.end); });
+  // greedy lane packing so overlapping bookings don't sit on top of each other
+  var laneEnds=[];
+  sorted.forEach(function(x){ var placed=false; for(var i=0;i<laneEnds.length;i++){ if(x.start>=laneEnds[i]){ x._lane=i; laneEnds[i]=x.end; placed=true; break; } } if(!placed){ x._lane=laneEnds.length; laneEnds.push(x.end); } });
+  var nLanes=Math.max(1,laneEnds.length);
+  var wrap=document.createElement('div'); wrap.style.cssText='position:relative;border:1px solid #eee;border-radius:10px;background:#fff;margin-top:8px;padding:4px 6px 4px 0';
+  var grid=document.createElement('div'); grid.style.cssText='position:relative;height:'+height+'px';
+  for(var hh=START; hh<=END; hh++){
+    var top=(hh-START)*PXH;
+    var line=document.createElement('div'); line.style.cssText='position:absolute;left:'+RAIL+'px;right:2px;top:'+top+'px;border-top:1px solid #f1efea'; grid.appendChild(line);
+    if(hh<END){ var lab=document.createElement('div'); lab.style.cssText='position:absolute;left:0;top:'+(top-6)+'px;width:'+(RAIL-6)+'px;text-align:right;font-family:Arial,sans-serif;font-size:10px;color:#a49d92'; lab.textContent=tLabel(hh).replace(':00',''); grid.appendChild(lab); }
+  }
+  var laneLeft=RAIL+4, gap=4;
+  sorted.forEach(function(x){
+    var s=Math.max(START,x.start), e=Math.min(END,x.end);
+    var top=(s-START)*PXH, h=Math.max(24,(e-s)*PXH-2);
+    var laneW='calc((100% - '+(laneLeft+4)+'px - '+((nLanes-1)*gap)+'px) / '+nLanes+')';
+    var left='calc('+laneLeft+'px + ('+laneW+' + '+gap+'px) * '+x._lane+')';
+    var col=RCOLOR[x.room]||'#7c7268'; var isHold=(x.kind!=='booking');
+    var b=document.createElement('div');
+    b.style.cssText='position:absolute;top:'+top+'px;height:'+h+'px;left:'+left+';width:'+laneW+';background:'+(isHold?'#fbfaf7':hexTint(col,0.16))+';border:1px solid '+hexTint(col,0.5)+';border-left:3px solid '+col+';border-radius:6px;padding:4px 6px;box-sizing:border-box;overflow:hidden;cursor:pointer;font-family:Arial,sans-serif'+(isHold?';border-style:dashed':'');
+    b.innerHTML='<div style="font-size:11px;font-weight:bold;color:#3a352f;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.label||'')+(isHold?' <span style="font-weight:normal;color:#8a6a2b">· hold</span>':'')+'</div>'
+      +'<div style="font-size:10px;color:#6b655c;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+esc(rname(x.room))+'</div>'
+      +(h>44?'<div style="font-size:10px;color:#8a8375">'+tLabel(x.start)+'–'+tLabel(x.end)+'</div>':'');
+    b.title=(x.label||'')+' · '+rname(x.room)+' · '+tLabel(x.start)+'–'+tLabel(x.end);
+    b.onclick=(function(entry){ return function(){ setMode('list'); var el=document.getElementById('dc-'+entry.source+'-'+entry.id); if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); var ob=el.style.background; el.style.transition='background .4s'; el.style.background='#fff6e2'; setTimeout(function(){ el.style.background=ob||''; },1300); } }; })(x);
+    grid.appendChild(b);
+  });
+  wrap.appendChild(grid); container.appendChild(wrap);
+  var hint=document.createElement('div'); hint.className='muted'; hint.style.marginTop='6px'; hint.textContent='Tap any block to open its full details.'; container.appendChild(hint);
 }
 
 // Inspiration photos in the day view: lazy-load thumbnails, click to view full size.
