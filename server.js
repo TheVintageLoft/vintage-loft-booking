@@ -280,8 +280,8 @@ async function ppCaptureOrder(orderId) {
     return { ok: false, error: (d && d.message) || ('PayPal payment not completed (' + (d && d.status) + ')') };
   } catch (e) { return { ok: false, error: e.message }; }
 }
-// The authoritative order total AFTER any discount code + account credit (mirrors /api/bookings) — so the PayPal order is created for the exact amount owed.
-function orderGrandTotal(items, codeStr, token, useCredit) {
+// The authoritative order total AFTER any discount code + account credit + gift card (mirrors /api/bookings) — so the PayPal order is created for the exact amount owed.
+function orderGrandTotal(items, codeStr, token, useCredit, giftStr) {
   let codeInfo = null;
   if (codeStr && normCode(codeStr)) codeInfo = lookupCode(codeStr);
   const quotes = items.map(it => VL.priceQuote(it.room, it.date, (+it.end) - (+it.start), it.addons || {}, it.addonOptions || {}));
@@ -292,6 +292,8 @@ function orderGrandTotal(items, codeStr, token, useCredit) {
   let grand = VL.round2(paidArr.reduce((s, p) => s + p, 0));
   const acctEmail = emailForToken(token);
   if (acctEmail && useCredit) { const bal = creditBalance(acctEmail); const used = VL.round2(Math.max(0, Math.min(bal, grand))); grand = VL.round2(grand - used); }
+  // Gift card pays against whatever's left, up to its balance.
+  if (giftStr && normCode(giftStr)) { const g = lookupCode(giftStr); if (g && g.giftCard && !codeUnavailable(g)) { const used = VL.round2(Math.max(0, Math.min(g.balance, grand))); grand = VL.round2(grand - used); } }
   return grand;
 }
 
@@ -410,8 +412,9 @@ function bookingRowsHtml(bookings) {
     </tr>`).join('');
 }
 
-function confirmationEmail({ name, confirmation, bookings, grandTotal, discountTotal, email }) {
+function confirmationEmail({ name, confirmation, bookings, grandTotal, discountTotal, giftUsed, email }) {
   const savings = discountTotal > 0 ? `<tr><td style="padding:6px 0;color:#2e7d32">Savings</td><td align="right" style="padding:6px 0;color:#2e7d32">&minus;${emMoney(discountTotal)}</td></tr>` : '';
+  const giftLine = (giftUsed > 0) ? `<tr><td style="padding:6px 0;color:#2e7d32">Gift card applied</td><td align="right" style="padding:6px 0;color:#2e7d32">&minus;${emMoney(giftUsed)}</td></tr>` : '';
   const receiptUrl = PUBLIC_URL + '/receipt.html?c=' + encodeURIComponent(confirmation) + (email ? '&e=' + encodeURIComponent(email) : '');
   const inner = `
     <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(name)},</p>
@@ -421,6 +424,7 @@ function confirmationEmail({ name, confirmation, bookings, grandTotal, discountT
       <table width="100%" cellpadding="0" cellspacing="0" style="font-size:15px">
         ${bookingRowsHtml(bookings)}
         ${savings}
+        ${giftLine}
         <tr><td style="padding:10px 0 0"><b>Total paid</b><br><span style="font-size:11px;color:#9a938a;font-family:Arial,sans-serif">HST included</span></td><td align="right" style="padding:10px 0 0;vertical-align:top"><b>${emMoney(grandTotal)}</b></td></tr>
       </table>
     </div>
@@ -558,9 +562,9 @@ function reminderEmail({ name, confirmation, bookings }) {
   return emailShell(inner);
 }
 
-async function sendConfirmationEmail({ email, name, confirmation, bookings, grandTotal, discountTotal }) {
+async function sendConfirmationEmail({ email, name, confirmation, bookings, grandTotal, discountTotal, giftUsed }) {
   if (!email) return;
-  const r = await sendEmail({ to: email, subject: "You're booked at The Vintage Loft!", html: confirmationEmail({ name, confirmation, bookings, grandTotal, discountTotal, email }) });
+  const r = await sendEmail({ to: email, subject: "You're booked at The Vintage Loft!", html: confirmationEmail({ name, confirmation, bookings, grandTotal, discountTotal, giftUsed, email }) });
   if (r.ok) console.log('[email] confirmation sent for', confirmation, '->', email);
 }
 
@@ -859,9 +863,13 @@ function publicCode(c) {
 }
 
 // Validate a code (and, if provided, the order items) and return its effect + the new total.
+// expect:'gift' means it was typed in the Gift card box; expect:'discount' means the Discount box.
 app.post('/api/apply-code', (req, res) => {
   const c = lookupCode(req.body && req.body.code);
   if (!c) return res.status(404).json({ ok: false, error: 'That code is not valid. Please check the spelling.' });
+  const expect = req.body && req.body.expect;
+  if (expect === 'gift' && !c.giftCard) return res.status(400).json({ ok: false, error: 'That looks like a discount code — please enter it in the Discount box above.' });
+  if (expect === 'discount' && c.giftCard) return res.status(400).json({ ok: false, error: 'That looks like a gift card — please enter it in the Gift card box below.' });
   const un = codeUnavailable(c);
   if (un) return res.status(409).json({ ok: false, error: un });
   let breakdown = null;
@@ -1048,7 +1056,7 @@ app.post('/api/paypal/create-order', async (req, res) => {
       const setup = !!(it.addons && it.addons.earlysetup);
       if (!isFree(it.room, it.date, s, e) || (setup && !isFree(it.room, it.date, s, e, true))) return res.status(409).json({ error: room.name + ' is no longer available for that time.' });
     }
-    const grand = orderGrandTotal(items, req.body.code, req.body.token, req.body.useCredit);
+    const grand = orderGrandTotal(items, req.body.code, req.body.token, req.body.useCredit, req.body.giftCode);
     if (!(grand > 0)) return res.status(400).json({ error: 'This order is already fully covered — no PayPal payment needed.' });
     const orderId = await ppCreateOrder(Math.round(grand * 100), 'The Vintage Loft studio booking');
     res.json({ ok: true, orderId, amount: grand });
@@ -1181,12 +1189,22 @@ app.post('/api/bookings', async (req, res) => {
     if (!VL.validDuration(it.room, e - s)) return res.status(400).json({ error: 'That duration is not available for ' + room.name + '.' });
   }
 
-  // Validate the discount/gift code (if one was entered) before we reserve or charge.
+  // Validate the discount code (if one was entered) before we reserve or charge.
   let codeInfo = null;
   if (req.body.code && normCode(req.body.code)) {
     codeInfo = lookupCode(req.body.code);
     if (!codeInfo) return res.status(400).json({ error: 'That discount code is not valid.' });
+    if (codeInfo.giftCard) return res.status(400).json({ error: 'That looks like a gift card — please enter it in the Gift card box instead.' });
     const un = codeUnavailable(codeInfo);
+    if (un) return res.status(409).json({ error: un });
+  }
+  // Validate the gift card (separate box) — it stacks on top of any discount code.
+  let giftInfo = null;
+  if (req.body.giftCode && normCode(req.body.giftCode)) {
+    giftInfo = lookupCode(req.body.giftCode);
+    if (!giftInfo) return res.status(400).json({ error: 'That gift card is not valid.' });
+    if (!giftInfo.giftCard) return res.status(400).json({ error: 'That looks like a discount code — please enter it in the Discount box instead.' });
+    const un = codeUnavailable(giftInfo);
     if (un) return res.status(409).json({ error: un });
   }
 
@@ -1239,6 +1257,16 @@ app.post('/api/bookings', async (req, res) => {
     grandTotal = VL.round2(grandTotal - creditUsed);
   }
 
+  // 1c) Apply the gift card as tender against whatever's still owed (after the discount + account credit).
+  //     Re-read the balance now so two simultaneous bookings can't overspend the same card.
+  let giftUsed = 0;
+  if (giftInfo) {
+    const gnow = db.prepare('SELECT balance, status FROM gift_cards WHERE id=?').get(giftInfo.cardId);
+    const liveBal = (gnow && gnow.status !== 'void') ? VL.round2(gnow.balance || 0) : 0;
+    giftUsed = VL.round2(Math.max(0, Math.min(liveBal, grandTotal)));
+    grandTotal = VL.round2(grandTotal - giftUsed);
+  }
+
   // 2) Charge once for the whole order — unless it's free (owner code / full credit).
   //    Square cannot process a $0.00 amount, so skip the processor entirely when nothing is owed.
   let pay;
@@ -1277,32 +1305,33 @@ app.post('/api/bookings', async (req, res) => {
   const confirmation = prefix + cn;
   const upd = db.prepare(`UPDATE bookings SET status='confirmed', pre=?, hst=?, total=?, paid=?, discount=?, code=?, payment_ref=?, payment_mode=?, confirmation=? WHERE id=?`);
   reservedIds.forEach((id, i) => upd.run(finals[i].pre, finals[i].hst, finals[i].total, finals[i].paid, finals[i].discount, codeInfo ? codeInfo.code : null, pay.ref, pay.mode, confirmation, id));
-  // Record the code's redemption. Gift cards draw their balance down (remainder carries over);
-  // promo codes tick a usage counter; other single-use codes retire so they can't be reused.
-  const consumedFromCode = VL.round2(finals.reduce((s, f) => s + (f.discount || 0), 0));
-  if (codeInfo && codeInfo.giftCard) {
-    try {
-      const g = db.prepare('SELECT balance FROM gift_cards WHERE id=?').get(codeInfo.cardId);
-      const spent = VL.round2(Math.min(consumedFromCode, (g && g.balance) || 0));
-      const newBal = VL.round2(((g && g.balance) || 0) - spent);
-      db.prepare("UPDATE gift_cards SET balance=?, status=?, redeemed_at=? WHERE id=?").run(newBal, newBal <= 0 ? 'depleted' : 'active', nowISO(), codeInfo.cardId);
-      db.prepare('INSERT INTO gift_redemptions (code, confirmation, amount, at) VALUES (?,?,?,?)').run(codeInfo.code, confirmation, spent, nowISO());
-    } catch (e) { console.error('[giftcard] redeem error:', e.message); }
-  } else if (codeInfo && codeInfo.promo) {
+  // Record the discount code's redemption: promo codes tick a usage counter; other single-use
+  // codes (e.g. reschedule credits) retire so they can't be reused.
+  if (codeInfo && codeInfo.promo) {
     try { db.prepare('UPDATE promo_codes SET uses=uses+1 WHERE code=?').run(codeInfo.code); } catch (_) {}
     if (!codeInfo.reusable) { try { db.prepare('INSERT OR IGNORE INTO code_redemptions (code, confirmation, used_at) VALUES (?,?,?)').run(codeInfo.code, confirmation, nowISO()); } catch (_) {} }
   } else if (codeInfo && !codeInfo.reusable) {
     try { db.prepare('INSERT OR IGNORE INTO code_redemptions (code, confirmation, used_at) VALUES (?,?,?)').run(codeInfo.code, confirmation, nowISO()); } catch (_) {}
+  }
+  // Draw the gift card's balance down by what it actually paid (the remainder stays on the card).
+  if (giftInfo && giftUsed > 0) {
+    try {
+      const g = db.prepare('SELECT balance FROM gift_cards WHERE id=?').get(giftInfo.cardId);
+      const spent = VL.round2(Math.min(giftUsed, (g && g.balance) || 0));
+      const newBal = VL.round2(((g && g.balance) || 0) - spent);
+      db.prepare("UPDATE gift_cards SET balance=?, status=?, redeemed_at=? WHERE id=?").run(newBal, newBal <= 0 ? 'depleted' : 'active', nowISO(), giftInfo.cardId);
+      db.prepare('INSERT INTO gift_redemptions (code, confirmation, amount, at) VALUES (?,?,?,?)').run(giftInfo.code, confirmation, spent, nowISO());
+    } catch (e) { console.error('[giftcard] redeem error:', e.message); }
   }
   // Debit the client's wallet for any credit they applied (only now that the booking is confirmed).
   if (creditUsed > 0 && acctEmail) addCredit(acctEmail, -creditUsed, 'Applied to booking ' + confirmation, reservedIds[0]);
   const discountTotal = VL.round2(finals.reduce((s, f) => s + f.discount, 0));
   const created = reservedIds.map((id, i) => ({ id, room: items[i].room, roomName: quotes[i].roomName, date: items[i].date, start: +items[i].start, end: +items[i].end, total: finals[i].total, paid: finals[i].paid }));
   // Send the confirmation email in the background — never block or fail the booking on an email problem.
-  sendConfirmationEmail({ email: customerEmail, name: customerName, confirmation, bookings: created, grandTotal, discountTotal }).catch(e => console.error('[email] confirmation error:', e.message));
+  sendConfirmationEmail({ email: customerEmail, name: customerName, confirmation, bookings: created, grandTotal, discountTotal, giftUsed }).catch(e => console.error('[email] confirmation error:', e.message));
   // Text the owner/manager so a booking is never missed — background, never blocks the booking.
   notifyNewBooking({ name: customerName, confirmation, bookings: created, grandTotal }).catch(e => console.error('[sms] alert error:', e.message));
-  res.json({ ok: true, confirmation, bookings: created, grandTotal, discountTotal, creditUsed, code: codeInfo ? codeInfo.code : null, paymentMode: pay.mode, paymentRef: pay.ref });
+  res.json({ ok: true, confirmation, bookings: created, grandTotal, discountTotal, creditUsed, giftUsed, giftCode: giftInfo ? giftInfo.code : null, code: codeInfo ? codeInfo.code : null, paymentMode: pay.mode, paymentRef: pay.ref });
 });
 
 // Customer's own bookings (simple email lookup; real accounts in Phase 2)

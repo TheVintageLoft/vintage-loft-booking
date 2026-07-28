@@ -342,14 +342,26 @@
         </script>
 
         <div style="margin-top:18px">
-          <h3 style="font-size:15px;margin:0 0 10px">Discount or gift code</h3>
+          <h3 style="font-size:15px;margin:0 0 10px">Discount code</h3>
           <div style="display:flex;gap:10px;align-items:stretch">
-            <input id="codeInput" placeholder="Discount or gift card code" autocomplete="off"
+            <input id="codeInput" placeholder="Discount or promo code" autocomplete="off"
               style="flex:1;padding:11px 12px;border:1px solid var(--line);border-radius:10px;text-transform:uppercase"
               onkeydown="if(event.key==='Enter'){event.preventDefault();applyCode();}">
             <button type="button" class="btn btn-ghost" id="codeBtn" style="white-space:nowrap" onclick="applyCode()">Apply</button>
           </div>
           <div id="codeMsg" style="font-size:13px;margin-top:8px"></div>
+        </div>
+
+        <div style="margin-top:18px">
+          <h3 style="font-size:15px;margin:0 0 10px">Gift card</h3>
+          <div style="display:flex;gap:10px;align-items:stretch">
+            <input id="giftInput" placeholder="Gift card code" autocomplete="off"
+              style="flex:1;padding:11px 12px;border:1px solid var(--line);border-radius:10px;text-transform:uppercase"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();applyGift();}">
+            <button type="button" class="btn btn-ghost" id="giftBtn" style="white-space:nowrap" onclick="applyGift()">Apply</button>
+          </div>
+          <div id="giftMsg" style="font-size:13px;margin-top:8px"></div>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">Have a discount and a gift card? Add both — the discount comes off first, then your gift card covers the rest.</div>
         </div>
 
         <div id="paymentSection">
@@ -981,7 +993,7 @@ async function applyCode(){
   const items = order.map(it=>({ room:it.roomId, date:it.date, start:it.start, end:it.end, addons:it.addons, addonOptions:it.addonOpts||{} }));
   const btn=document.getElementById('codeBtn'); btn.disabled=true; const b0=btn.textContent; btn.textContent='…';
   try{
-    const d = await fetchJSON('/api/apply-code', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code:raw, items }) });
+    const d = await fetchJSON('/api/apply-code', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code:raw, items, expect:'discount' }) });
     appliedCode = d.discount;
     msg.style.color='var(--green,#2e7d32)';
     msg.innerHTML = `✓ Code <b>${appliedCode.code}</b> applied — ${appliedCode.label}. <a href="#" onclick="removeCode();return false" style="color:var(--muted)">remove</a>`;
@@ -992,6 +1004,24 @@ async function applyCode(){
   btn.disabled=false; btn.textContent=b0; renderReviewSummary();
 }
 function removeCode(){ appliedCode=null; const i=document.getElementById('codeInput'); if(i)i.value=''; const m=document.getElementById('codeMsg'); if(m)m.textContent=''; renderReviewSummary(); }
+var appliedGift = null;   // gift-card descriptor {code, balance, label} from /api/apply-code
+async function applyGift(){
+  const inp = document.getElementById('giftInput'); const msg = document.getElementById('giftMsg');
+  const raw = (inp.value||'').trim();
+  if(!raw){ appliedGift=null; msg.textContent=''; renderReviewSummary(); return; }
+  const btn=document.getElementById('giftBtn'); btn.disabled=true; const b0=btn.textContent; btn.textContent='…';
+  try{
+    const d = await fetchJSON('/api/apply-code', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code:raw, expect:'gift' }) });
+    appliedGift = d.discount;
+    msg.style.color='var(--green,#2e7d32)';
+    msg.innerHTML = `✓ Gift card <b>${appliedGift.code}</b> — ${appliedGift.label}. <a href="#" onclick="removeGift();return false" style="color:var(--muted)">remove</a>`;
+  }catch(err){
+    appliedGift = null; msg.style.color='var(--red)';
+    msg.textContent = (err.body && err.body.error) ? err.body.error : 'That gift card could not be applied.';
+  }
+  btn.disabled=false; btn.textContent=b0; renderReviewSummary();
+}
+function removeGift(){ appliedGift=null; const i=document.getElementById('giftInput'); if(i)i.value=''; const m=document.getElementById('giftMsg'); if(m)m.textContent=''; renderReviewSummary(); }
 function priceItem(it){
   const room = ROOMS.find(r=>r.id===it.roomId);
   const xmas = isChristmas(it.date);
@@ -1049,12 +1079,21 @@ function renderReviewSummary(){
     if(useAcctCredit){ creditUsed = r2(Math.min(CLIENT.credit, totalSum)); totalSum = r2(totalSum - creditUsed);
       creditLine = `<div class="sum-row" style="color:var(--green,#2e7d32)"><span>Account credit applied</span><span>−${money(creditUsed)}</span></div>`; }
   } else if(cr){ cr.style.display='none'; cr.innerHTML=''; }
+  // gift card pays against whatever's left (after the discount + account credit)
+  let giftLine = '';
+  if(appliedGift && appliedGift.balance>0 && totalSum>0){
+    const giftUsed = r2(Math.min(appliedGift.balance, totalSum)); totalSum = r2(totalSum - giftUsed);
+    const leftover = r2(appliedGift.balance - giftUsed);
+    const leftTxt = leftover>0 ? ` <span style="font-size:11px;color:var(--muted)">(${money(leftover)} left on card)</span>` : '';
+    giftLine = `<div class="sum-row" style="color:var(--green,#2e7d32)"><span>Gift card (${appliedGift.code})</span><span>−${money(giftUsed)}${leftTxt}</span></div>`;
+  }
   document.getElementById('reviewSummary').innerHTML =
     `<h3 style="font-size:16px;margin-bottom:10px">Order · ${order.length} studio${order.length>1?'s':''}</h3>` + rows
     + percentLine
     + `<div class="sum-row"><span>HST (13%)</span><span>${money(hstSum)}</span></div>`
     + fixedLine
     + creditLine
+    + giftLine
     + `<div class="sum-row total"><span>Total due now</span><span>${money(totalSum)}</span></div>`;
   orderTotalDue = totalSum;
   const free = totalSum <= 0;
@@ -1096,18 +1135,20 @@ async function payNow(){
   const codeToSend = appliedCode ? appliedCode.code : undefined;
   try {
     const consentText = saveCard ? (((document.getElementById('saveCardRow')||{}).innerText)||'').trim() : undefined;
-    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken, saveCard, verificationToken, consentText, code:codeToSend, intake, inspo: inspoImages, token: (CLIENT&&useAcctCredit)?CLIENT.token:undefined, useCredit: !!(CLIENT&&useAcctCredit) }) });
+    const d = await fetchJSON('/api/bookings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ items, customerName:name, customerEmail:email, paymentToken, saveCard, verificationToken, consentText, code:codeToSend, giftCode: appliedGift?appliedGift.code:undefined, intake, inspo: inspoImages, token: (CLIENT&&useAcctCredit)?CLIENT.token:undefined, useCredit: !!(CLIENT&&useAcctCredit) }) });
     inspoImages = []; renderInspoPreview();
     if(CLIENT){ useAcctCredit=false; loadClient(); }
     LAST_EMAIL = email;
     const n = d.bookings.length;
     document.getElementById('confirmSub').textContent = `Confirmation ${d.confirmation} — ${n} studio${n>1?'s':''} booked. A receipt has been sent to your email.`;
     const savedLine = (d.discountTotal>0) ? `<div class="bk" style="border-color:transparent;color:var(--green,#2e7d32)"><div><b>Savings${d.code?` (${d.code})`:''}</b></div><div style="text-align:right"><b>−${money(d.discountTotal)}</b></div></div>` : '';
+    const giftPaidLine = (d.giftUsed>0) ? `<div class="bk" style="border-color:transparent;color:var(--green,#2e7d32)"><div><b>Gift card applied${d.giftCode?` (${d.giftCode})`:''}</b></div><div style="text-align:right"><b>−${money(d.giftUsed)}</b></div></div>` : '';
     document.getElementById('confirmDetail').innerHTML =
       d.bookings.map(b=>`<div class="bk"><div><b>${b.roomName}</b><div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)}</div></div><div style="text-align:right"><b>${money(b.total)}</b></div></div>`).join('')
       + savedLine
+      + giftPaidLine
       + `<div class="bk" style="border-color:transparent"><div><b>${d.grandTotal>0?'Total paid in full':'Total'}</b></div><div style="text-align:right"><b>${money(d.grandTotal)}</b></div></div>`;
-    order = []; cart = null; appliedCode = null; const ci=document.getElementById('codeInput'); if(ci)ci.value=''; const cm=document.getElementById('codeMsg'); if(cm)cm.textContent=''; go('confirm'); renderContractSection('confirmContract', email, d.confirmation); toast('Payment complete — booking saved');
+    order = []; cart = null; appliedCode = null; appliedGift = null; const ci=document.getElementById('codeInput'); if(ci)ci.value=''; const cm=document.getElementById('codeMsg'); if(cm)cm.textContent=''; const gi=document.getElementById('giftInput'); if(gi)gi.value=''; const gm=document.getElementById('giftMsg'); if(gm)gm.textContent=''; go('confirm'); renderContractSection('confirmContract', email, d.confirmation); toast('Payment complete — booking saved');
   } catch(err){
     btn.disabled = false; btn.textContent = l0;
     toast(err.status===409 ? (err.body && err.body.error ? err.body.error : 'A time was just taken — please adjust.') : (err.message||'Could not complete booking'));
@@ -1471,7 +1512,7 @@ function bookingPayloadCheck(){
   if(!reasons.length){ toast('Please tell us what best describes your visit'); const r0=document.querySelector('#inReason input'); if(r0) r0.focus(); return null; }
   const intake = { reason:reasons.join('; '), sessions:Array.prototype.map.call(document.querySelectorAll('#inSessions input:checked'),function(c){return c.value;}), photographer:((document.getElementById('inPhotographer')||{}).value||'').trim(), details:((document.getElementById('inDetails')||{}).value||'').trim() };
   const items = order.map(it=>({ room:it.roomId, date:it.date, start:it.start, end:it.end, addons:it.addons, addonOptions:it.addonOpts||{} }));
-  return { name, email, intake, items, code: appliedCode?appliedCode.code:undefined };
+  return { name, email, intake, items, code: appliedCode?appliedCode.code:undefined, giftCode: appliedGift?appliedGift.code:undefined };
 }
 function finishBooking(d, email){
   if(CLIENT){ useAcctCredit=false; loadClient(); }
@@ -1479,11 +1520,13 @@ function finishBooking(d, email){
   const n = d.bookings.length;
   document.getElementById('confirmSub').textContent = `Confirmation ${d.confirmation} — ${n} studio${n>1?'s':''} booked. A receipt has been sent to your email.`;
   const savedLine = (d.discountTotal>0) ? `<div class="bk" style="border-color:transparent;color:var(--green,#2e7d32)"><div><b>Savings${d.code?` (${d.code})`:''}</b></div><div style="text-align:right"><b>−${money(d.discountTotal)}</b></div></div>` : '';
+  const giftPaidLine = (d.giftUsed>0) ? `<div class="bk" style="border-color:transparent;color:var(--green,#2e7d32)"><div><b>Gift card applied${d.giftCode?` (${d.giftCode})`:''}</b></div><div style="text-align:right"><b>−${money(d.giftUsed)}</b></div></div>` : '';
   document.getElementById('confirmDetail').innerHTML =
     d.bookings.map(b=>`<div class="bk"><div><b>${b.roomName}</b><div class="meta">${fmtDate(b.date)} · ${label(b.start)}–${label(b.end)}</div></div><div style="text-align:right"><b>${money(b.total)}</b></div></div>`).join('')
     + savedLine
+    + giftPaidLine
     + `<div class="bk" style="border-color:transparent"><div><b>${d.grandTotal>0?'Total paid in full':'Total'}</b></div><div style="text-align:right"><b>${money(d.grandTotal)}</b></div></div>`;
-  order = []; cart = null; appliedCode = null; const ci=document.getElementById('codeInput'); if(ci)ci.value=''; const cm=document.getElementById('codeMsg'); if(cm)cm.textContent=''; go('confirm'); renderContractSection('confirmContract', email, d.confirmation); toast('Payment complete — booking saved');
+  order = []; cart = null; appliedCode = null; appliedGift = null; const ci=document.getElementById('codeInput'); if(ci)ci.value=''; const cm=document.getElementById('codeMsg'); if(cm)cm.textContent=''; const gi=document.getElementById('giftInput'); if(gi)gi.value=''; const gm=document.getElementById('giftMsg'); if(gm)gm.textContent=''; go('confirm'); renderContractSection('confirmContract', email, d.confirmation); toast('Payment complete — booking saved');
 }
 var ppConfig=null, ppReady=false, ppRendered=false, ppSuppressError=false;
 async function initPaypal(){
@@ -1509,11 +1552,11 @@ function renderPaypalButtons(){
       },
       createOrder: function(){
         var pp=bookingPayloadCheck(); if(!pp) return Promise.reject(new Error('Please complete the form first.'));
-        return fetchJSON('/api/paypal/create-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:pp.items,code:pp.code,token:(CLIENT&&useAcctCredit)?CLIENT.token:undefined,useCredit:!!(CLIENT&&useAcctCredit)})}).then(function(d){return d.orderId;}).catch(function(err){ ppSuppressError=true; setTimeout(function(){ppSuppressError=false;},1500); toast((err.body&&err.body.error)||err.message||'Could not start PayPal'); throw err; });
+        return fetchJSON('/api/paypal/create-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:pp.items,code:pp.code,giftCode:pp.giftCode,token:(CLIENT&&useAcctCredit)?CLIENT.token:undefined,useCredit:!!(CLIENT&&useAcctCredit)})}).then(function(d){return d.orderId;}).catch(function(err){ ppSuppressError=true; setTimeout(function(){ppSuppressError=false;},1500); toast((err.body&&err.body.error)||err.message||'Could not start PayPal'); throw err; });
       },
       onApprove: function(data){
         var pp=bookingPayloadCheck(); if(!pp) return;
-        return fetchJSON('/api/bookings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:pp.items,customerName:pp.name,customerEmail:pp.email,code:pp.code,intake:pp.intake,inspo:inspoImages,paymentMethod:'paypal',paypalOrderId:data.orderID,token:(CLIENT&&useAcctCredit)?CLIENT.token:undefined,useCredit:!!(CLIENT&&useAcctCredit)})}).then(function(d){ inspoImages=[]; renderInspoPreview(); finishBooking(d,pp.email); }).catch(function(err){ toast((err.body&&err.body.error)||err.message||'Could not complete booking'); });
+        return fetchJSON('/api/bookings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:pp.items,customerName:pp.name,customerEmail:pp.email,code:pp.code,giftCode:pp.giftCode,intake:pp.intake,inspo:inspoImages,paymentMethod:'paypal',paypalOrderId:data.orderID,token:(CLIENT&&useAcctCredit)?CLIENT.token:undefined,useCredit:!!(CLIENT&&useAcctCredit)})}).then(function(d){ inspoImages=[]; renderInspoPreview(); finishBooking(d,pp.email); }).catch(function(err){ toast((err.body&&err.body.error)||err.message||'Could not complete booking'); });
       },
       onError: function(){ if(ppSuppressError){ ppSuppressError=false; return; } toast('PayPal had a problem. Please try again or pay by card.'); }
     }).render('#paypal-buttons');
