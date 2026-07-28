@@ -193,7 +193,8 @@
     </div>
 
     <div style="margin-top:14px">
-      <a id="addLine" style="font-family:Arial,sans-serif;font-size:14px;color:#7c7268;cursor:pointer;text-decoration:underline">+ Add another studio or time to this booking</a>
+      <button id="addLine" type="button" style="font-family:Arial,sans-serif;font-size:14px;font-weight:bold;background:#f7f5f2;color:#7c7268;border:1px solid #7c7268;border-radius:999px;padding:9px 18px;cursor:pointer">+ Add another studio</button>
+      <div class="muted" style="font-size:12px;margin-top:5px">Same day only. A different day should be its own booking, so cancelling one day never touches the other.</div>
     </div>
 
     <label id="sendConfirmRow" style="font-family:Arial,sans-serif;font-size:14px;color:#3a352f;display:flex;align-items:flex-start;gap:7px;margin:18px 0 6px;cursor:pointer">
@@ -1156,6 +1157,14 @@ function renderDayTimeline(container, items, setMode){
       b.style.cssText='position:absolute;top:'+top+'px;height:'+h+'px;left:'+left+';width:'+w+';background:'+(isHold?'#fbfaf7':hexTint(col,0.16))+';border:1px solid '+hexTint(col,0.5)+';border-left:3px solid '+col+';border-radius:6px;padding:3px 6px;box-sizing:border-box;overflow:hidden;cursor:pointer;font-family:Arial,sans-serif'+(isHold?';border-style:dashed':'');
       b.innerHTML='<div style="font-size:11px;font-weight:bold;color:#3a352f;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.label||'')+(isHold?' <span style="font-weight:normal;color:#8a6a2b">· '+((x.source==='block'&&x.booking_id)?'setup':'hold')+'</span>':'')+'</div>'
         +(h>40?'<div style="font-size:10px;color:#8a8375;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+tLabel(x.start)+'–'+tLabel(x.end)+'</div>':'');
+      // PAID stamp (top-right): online bookings are paid at checkout; manual = marked paid,
+      // Vintage Films owner use, or a comp. Unpaid manual bookings get no stamp — that's the tell.
+      if(x.kind==='booking' && (x.source==='booking' || x.paid!=null)){
+        var st=document.createElement('span');
+        st.textContent='PAID';
+        st.style.cssText='position:absolute;top:2px;right:3px;font-family:Arial,sans-serif;font-size:8px;font-weight:bold;letter-spacing:.5px;color:#2e6b34;background:#e5efe7;border:1px solid #bcd8c1;border-radius:3px;padding:1px 4px;line-height:1.2;pointer-events:none';
+        b.appendChild(st);
+      }
       b.title=(x.label||'')+' · '+rname(x.room)+' · '+tLabel(x.start)+'–'+tLabel(x.end);
       b.onclick=(function(entry){ return function(){ setMode('list'); var el=document.getElementById('dc-'+entry.source+'-'+entry.id); if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); var ob=el.style.background; el.style.transition='background .4s'; el.style.background='#fff6e2'; setTimeout(function(){ el.style.background=ob||''; },1300); } }; })(x);
       cbody.appendChild(b);
