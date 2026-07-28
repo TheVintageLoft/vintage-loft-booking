@@ -685,7 +685,7 @@ function renderAddons(){
   ADDONS.filter(a=>!a.hidden).forEach(a=>{
     const q=cart.addons[a.id]||0;
     html+=`<div class="addon">
-      <div class="info"><b>${a.name}</b> — ${money(a.price)} <small>/ ${a.unit}</small><br><small>${a.desc}</small></div>
+      <div class="info"><b>${a.name}</b> — ${money(a.price)}${a.unit?` <small>/ ${a.unit}</small>`:''}<br><small>${a.desc}</small></div>
       <div class="qty">
         ${a.boolean
           ? `<label style="display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:${(a.id==='earlysetup'&&!setupFreeClient())?'not-allowed':'pointer'};opacity:${(a.id==='earlysetup'&&!setupFreeClient())?0.5:1}"><input type="checkbox" ${q?'checked':''} ${(a.id==='earlysetup'&&!setupFreeClient())?'disabled':''} onchange="toggleAddon('${a.id}',this.checked)"> ${(a.id==='earlysetup'&&!setupFreeClient())?'Not available for this time':'Add'}</label>`
@@ -1355,12 +1355,12 @@ function renderAddons(){
       if(!cart.addonOpts[a.id]) cart.addonOpts[a.id] = a.options[0].label;
       const sel = cart.addonOpts[a.id];
       const selPrice = addonUnit(a, sel, cart.roomId);
-      priceLabel = selPrice>0 ? `${money(selPrice)} <small>/ ${a.unit}</small>` : `<b style="color:var(--green)">Free</b>`;
+      priceLabel = selPrice>0 ? `${money(selPrice)}${a.unit?` <small>/ ${a.unit}</small>`:''}` : `<b style="color:var(--green)">Free</b>`;
       optHtml = `<div style="margin-top:8px"><select onchange="setAddonOpt('${a.id}',this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff;color:var(--ink);max-width:100%">`
         + a.options.map(o=>`<option ${sel===o.label?'selected':''} value="${o.label}">${o.label}${o.price>0?` (${money(o.price)})`:''}</option>`).join('') + `</select></div>`;
     } else {
       const flat = addonUnit(a, null, cart.roomId);
-      priceLabel = flat>0 ? `${money(flat)} <small>/ ${a.unit}</small>` : `<b style="color:var(--green)">Free</b>`;
+      priceLabel = flat>0 ? `${money(flat)}${a.unit?` <small>/ ${a.unit}</small>`:''}` : `<b style="color:var(--green)">Free</b>`;
     }
     html += `<div class="addon">
       <div class="info"><b>${a.name}</b> — ${priceLabel}<br><small>${a.desc}</small>${optHtml}</div>

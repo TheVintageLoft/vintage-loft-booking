@@ -53,14 +53,14 @@
   }
 
   const ADDONS = [
-    { id: 'backdrop',  name: 'Seamless backdrop', unit: 'each', desc: 'Professional seamless paper backdrop. <a href="https://www.thevintageloft.ca/backdrops" target="_blank" rel="noopener" style="text-decoration:underline">Click here to see our backdrops</a>, or upload your own inspo pic on the next page.',
+    { id: 'backdrop',  name: 'Seamless backdrop', unit: 'each', desc: 'Professional seamless paper backdrop. <a href="https://www.thevintageloft.ca/backdrops" target="_blank" rel="noopener" style="text-decoration:underline;white-space:nowrap">Click here to see our backdrops</a>, or upload your own inspo pic on the next page.',
       options: [ { label: 'Rolled to Floor for Headshots', price: 15 }, { label: 'Taped to Floor for Full Body', price: 35 } ] },
     { id: 'lighting',  name: 'Studio lighting', unit: 'kit', desc: 'Profoto strobes & softboxes — select your camera so we set the right trigger',
       options: [ { label: 'Canon', price: 0 }, { label: 'Nikon', price: 0 }, { label: 'Sony', price: 0 } ] },
-    { id: 'cakesmash', name: 'Cake Smash Set',  price: 35, unit: 'set',   desc: 'Includes set props, cake stand, one prop and toddler stools. <a href="https://www.thevintageloft.ca/cakesmashrentals" target="_blank" rel="noopener" style="text-decoration:underline">Click here to see some of our sets</a>, or upload your own inspo pic on the next page.' },
-    { id: 'wardrobe',  name: 'Dress rental',    price: 50, unit: 'dress', desc: 'A styled dress from our collection. <a href="https://www.thevintageloft.ca/wardrobe/ladiesdresses" target="_blank" rel="noopener" style="text-decoration:underline">Click here to browse our ladies\' dresses</a> and then upload a pic of your favourites to try on for your booking on the next page.' },
+    { id: 'cakesmash', name: 'Cake Smash Set',  price: 35, unit: 'set',   desc: 'Includes set props, cake stand, one prop and toddler stools. <a href="https://www.thevintageloft.ca/cakesmashrentals" target="_blank" rel="noopener" style="text-decoration:underline;white-space:nowrap">Click here to see some of our sets</a>, or upload your own inspo pic on the next page.' },
+    { id: 'wardrobe',  name: 'Dress rental',    price: 50, unit: 'dress', desc: 'A styled dress from our collection. <a href="https://www.thevintageloft.ca/wardrobe/ladiesdresses" target="_blank" rel="noopener" style="text-decoration:underline;white-space:nowrap">Click here to browse our ladies\' dresses</a> and then upload a pic of your favourites to try on for your booking on the next page.' },
     { id: 'bedsetup',  name: 'Bed set-up',      price: 25, unit: 'set',   desc: 'Queen bed with fresh linens', rooms: ['gatsby'], priority: 1 },
-    { id: 'swing',     name: 'Macramé swing',   price: 15, unit: 'each',  desc: 'Hanging macramé swing', rooms: ['grand', 'dream', 'northwing'] },
+    { id: 'swing',     name: 'Macramé swing',   price: 15, unit: '',  desc: 'Hanging macramé swing', rooms: ['grand', 'dream', 'northwing'] },
     { id: 'earlysetup', name: '15 min early arrival (setup)', unit: 'setup', boolean: true, priority: 2,
       desc: 'Arrive 15 minutes before your session to set up. Your time starts 15 minutes early and that window is reserved for you (a 9:00 booking begins at 8:45).',
       roomPrices: { northwing: 25, grand: 25, gatsby: 20, carnegie: 20, dream: 15, marilyn: 7 } },
