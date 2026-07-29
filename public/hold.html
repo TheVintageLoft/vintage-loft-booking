@@ -51,6 +51,8 @@
   .tag{display:inline-block;font-family:Arial,sans-serif;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:.5px;padding:2px 8px;border-radius:20px;margin-left:8px;vertical-align:middle}
   .tag-booking{background:#e5efe7;color:#2e6b34}
   .tag-hold{background:#f0e7d6;color:#8a6a2b}
+  .tag-session{background:#f3e4c6;color:#8a6118}
+  .tag-owing{background:#f7dede;color:#a3302a}
   .tag-owner{background:#ece4f3;color:#6b4a8a}
   .tag-comp{background:#d9ece9;color:#1f6b6b}
   #signedbar{max-width:720px;margin:0 auto 12px;display:flex;justify-content:space-between;align-items:baseline;font-family:Arial,sans-serif;font-size:13px;color:#8a8375}
@@ -293,7 +295,7 @@
 </div>
 
 <script>
-var ROOMS=[["northwing","North Wing"],["grand","Grand Room"],["dream","Dream Room"],["gatsby","The Gatsby"],["carnegie","The Carnegie"],["marilyn","The Marilyn"]];
+var ROOMS=[["northwing","North Wing"],["grand","Grand Room"],["dream","Dream Room"],["gatsby","The Gatsby"],["carnegie","The Carnegie"],["marilyn","The Marilyn"],["vintagefilms","Vintage Films"]];
 function pad(n){return String(n).padStart(2,'0');}
 function tLabel(d){var h=Math.floor(d),m=Math.round((d-h)*60),ap=h<12?'AM':'PM',hh=h%12||12;return hh+':'+pad(m)+' '+ap;}
 function fdate(iso){var p=iso.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return M[+p[1]-1]+' '+(+p[2])+', '+p[0];}
@@ -345,7 +347,12 @@ function makeLink(entry, dollars, cb){
 }
 
 // Calendar state — declared up top so an early auto-load has it ready.
-var RCOLOR={northwing:'#1a1a1a',grand:'#c0392b',dream:'#2e6f9e',gatsby:'#3f8a52',carnegie:'#8a5a2b',marilyn:'#7a4fa3'};
+var RCOLOR={northwing:'#1a1a1a',grand:'#c0392b',dream:'#2e6f9e',gatsby:'#3f8a52',carnegie:'#8a5a2b',marilyn:'#7a4fa3',vintagefilms:'#a9791f'};
+// Photography sessions get their own gold accent + a warm tan card so they read as a band down the day view.
+var PHOTO_GOLD='#a9791f', PHOTO_FILL='#f3ece1';
+var SESSIONS_BY_ID={};
+function vlMoney(n){ return '$'+Number(n||0).toFixed(2); }
+var ROLE_LABEL={studio:'Studio',photographer:'Kelly shooting',makeup:'Hair & makeup prep'};
 var MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
 var CAL={items:{}, y:null, m:null, sel:null};
 
@@ -669,10 +676,14 @@ function loadCalendar(){
   cm.textContent='Loading…';
   Promise.all([
     fetch('/api/admin/blocks?key='+encodeURIComponent(getKey())).then(chk),
-    fetch('/api/admin/bookings?key='+encodeURIComponent(getKey())).then(chk)
+    fetch('/api/admin/bookings?key='+encodeURIComponent(getKey())).then(chk),
+    fetch('/api/admin/sessions?key='+encodeURIComponent(getKey())).then(chk).catch(function(){return {sessions:[]};})
   ]).then(function(res){
     var idx={};
-    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='booking'?'booking':'hold'),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,booking_id:b.booking_id||null,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,pay_mode:b.pay_mode||'',pay_method:b.pay_method||'',addons_json:b.addons_json||'',intake:b.intake||'',inspoCount:(b.inspoCount||0)}); });
+    // photography sessions, indexed by id so a session's studio / photographer / Marilyn cards
+    // can all show the same shoot details (add-ons, deposit paid, balance owing)
+    SESSIONS_BY_ID={}; ((res[2]&&res[2].sessions)||[]).forEach(function(v){ SESSIONS_BY_ID[v.id]=v; });
+    (res[0].blocks||[]).forEach(function(b){ (idx[b.date]=idx[b.date]||[]).push({source:'block',kind:(b.kind==='session'?'session':(b.kind==='booking'?'booking':'hold')),session_id:(b.session_id||null),role:(b.role||''),room:b.room_id,start:b.start,end:b.end,label:b.reason||'Hold',id:b.id,booking_id:b.booking_id||null,notes:b.notes||'',pay_link:b.pay_link||'',client:b.client||'',confirmation:b.confirmation||'',paid:(b.paid==null?null:b.paid),paid_at:b.paid_at||null,pay_mode:b.pay_mode||'',pay_method:b.pay_method||'',addons_json:b.addons_json||'',intake:b.intake||'',inspoCount:(b.inspoCount||0)}); });
     (res[1].bookings||[]).forEach(function(b){ if(b.status==='cancelled')return; (idx[b.date]=idx[b.date]||[]).push({source:'booking',kind:'booking',room:b.room_id,start:b.start,end:b.end,label:b.customer_name||'Booking',id:b.id,sample:b.payment_ref==='SEED',notes:b.notes||'',intake:b.intake||'',pay_link:b.pay_link||'',inspoCount:(b.inspoCount||0),customer_email:b.customer_email||'',total:(b.total==null?null:b.total),paid:(b.paid==null?null:b.paid),discount:(b.discount||0),code:b.code||'',payment_ref:b.payment_ref||'',payment_mode:b.payment_mode||'',created_at:b.created_at||''}); });
     CAL.items=idx; cm.textContent='';
     renderMonth(); renderHoldings();
@@ -749,18 +760,56 @@ function selectDay(iso){
     var hdr=document.createElement('div'); hdr.className='studiohdr'; hdr.innerHTML='<i style="background:'+RCOLOR[rid]+'"></i>'+r[1]; body.appendChild(hdr);
     list.forEach(function(x){
       var card=document.createElement('div'); card.className='daycard'; card.style.borderLeftColor=RCOLOR[rid]; card.id='dc-'+x.source+'-'+x.id;
+      // A photography session keeps its room's border colour (Kelly still needs to see WHICH room)
+      // but gets a warm tan fill so sessions stand out as a band down the day.
+      if(x.kind==='session'){ card.style.background=PHOTO_FILL; }
       var who=document.createElement('div'); who.className='who';
       who.appendChild(document.createTextNode(x.label+(x.sample?' (sample)':'')));
       // A hold linked to a booking (the reserved early-arrival window) is filtered out of the list
       // above and shown as a line ON its booking card instead — one card per booking.
       var tag=document.createElement('span');
-      if(x.kind==='booking'){ tag.className='tag tag-booking'; tag.textContent='Booking'; }
+      if(x.kind==='session'){ tag.className='tag tag-session'; tag.textContent='Session'; }
+      else if(x.kind==='booking'){ tag.className='tag tag-booking'; tag.textContent='Booking'; }
       else { tag.className='tag tag-hold'; tag.textContent='Hold'; }
       who.appendChild(tag);
       if(x.pay_mode==='owner'){ var ot=document.createElement('span'); ot.className='tag tag-owner'; ot.textContent='Owner use'; who.appendChild(ot); }
       else if(x.pay_mode==='comp'){ var ct=document.createElement('span'); ct.className='tag tag-comp'; ct.textContent='Comp'; who.appendChild(ct); }
       card.appendChild(who);
       var meta=document.createElement('div'); meta.className='meta'; meta.textContent=tLabel(x.start)+' – '+tLabel(x.end); card.appendChild(meta);
+      // ---- photography session details ----
+      // The times above are the RESERVED window (session time plus its buffers, or the Marilyn
+      // prep window). The client-facing session time and money live on the session record.
+      if(x.kind==='session' && x.session_id){
+        var v=SESSIONS_BY_ID[x.session_id];
+        var rl=document.createElement('div'); rl.className='meta'; rl.style.color=PHOTO_GOLD; rl.style.fontWeight='bold';
+        rl.textContent=(ROLE_LABEL[x.role]||'Session')+(v?' · reserved window incl. buffers':'');
+        card.appendChild(rl);
+        if(v){
+          var sl=document.createElement('div'); sl.className='meta';
+          sl.textContent=v.sessionName+' · session '+v.startLabel+' – '+v.endLabel+' ('+v.lengthLabel+')';
+          card.appendChild(sl);
+          if(v.hmArrivalLabel){
+            var hm=document.createElement('div'); hm.className='meta'; hm.style.color='#8a6118';
+            hm.textContent='Client arrives '+v.hmArrivalLabel+' for '+(v.hmAddon==='makeuponly'?'makeup':'hair & makeup');
+            card.appendChild(hm);
+          }
+          if(v.bed){ var bd=document.createElement('div'); bd.className='meta'; bd.textContent='Gatsby bed set up for this session'; card.appendChild(bd); }
+          if(v.addonItems && v.addonItems.length){
+            var ad=document.createElement('div'); ad.className='meta';
+            ad.textContent='Add-ons: '+v.addonItems.map(function(a){ return a.name+(a.units>1?' ×'+a.units:''); }).join(', ');
+            card.appendChild(ad);
+          }
+          // money: deposit taken at booking, balance still owing
+          var owing=Math.round(((v.balanceDue||0)-(v.balancePaid||0))*100)/100;
+          var pay=document.createElement('div'); pay.className='meta';
+          pay.textContent='Total '+vlMoney(v.total)+' · deposit paid '+vlMoney(v.paid)+(owing>0?(' · balance owing '+vlMoney(owing)):' · paid in full');
+          card.appendChild(pay);
+          if(owing>0){
+            var ow=document.createElement('span'); ow.className='tag tag-owing'; ow.textContent='Balance '+vlMoney(owing); ow.style.marginLeft='0';
+            var owr=document.createElement('div'); owr.style.marginTop='5px'; owr.appendChild(ow); card.appendChild(owr);
+          }
+        }
+      }
       // linked early-arrival window (from the earlysetup add-on) shows right on this booking's card
       if(x.source==='booking'){
         var su=items.find(function(b){ return b.source==='block' && b.booking_id===x.id; });

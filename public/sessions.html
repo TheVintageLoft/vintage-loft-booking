@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Photography Sessions — The Vintage Loft</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&display=swap" rel="stylesheet">
+<style>
+  /* Tokens deliberately identical to index.html so the two pages read as one site. */
+  :root{
+    --ink:#4a423b; --muted:#9a9086; --line:#e8e2da; --paper:#F0EEEE;
+    --card:#ffffff; --gold:#786C66; --gold-d:#5f5550; --green:#5f8361;
+    --red:#a95f51; --shadow:0 10px 34px rgba(74,66,59,.12);
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',-apple-system,Helvetica,Arial,sans-serif;
+    color:var(--ink);background:var(--paper);line-height:1.5}
+  h1,h2,h3{font-family:'Cormorant Garamond',Georgia,'Times New Roman',serif;font-weight:600;font-style:italic;margin:0;letter-spacing:.3px}
+  a{color:var(--gold-d)}
+  button{font-family:inherit;cursor:pointer}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 20px}
+
+  header{background:#fff;position:sticky;top:0;z-index:40;border-bottom:1px solid var(--line)}
+  .bar{display:flex;align-items:center;gap:18px;min-height:64px}
+  .brand{font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;font-size:24px;letter-spacing:.5px;
+    color:var(--ink);text-decoration:none;display:flex;flex-direction:column;line-height:1.05}
+  .brand small{font-family:'Segoe UI',-apple-system,sans-serif;font-style:normal;font-size:9px;letter-spacing:3px;
+    color:var(--muted);text-transform:uppercase;margin-top:7px}
+  .navspacer{flex:1}
+  .navbtn{background:transparent;border:0;color:var(--ink);font-size:14px;padding:8px 10px;border-radius:8px}
+  .navbtn:hover{background:var(--paper)}
+
+  main{padding:28px 0 80px}
+  .hero{text-align:center;padding:10px 0 22px}
+  .hero h1{font-size:30px}
+  .hero p{color:var(--muted);margin:8px 0 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .pad{padding:22px}
+  .btn{border:0;border-radius:10px;padding:12px 20px;font-weight:600;font-size:14px}
+  .btn-gold{background:var(--gold);color:#fff}
+  .btn-gold:hover{background:var(--gold-d)}
+  .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+  .btn-ghost:hover{border-color:var(--gold)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+
+  .steps{display:flex;gap:8px;justify-content:center;margin-bottom:20px;flex-wrap:wrap}
+  .step{font-size:12px;color:var(--muted);padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:#fff}
+  .step.active{background:var(--gold);color:#fff;border-color:var(--gold)}
+  .step.done{color:var(--green);border-color:rgba(63,125,84,.4)}
+
+  .section-title{display:flex;align-items:baseline;justify-content:space-between;margin:30px 0 14px}
+  .section-title h2{font-size:20px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  @media(max-width:860px){.grid{grid-template-columns:1fr 1fr}}
+  @media(max-width:560px){.grid{grid-template-columns:1fr}}
+
+  .sess{overflow:hidden;display:flex;flex-direction:column;text-align:left;padding:0;background:#fff;
+    border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .sess .body{padding:16px;flex:1;display:flex;flex-direction:column}
+  .sess h3{font-size:17px}
+  .sess .meta{color:var(--muted);font-size:12.5px;margin:4px 0 8px}
+  .sess .blurb{font-size:13px;margin:0 0 12px}
+  .sess .price{font-size:13px;margin-top:auto}
+  .sess .price b{font-size:18px}
+  .sess .dep{color:var(--muted);font-size:12px;margin-top:2px}
+  .sess .foot{margin-top:12px}
+  .tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;
+    background:rgba(120,108,102,.10);color:var(--gold-d);margin-right:5px}
+
+  .cols{display:grid;grid-template-columns:1.6fr 1fr;gap:22px;align-items:start}
+  @media(max-width:860px){.cols{grid-template-columns:1fr}}
+  .sticky{position:sticky;top:84px}
+
+  .addon{display:flex;align-items:flex-start;gap:12px;padding:13px 0;border-bottom:1px solid var(--line)}
+  .addon:last-child{border-bottom:0}
+  .addon .info{flex:1}
+  .addon .info small{color:var(--muted);display:block;margin-top:2px}
+  .addon .amt{font-weight:600;white-space:nowrap}
+  .addon.nested{margin-left:26px;border-bottom:0;padding-top:4px}
+  .qty{display:flex;align-items:center;gap:8px}
+  .qty button{width:28px;height:28px;border-radius:8px;border:1px solid var(--line);background:#fff;font-size:16px;line-height:1}
+  .qty span{width:22px;text-align:center;font-weight:600}
+
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px}
+  .field input,.field select,.field textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;
+    font-size:14px;background:#fff;color:var(--ink);font-family:inherit}
+  .field textarea{min-height:78px;resize:vertical}
+
+  .sum-row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;font-size:14px;border-bottom:1px dashed var(--line)}
+  .sum-row.total{border-bottom:0;border-top:2px solid var(--ink);margin-top:6px;padding-top:12px;font-size:16px;font-weight:700}
+  .sum-row small{color:var(--muted)}
+  .due{background:#fdfbf8;border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:14px}
+  .due .big{font-size:22px;font-weight:700}
+  .due .later{color:var(--muted);font-size:12.5px;margin-top:6px}
+
+  .slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:9px}
+  .slot{padding:11px 6px;border:1px solid var(--line);background:#fff;border-radius:10px;font-size:13.5px;font-weight:600}
+  .slot:hover{border-color:var(--gold)}
+  .slot.on{background:var(--gold);color:#fff;border-color:var(--gold)}
+  .slot small{display:block;font-weight:400;font-size:11px;opacity:.75}
+
+  .banner{background:#fff7ea;border:1px solid #f0dcae;color:#6b5326;border-radius:10px;
+    padding:10px 14px;font-size:12.5px;margin:0 0 16px}
+  .err{background:rgba(169,95,81,.08);border:1px solid rgba(169,95,81,.35);color:var(--red);
+    border-radius:10px;padding:10px 14px;font-size:13px;margin:12px 0}
+  .note{color:var(--muted);font-size:12.5px}
+  .square-box{border:1px solid var(--line);border-radius:12px;padding:16px;background:#fdfbf8}
+  .square-box .sqhead{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:12px}
+  .cardrow{display:grid;grid-template-columns:1fr 90px 90px;gap:10px}
+  .hidden{display:none !important}
+  .spin{color:var(--muted);font-size:13px;padding:12px 0}
+  .arrival{background:rgba(95,131,97,.10);border:1px solid rgba(95,131,97,.35);color:#3f6b46;
+    border-radius:10px;padding:10px 14px;font-size:13px;margin-top:14px}
+  .conf{text-align:center;padding:14px}
+  .conf .num{font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;font-size:30px;margin:10px 0}
+  :focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <a class="brand" href="/">The Vintage Loft<small>Photography Sessions</small></a>
+    <div class="navspacer"></div>
+    <button class="navbtn" id="navStudio">Studio rentals</button>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="steps" id="steps"></div>
+  <div id="err"></div>
+
+  <!-- ============ STEP 1: choose a session ============ -->
+  <section id="step1">
+    <div class="hero">
+      <h1>Book a session with Kelly</h1>
+      <p>Choose your session, add anything extra, then pick a time that works.</p>
+    </div>
+    <div id="catalog"><div class="spin">Loading sessions…</div></div>
+  </section>
+
+  <!-- ============ STEP 2: extras ============ -->
+  <section id="step2" class="hidden">
+    <div class="hero"><h1 id="s2title">Add to your session</h1><p id="s2sub"></p></div>
+    <div class="cols">
+      <div class="card pad">
+        <div id="sessOptions"></div>
+        <div id="addonList"></div>
+      </div>
+      <div id="sumWrap2"></div>
+    </div>
+  </section>
+
+  <!-- ============ STEP 3: date and time ============ -->
+  <section id="step3" class="hidden">
+    <div class="hero"><h1>Pick your date and time</h1><p id="s3sub"></p></div>
+    <div class="cols">
+      <div class="card pad">
+        <div class="field">
+          <label for="dt">Date</label>
+          <input type="date" id="dt">
+        </div>
+        <div id="slotArea"><p class="note">Choose a date to see available times.</p></div>
+      </div>
+      <div id="sumWrap3"></div>
+    </div>
+  </section>
+
+  <!-- ============ STEP 4: details and deposit ============ -->
+  <section id="step4" class="hidden">
+    <div class="hero"><h1>Your details</h1><p id="s4sub"></p></div>
+    <div class="cols">
+      <div class="card pad">
+        <div class="field"><label for="cName">Name</label><input id="cName" autocomplete="name"></div>
+        <div class="field"><label for="cEmail">Email</label><input id="cEmail" type="email" autocomplete="email" autocapitalize="none"></div>
+        <div class="field"><label for="cPhone">Mobile</label><input id="cPhone" type="tel" autocomplete="tel"></div>
+        <div class="field"><label for="cDetails">Anything we should know?</label>
+          <textarea id="cDetails" placeholder="Ages of the children, outfit ideas, accessibility needs, who's coming with you."></textarea></div>
+
+        <h3 style="font-size:17px;margin:22px 0 12px">Pay your deposit</h3>
+        <div class="square-box">
+          <div class="sqhead">Card details are handled by Square. We never see or store your card number.</div>
+          <div id="sqCardWrap" class="hidden"><div id="sq-card"></div></div>
+          <div id="fakeCard">
+            <div class="field" style="margin-bottom:10px"><label for="fcNum">Card number</label><input id="fcNum" inputmode="numeric" placeholder="4111 1111 1111 1111"></div>
+            <div class="cardrow">
+              <div class="field" style="margin:0"><label for="fcExp">Expiry</label><input id="fcExp" placeholder="MM/YY"></div>
+              <div class="field" style="margin:0"><label for="fcCvv">CVV</label><input id="fcCvv" placeholder="123"></div>
+              <div class="field" style="margin:0"><label for="fcZip">Postal</label><input id="fcZip" placeholder="L1N"></div>
+            </div>
+            <p class="note" style="margin:10px 0 0">Test mode: no real card is charged.</p>
+          </div>
+        </div>
+        <div id="payErr"></div>
+        <button class="btn btn-gold" id="payBtn" style="margin-top:16px;width:100%">Pay deposit &amp; book</button>
+        <p class="note" style="margin-top:10px" id="cxNote"></p>
+      </div>
+      <div id="sumWrap4"></div>
+    </div>
+  </section>
+
+  <!-- ============ DONE ============ -->
+  <section id="step5" class="hidden">
+    <div class="card pad conf">
+      <h1 style="font-size:26px">You're booked</h1>
+      <div class="num" id="confNum"></div>
+      <p id="confLine"></p>
+      <div class="arrival" id="confArrival" style="text-align:left"></div>
+      <p class="note" style="margin-top:18px">A confirmation email is on its way. We'll email your balance payment link
+        two days before, and you'll get a reminder the day before with arrival directions.</p>
+      <p style="margin-top:18px"><b>207 Dundas St West, Whitby</b> &middot; 2nd floor of the Pizza Nova building &middot; free parking in our lot<br>
+        Studio 905-767-2099 &middot; Kelly's cell 905-767-8099</p>
+    </div>
+  </section>
+
+</main>
+
+<script>
+/* ---------- tiny helpers ---------- */
+function $(id){ return document.getElementById(id); }
+function money(n){ return '$' + (Math.round((+n||0)*100)/100).toFixed(2); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+  return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
+async function fetchJSON(url, opts){
+  const r = await fetch(url, opts);
+  let d = null; try{ d = await r.json(); }catch(e){}
+  if(!r.ok) throw new Error((d && d.error) || 'Something went wrong. Please try again.');
+  return d;
+}
+function showErr(msg, box){
+  const el = box || $('err');
+  el.innerHTML = msg ? '<div class="err">' + esc(msg) + '</div>' : '';
+  if(msg) window.scrollTo({ top:0, behavior:'smooth' });
+}
+function dateLabel(iso){
+  if(!iso) return '';
+  const d = new Date(iso + 'T12:00:00');
+  return d.toLocaleDateString('en-CA', { weekday:'long', month:'long', day:'numeric' });
+}
+
+/* ---------- state ---------- */
+var CAT = null, CFG = null;          // catalog + config from the server
+var SESSION = null;                  // chosen session
+var SEL = {};                        // flat selection { addonId: units }
+var QUOTE = null;                    // server-computed quote (authoritative)
+var AVAIL = null;                    // availability for the chosen date
+var DATE = '', START = null, ARRIVAL = null;
+var STEP = 1;
+
+/* Sessions grouped the way a client shops, not by spec order. */
+var GROUPS = [
+  { title:'Newborn &amp; baby',        ns:[1,2,3,4,5,6] },
+  { title:'Branding &amp; headshots',  ns:[7,8,9,10,11] },
+  { title:'Family &amp; milestones',   ns:[12,13,14,15,16,22] },
+  { title:'Boudoir &amp; couples',     ns:[17,18,19,20] },
+  { title:'Kids, models &amp; grads',  ns:[21,23,24,25,26,27] }
+];
+
+/* ---------- steps ---------- */
+var STEP_NAMES = ['Session','Extras','Date &amp; time','Your details'];
+function renderSteps(){
+  $('steps').innerHTML = STEP_NAMES.map(function(n,i){
+    var k = i + 1, cls = 'step' + (k === STEP ? ' active' : (k < STEP ? ' done' : ''));
+    return '<span class="' + cls + '">' + n + '</span>';
+  }).join('');
+}
+function go(step){
+  STEP = step;
+  [1,2,3,4,5].forEach(function(k){ $('step'+k).classList.toggle('hidden', k !== step); });
+  $('steps').classList.toggle('hidden', step === 5);
+  renderSteps(); showErr('');
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+/* ---------- add-on rules (mirrors sessions.js so the UI agrees with the server) ---------- */
+function addonPrice(a){ return (a.juniorPrice != null && SESSION && SESSION.juniorHM) ? a.juniorPrice : a.price; }
+function addonVisible(a){
+  if(a.requires) return false;                                  // nested under its parent
+  if(a.onlyBranding && !SESSION.branding) return false;
+  if(a.hideWhenJunior && SESSION.juniorHM) return false;
+  return true;
+}
+function hmLead(a){ return (a.juniorLeadMin != null && SESSION.juniorHM) ? a.juniorLeadMin : a.hmLeadMin; }
+
+/* ---------- step 1: catalog ---------- */
+function renderCatalog(){
+  var html = '';
+  GROUPS.forEach(function(g){
+    var list = g.ns.map(function(n){ return CAT.sessions.find(function(s){ return s.n === n; }); })
+                   .filter(Boolean);
+    if(!list.length) return;
+    html += '<div class="section-title"><h2>' + g.title + '</h2></div><div class="grid">';
+    list.forEach(function(s){
+      html += '<div class="sess"><div class="body">' +
+        '<h3>' + esc(s.name) + '</h3>' +
+        '<div class="meta">' + esc(s.lengthLabel) + ' &middot; ' + esc((s.roomNames||[]).join(' + ')) +
+          (s.bed ? ' &middot; bed set up for you' : '') + '</div>' +
+        (s.blurb ? '<p class="blurb">' + esc(s.blurb) + '</p>' : '') +
+        '<div class="price"><b>' + money(s.total) + '</b> <span class="note">total, tax in</span>' +
+        '<div class="dep">' + money(s.deposit) + ' deposit today' + '</div></div>' +
+        '<div class="foot"><button class="btn btn-gold" data-pick="' + esc(s.id) + '">Choose this session</button></div>' +
+        '</div></div>';
+    });
+    html += '</div>';
+  });
+  $('catalog').innerHTML = html;
+  Array.prototype.forEach.call($('catalog').querySelectorAll('[data-pick]'), function(b){
+    b.onclick = function(){ pickSession(b.getAttribute('data-pick')); };
+  });
+}
+
+function pickSession(id){
+  SESSION = CAT.sessions.find(function(s){ return s.id === id; });
+  if(!SESSION) return;
+  SEL = {}; QUOTE = null; DATE = ''; START = null; AVAIL = null;
+  $('s2title').textContent = SESSION.name;
+  $('s2sub').innerHTML = esc(SESSION.lengthLabel) + ' in the ' + esc((SESSION.roomNames||[]).join(' + ')) +
+    '. Everything here is optional.';
+  renderExtras();
+  refreshQuote();
+  go(2);
+}
+
+/* ---------- step 2: extras ---------- */
+function renderExtras(){
+  /* session-specific paid options first, since they change what the session IS */
+  var opts = SESSION.options || [];
+  $('sessOptions').innerHTML = !opts.length ? '' :
+    '<h3 style="font-size:16px;margin:0 0 6px">For this session</h3>' +
+    opts.map(function(o){
+      return '<div class="addon"><input type="checkbox" id="op-' + esc(o.id) + '" ' + (SEL[o.id] ? 'checked' : '') + '>' +
+        '<div class="info"><label for="op-' + esc(o.id) + '"><b>' + esc(o.name) + '</b></label>' +
+        (o.desc ? '<small>' + esc(o.desc) + '</small>' : '') + '</div>' +
+        '<div class="amt">+' + money(o.price) + '</div></div>';
+    }).join('') +
+    '<h3 style="font-size:16px;margin:22px 0 6px">Add-ons</h3>';
+
+  var rows = '';
+  CAT.addons.filter(addonVisible).forEach(function(a){
+    var p = addonPrice(a);
+    if(a.maxUnits){
+      var units = SEL[a.id] || 0;
+      rows += '<div class="addon"><div class="info"><b>' + esc(a.name) + '</b>' +
+        '<small>' + esc(a.desc || '') + '</small></div>' +
+        '<div class="qty"><button type="button" data-minus="' + esc(a.id) + '" aria-label="Less">&minus;</button>' +
+        '<span id="q-' + esc(a.id) + '">' + units + '</span>' +
+        '<button type="button" data-plus="' + esc(a.id) + '" aria-label="More">+</button></div>' +
+        '<div class="amt">' + money(p) + ' <small class="note">/ ' + esc(a.unit || 'each') + '</small></div></div>';
+    } else {
+      var junior = (a.juniorPrice != null && SESSION.juniorHM);
+      rows += '<div class="addon"><input type="checkbox" id="ad-' + esc(a.id) + '" ' + (SEL[a.id] ? 'checked' : '') + '>' +
+        '<div class="info"><label for="ad-' + esc(a.id) + '"><b>' + esc(a.name) + '</b>' +
+        (junior ? ' <span class="tag">junior rate</span>' : '') + '</label>' +
+        '<small>' + esc(a.desc || '') + '</small></div>' +
+        '<div class="amt">+' + money(p) + '</div></div>';
+      /* nested children, e.g. the Reel voice option */
+      CAT.addons.filter(function(c){ return c.requires === a.id; }).forEach(function(c){
+        rows += '<div class="addon nested' + (SEL[a.id] ? '' : ' hidden') + '" id="wrap-' + esc(c.id) + '">' +
+          '<input type="checkbox" id="ad-' + esc(c.id) + '" ' + (SEL[c.id] ? 'checked' : '') + '>' +
+          '<div class="info"><label for="ad-' + esc(c.id) + '"><b>' + esc(c.name) + '</b></label>' +
+          '<small>' + esc(c.desc || '') + '</small></div>' +
+          '<div class="amt">+' + money(c.price) + '</div></div>';
+      });
+    }
+  });
+  $('addonList').innerHTML = rows;
+  wireExtras();
+}
+
+function wireExtras(){
+  (SESSION.options || []).forEach(function(o){
+    var el = $('op-' + o.id); if(!el) return;
+    el.onchange = function(){ if(el.checked) SEL[o.id] = 1; else delete SEL[o.id]; refreshQuote(); };
+  });
+  CAT.addons.forEach(function(a){
+    var box = $('ad-' + a.id);
+    if(box){
+      box.onchange = function(){
+        if(box.checked){
+          SEL[a.id] = 1;
+          /* hair & makeup and makeup only both hold the Marilyn — only one can apply */
+          (a.exclusiveWith || []).forEach(function(other){
+            delete SEL[other];
+            var o = $('ad-' + other); if(o) o.checked = false;
+          });
+        } else {
+          delete SEL[a.id];
+          /* dropping a parent drops its children too */
+          CAT.addons.filter(function(c){ return c.requires === a.id; }).forEach(function(c){
+            delete SEL[c.id];
+            var cb = $('ad-' + c.id); if(cb) cb.checked = false;
+          });
+        }
+        CAT.addons.filter(function(c){ return c.requires === a.id; }).forEach(function(c){
+          var w = $('wrap-' + c.id); if(w) w.classList.toggle('hidden', !box.checked);
+        });
+        refreshQuote();
+      };
+    }
+    var minus = document.querySelector('[data-minus="' + a.id + '"]');
+    var plus  = document.querySelector('[data-plus="'  + a.id + '"]');
+    if(minus) minus.onclick = function(){ step(a, -1); };
+    if(plus)  plus.onclick  = function(){ step(a,  1); };
+  });
+}
+function step(a, d){
+  var units = (SEL[a.id] || 0) + d;
+  if(units < 0) units = 0;
+  if(a.maxUnits && units > a.maxUnits) units = a.maxUnits;
+  if(units) SEL[a.id] = units; else delete SEL[a.id];
+  var q = $('q-' + a.id); if(q) q.textContent = units;
+  refreshQuote();
+}
+
+/* ---------- quote (server is authoritative) ---------- */
+var quoteSeq = 0;
+async function refreshQuote(){
+  var mine = ++quoteSeq;
+  try{
+    var q = await fetchJSON('/api/sessions/quote', { method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ session: SESSION.id, addons: SEL }) });
+    if(mine !== quoteSeq) return;             // a newer click already won
+    QUOTE = q;
+    /* the server drops anything not offered — keep the UI honest about it */
+    SEL = q.selection || {};
+    renderSummary();
+    /* changing add-ons can change the length, so any chosen time is now stale */
+    if(START != null && q.minutes !== (AVAIL && AVAIL.minutes)){ START = null; ARRIVAL = null; }
+  }catch(e){ showErr(e.message); }
+}
+
+function summaryHTML(withTime){
+  if(!QUOTE) return '';
+  var rows = '<div class="sum-row"><span>' + esc(SESSION.name) + '<br><small>' +
+    esc(QUOTE.lengthLabel || (QUOTE.minutes + ' min')) + '</small></span><span>' + money(QUOTE.base) + '</span></div>';
+  (QUOTE.addonItems || []).forEach(function(it){
+    rows += '<div class="sum-row"><span>' + esc(it.name) +
+      (it.units > 1 ? ' &times; ' + it.units : '') + '</span><span>' + money(it.amount) + '</span></div>';
+  });
+  rows += '<div class="sum-row"><span>HST (13%)</span><span>' + money(QUOTE.hst) + '</span></div>';
+  rows += '<div class="sum-row total"><span>Total</span><span>' + money(QUOTE.total) + '</span></div>';
+
+  var when = '';
+  if(withTime && DATE && START != null){
+    var slot = AVAIL && (AVAIL.slots || []).find(function(s){ return s.start === START; });
+    when = '<div class="sum-row" style="border-bottom:0;padding-top:12px"><span><b>' + esc(dateLabel(DATE)) + '</b><br><small>' +
+      (slot ? esc(slot.label + ' – ' + slot.endLabel) : '') + '</small></span><span></span></div>';
+  }
+  return '<div class="card pad sticky">' + when + rows +
+    '<div class="due"><div class="note">Deposit due today</div>' +
+    '<div class="big">' + money(QUOTE.deposit) + '</div>' +
+    '<div class="later">Then ' + money(QUOTE.balance) + ' two days before your session. ' +
+    'We\'ll email you a payment link.</div></div>' + navHTML() + '</div>';
+}
+function navHTML(){
+  if(STEP === 2) return '<button class="btn btn-gold" id="to3" style="width:100%;margin-top:14px">Choose a date and time</button>' +
+    '<button class="btn btn-ghost" id="back1" style="width:100%;margin-top:8px">Back to sessions</button>';
+  if(STEP === 3) return '<button class="btn btn-gold" id="to4" style="width:100%;margin-top:14px"' +
+    (START == null ? ' disabled' : '') + '>Continue</button>' +
+    '<button class="btn btn-ghost" id="back2" style="width:100%;margin-top:8px">Back to extras</button>';
+  if(STEP === 4) return '<button class="btn btn-ghost" id="back3" style="width:100%;margin-top:14px">Back to times</button>';
+  return '';
+}
+function renderSummary(){
+  ['2','3','4'].forEach(function(k){
+    var box = $('sumWrap' + k);
+    if(box) box.innerHTML = (STEP === +k) ? summaryHTML(+k >= 3) : '';
+  });
+  if($('to3'))   $('to3').onclick   = function(){ go(3); renderSummary(); if(DATE) loadSlots(); };
+  if($('to4'))   $('to4').onclick   = function(){ toDetails(); };
+  if($('back1')) $('back1').onclick = function(){ go(1); };
+  if($('back2')) $('back2').onclick = function(){ go(2); renderSummary(); };
+  if($('back3')) $('back3').onclick = function(){ go(3); renderSummary(); loadSlots(); };
+}
+
+/* ---------- step 3: availability ---------- */
+async function loadSlots(){
+  if(!DATE){ $('slotArea').innerHTML = '<p class="note">Choose a date to see available times.</p>'; return; }
+  $('slotArea').innerHTML = '<div class="spin">Checking what\'s free…</div>';
+  try{
+    var url = '/api/sessions/availability?session=' + encodeURIComponent(SESSION.id) +
+      '&date=' + encodeURIComponent(DATE) + '&addons=' + encodeURIComponent(JSON.stringify(SEL));
+    AVAIL = await fetchJSON(url);
+    var html = '';
+    if(AVAIL.closed){
+      html = '<div class="banner">' + esc(AVAIL.note || 'The studio is closed that day.') + '</div>';
+    } else if(!AVAIL.slots.length){
+      html = '<div class="banner">' + esc(AVAIL.note || 'No times left on this date.') +
+        ' Try another day, or call us on 905-767-2099.</div>';
+    } else {
+      html = '<p class="note" style="margin-top:0">' + esc(AVAIL.lengthLabel) +
+        ' session. Times shown are when your session starts.</p><div class="slots">' +
+        AVAIL.slots.map(function(s){
+          return '<button class="slot' + (START === s.start ? ' on' : '') + '" data-t="' + s.start + '">' +
+            esc(s.label) + '<small>ends ' + esc(s.endLabel) + '</small></button>';
+        }).join('') + '</div>';
+      var hm = AVAIL.slots.some(function(s){ return s.arrival != null; });
+      if(hm) html += '<div class="arrival" id="arrNote"></div>';
+    }
+    $('slotArea').innerHTML = html;
+    Array.prototype.forEach.call($('slotArea').querySelectorAll('[data-t]'), function(b){
+      b.onclick = function(){
+        START = parseFloat(b.getAttribute('data-t'));
+        var s = AVAIL.slots.find(function(x){ return x.start === START; });
+        ARRIVAL = s ? s.arrivalLabel : null;
+        Array.prototype.forEach.call($('slotArea').querySelectorAll('.slot'), function(o){ o.classList.remove('on'); });
+        b.classList.add('on');
+        if($('arrNote') && ARRIVAL){
+          $('arrNote').textContent = 'Arrive at ' + ARRIVAL + ' for hair and makeup in the Marilyn. ' +
+            'Your session still starts at ' + s.label + '.';
+        }
+        renderSummary();
+      };
+    });
+    if(START != null && !(AVAIL.slots || []).some(function(s){ return s.start === START; })){
+      START = null; ARRIVAL = null;    // the old time is no longer offered
+    }
+    renderSummary();
+  }catch(e){ $('slotArea').innerHTML = ''; showErr(e.message); }
+}
+
+/* ---------- step 4 ---------- */
+function toDetails(){
+  if(START == null){ showErr('Please choose a time first.'); return; }
+  var slot = AVAIL.slots.find(function(s){ return s.start === START; });
+  $('s4sub').textContent = SESSION.name + ' · ' + dateLabel(DATE) + ' · ' + (slot ? slot.label : '');
+  $('cxNote').textContent = 'Free to cancel or move with full studio credit up to ' +
+    CFG.cancelWindowHours + ' hours before your session.';
+  go(4); renderSummary(); initSquare();
+}
+
+/* ---------- Square (same bootstrap as the rentals page) ---------- */
+var sqConfig = null, sqPayments = null, sqCard = null;
+function loadScript(src){
+  return new Promise(function(res, rej){
+    var s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = function(){ rej(new Error('sdk')); };
+    document.head.appendChild(s);
+  });
+}
+async function initSquare(){
+  if(sqPayments || sqConfig) { ensureCard(); return; }
+  try{ sqConfig = await fetchJSON('/api/square-config'); }catch(e){ return; }
+  if(!sqConfig || !sqConfig.enabled) return;          // no keys yet: keep the stand-in fields
+  var url = sqConfig.env === 'production'
+    ? 'https://web.squarecdn.com/v1/square.js'
+    : 'https://sandbox.web.squarecdn.com/v1/square.js';
+  try{
+    await loadScript(url);
+    sqPayments = await window.Square.payments(sqConfig.appId, sqConfig.locationId);
+    $('fakeCard').classList.add('hidden');
+    $('sqCardWrap').classList.remove('hidden');
+    await ensureCard();
+  }catch(e){ sqPayments = null; }                     // fall back to the stand-in
+}
+async function ensureCard(){
+  if(!sqPayments || sqCard) return;
+  try{ sqCard = await sqPayments.card(); await sqCard.attach('#sq-card'); }catch(e){ sqCard = null; }
+}
+
+/* ---------- book ---------- */
+$('payBtn').onclick = async function(){
+  showErr('', $('payErr'));
+  var name = ($('cName').value || '').trim();
+  var email = ($('cEmail').value || '').trim();
+  if(!name || !email){ showErr('Please add your name and email.', $('payErr')); return; }
+  if(START == null){ showErr('Please choose a time.', $('payErr')); return; }
+
+  var btn = $('payBtn'); btn.disabled = true;
+  var label = btn.textContent; btn.textContent = 'Taking payment…';
+  try{
+    var token = 'cnon:card-nonce-ok';                 // stand-in when Square isn't connected
+    if(sqPayments){
+      if(!sqCard) await ensureCard();
+      var r = await sqCard.tokenize();
+      if(r.status !== 'OK') throw new Error('Please check your card details.');
+      token = r.token;
+    }
+    var d = await fetchJSON('/api/sessions/book', { method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        session: SESSION.id, date: DATE, start: START, addons: SEL,
+        customerName: name, customerEmail: email,
+        customerPhone: ($('cPhone').value || '').trim(),
+        intake: { details: ($('cDetails').value || '').trim(), source: 'session page' },
+        paymentToken: token
+      })
+    });
+    done(d);
+  }catch(e){
+    btn.disabled = false; btn.textContent = label;
+    showErr(e.message, $('payErr'));
+  }
+};
+
+function done(d){
+  var v = d.session || {};
+  $('confNum').textContent = d.confirmation;
+  $('confLine').innerHTML = '<b>' + esc(v.sessionName || SESSION.name) + '</b><br>' +
+    esc(dateLabel(v.date || DATE)) + ' &middot; ' + esc(v.startLabel || '') + ' – ' + esc(v.endLabel || '') + '<br>' +
+    esc((v.roomNames || SESSION.roomNames || []).join(' + ')) + '<br><br>' +
+    'Deposit paid ' + money(d.deposit) + ' &middot; balance ' + money(d.balanceDue) + ' due two days before.';
+  $('confArrival').innerHTML = v.hmArrivalLabel
+    ? '<b>Arrive at ' + esc(v.hmArrivalLabel) + '</b> for hair and makeup in the Marilyn. ' +
+      'Your session starts at ' + esc(v.startLabel) + '.'
+    : '<b>Arrive a few minutes before ' + esc(v.startLabel || '') + '</b> so we can get started on time.';
+  go(5);
+}
+
+/* ---------- boot ---------- */
+$('navStudio').onclick = function(){ location.href = '/'; };
+$('dt').onchange = function(){ DATE = $('dt').value; START = null; ARRIVAL = null; loadSlots(); };
+
+(async function boot(){
+  try{
+    CAT = await fetchJSON('/api/sessions');
+    CFG = CAT.config;
+    var today = new Date(); today.setHours(12,0,0,0);
+    $('dt').min = today.toISOString().slice(0,10);
+    renderCatalog(); renderSteps();
+    /* deep link: sessions.html?session=<id or number> */
+    var m = /[?&]session=([^&]+)/.exec(location.search);
+    if(m){
+      var key = decodeURIComponent(m[1]);
+      var hit = CAT.sessions.find(function(s){ return s.id === key || String(s.n) === key; });
+      if(hit) pickSession(hit.id);
+    }
+  }catch(e){
+    $('catalog').innerHTML = '';
+    showErr('We couldn\'t load the session list. Please refresh, or call us on 905-767-2099.');
+  }
+})();
+</script>
+</body>
+</html>
