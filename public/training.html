@@ -56,6 +56,14 @@
   .hidden{display:none}
   .notewrap{margin-top:10px;background:#f3ece2;border:1px solid #e6dcc9;border-radius:8px;padding:11px 13px}
   .notehdr{text-transform:uppercase;font-size:11px;letter-spacing:.5px;color:#8a7d63;font-weight:bold;cursor:pointer;display:flex;justify-content:space-between;user-select:none}
+  /* visual key rows for module intros */
+  .keyrow{display:flex;gap:12px;align-items:flex-start;background:#fbfaf8;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
+  .keyrow .kpill{flex:0 0 auto;font-size:11px;font-weight:bold;letter-spacing:.5px;text-transform:uppercase;border-radius:99px;padding:5px 11px;border:1px solid;margin-top:1px;white-space:nowrap}
+  .keyrow .ktxt{font-size:14px}
+  .keyrow .ktxt .krule{font-weight:bold}
+  .keyrow .ktxt .kres{display:block;color:var(--muted);font-size:13px}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0}
+  .chips span{font-size:12px;font-weight:bold;color:#fff;border-radius:99px;padding:5px 12px}
 </style>
 </head>
 <body>
@@ -98,8 +106,24 @@
   <!-- ============ MODULE 2: READ THE SCHEDULE ============ -->
   <div class="card hidden mod" id="mod2">
     <div class="modhead"><i style="background:var(--grand)"></i><h2>2 · Reading the schedule</h2></div>
-    <p>The calendar shows every studio's day. Learn the colours: <b style="color:var(--grand)">Grand red</b>, <b style="color:var(--dream)">Dream blue</b>, <b style="color:var(--gatsby)">Gatsby green</b>, <b style="color:var(--carnegie)">Carnegie brown</b>, <b style="color:var(--marilyn)">Marilyn purple</b>.</p>
-    <p style="margin-top:8px">Three things to spot on any entry: the <span class="tag tag-booking" style="margin-left:0">Booking</span> or <span class="tag tag-hold">Hold</span> tag, the green <b style="color:var(--green)">PAID</b> stamp in the corner (paid, Vintage Films, and comps all count as paid), and an <b style="color:#8a6a2b">Early arrival setup</b> line on some bookings: 15 reserved minutes before their start time that moves and cancels with the booking automatically.</p>
+    <p>The calendar shows every studio's day. First, learn the colours:</p>
+    <div class="chips">
+      <span style="background:var(--grand)">Grand</span>
+      <span style="background:var(--dream)">Dream</span>
+      <span style="background:var(--gatsby)">Gatsby</span>
+      <span style="background:var(--carnegie)">Carnegie</span>
+      <span style="background:var(--marilyn)">Marilyn</span>
+    </div>
+    <p style="margin-top:2px">Then, three things to spot on any entry:</p>
+    <div class="keyrow"><span class="kpill" style="color:var(--dream);border-color:#c9dcee;background:#eef4fa">Booking</span>
+      <span class="ktxt"><span class="krule">or</span> <span class="kpill" style="color:#8a6a2b;border-color:#eadfc4;background:#fbf6ec">Hold</span>
+      <span class="kres">A booking is a client · a hold just blocks the room</span></span></div>
+    <div class="keyrow"><span class="kpill" style="color:var(--green);border-color:#bcd8c1;background:var(--greenbg)">PAID</span>
+      <span class="ktxt"><span class="krule">The corner stamp</span> · paid, Vintage Films, and comps all count
+      <span class="kres">No stamp = money still owed</span></span></div>
+    <div class="keyrow"><span class="kpill" style="color:#8a6a2b;border-color:#8a6a2b;background:#fff">Setup line</span>
+      <span class="ktxt"><span class="krule">Early arrival setup</span> · 15 reserved minutes before their start
+      <span class="kres">Moves and cancels with the booking automatically</span></span></div>
     <div id="m2cards"></div>
     <div class="task">YOUR TASK: one of these bookings has <b>not been paid</b>. Tap it.</div>
     <div class="msg" id="m2msg"></div>
@@ -146,7 +170,17 @@
   <!-- ============ MODULE 5: PAYMENTS ============ -->
   <div class="card hidden mod" id="mod5">
     <div class="modhead"><i style="background:var(--carnegie)"></i><h2>5 · Payments</h2></div>
-    <p>Your booking from module 4 is unpaid. The colour-coded buttons: <b style="color:var(--green)">Mark as paid</b> for money received (card, e-transfer, cash), <b style="color:var(--dream)">Create payment link</b> to send a pay-online link, and <b style="color:var(--marilyn)">Vintage Films</b> when Kelly's own team is using the studio: full value gets tallied, nobody is charged. Comps are Kelly-only, so you won't see that button.</p>
+    <p>Your booking from module 4 is unpaid. Three colour-coded buttons:</p>
+    <div class="keyrow"><span class="kpill" style="color:var(--green);border-color:var(--green);background:var(--greenbg)">Mark as paid</span>
+      <span class="ktxt"><span class="krule">Money received</span> · Square, PayPal, e-transfer, cash, or the Square machine
+      <span class="kres">Records how and when · the PAID stamp appears</span></span></div>
+    <div class="keyrow"><span class="kpill" style="color:var(--dream);border-color:var(--dream);background:#eef4fa">Payment link</span>
+      <span class="ktxt"><span class="krule">Money not received yet</span> · they'll pay online
+      <span class="kres">Emails them a secure pay-now link</span></span></div>
+    <div class="keyrow"><span class="kpill" style="color:var(--marilyn);border-color:var(--marilyn);background:#f3eefa">Vintage Films</span>
+      <span class="ktxt"><span class="krule">Kelly's own studio use</span> · never for client bookings
+      <span class="kres">Full value tallied for her records · nobody is charged</span></span></div>
+    <p class="muted" style="font-size:13px">Comps are Kelly-only, so you won't see that button.</p>
     <div class="daycard" style="border-left-color:var(--gatsby)">
       <div class="who">Priya N <span class="tag tag-booking">Booking</span></div>
       <div class="meta">Gatsby Room · 2 hours · Pet fee</div>
@@ -164,7 +198,16 @@
   <!-- ============ MODULE 6: CANCELLATIONS ============ -->
   <div class="card hidden mod" id="mod6">
     <div class="modhead"><i style="background:var(--marilyn)"></i><h2>6 · Cancellations</h2></div>
-    <p>One red <b style="color:var(--grand)">Cancel</b> button, three choices. <b>With credit</b>: outside the window (48 hours, or 7 days on Christmas weekends), their payment becomes account credit and they get an email. <b>Without credit</b>: inside the window, no credit, a gentle policy email. <b>Quiet cancel</b>: no email at all, for bookings never paid or never confirmed to the client.</p>
+    <p>One red <b style="color:var(--grand)">Cancel</b> button opens three choices:</p>
+    <div class="keyrow"><span class="kpill" style="color:var(--red);border-color:var(--red);background:#fff">1 · With credit</span>
+      <span class="ktxt"><span class="krule">Outside the window</span> · 48 hours, or 7 days on Christmas weekends
+      <span class="kres">Their payment becomes account credit · they get an email</span></span></div>
+    <div class="keyrow"><span class="kpill" style="color:#8a6a2b;border-color:#8a6a2b;background:#fff">2 · Without credit</span>
+      <span class="ktxt"><span class="krule">Inside the window</span> · too close to their start time
+      <span class="kres">No credit · a gentle policy email is sent</span></span></div>
+    <div class="keyrow"><span class="kpill" style="color:#6b665e;border-color:#6b665e;background:#fff">3 · Quiet cancel</span>
+      <span class="ktxt"><span class="krule">Never paid, never told</span> · pencil-ins and inquiries
+      <span class="kres">No email at all · nothing to credit</span></span></div>
     <div class="task">SCENARIO 1: Marcus paid in full and is cancelling <b>6 days before</b> his regular (non-Christmas) booking. Cancel him the right way.</div>
     <div class="daycard" style="border-left-color:var(--grand)">
       <div class="who">Marcus T <span class="tag tag-booking">Booking</span><span class="paidstamp">PAID</span></div>
