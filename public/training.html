@@ -76,7 +76,7 @@
   <!-- ============ NAME GATE ============ -->
   <div class="card" id="gate">
     <h2 style="font-size:22px">Welcome to training</h2>
-    <p style="margin:10px 0">Six short hands-on modules on a <b>practice copy</b> of the Staff App. Nothing here touches real bookings, so tap everything freely. Each module ends with a checkmark; finish all six and your completion card appears.</p>
+    <p style="margin:10px 0">Seven short hands-on modules on a <b>practice copy</b> of the Staff App. Nothing here touches real bookings, so tap everything freely. Each module ends with a checkmark; finish all seven and your completion card appears.</p>
     <label class="muted" style="display:block;margin:14px 0 6px">Your first name</label>
     <input type="text" id="traineeName" placeholder="e.g. Alannah" autocomplete="given-name">
     <div class="msg" id="gateMsg"></div>
@@ -92,7 +92,7 @@
   <!-- ============ MODULE 1: SIGN IN ============ -->
   <div class="card hidden mod" id="mod1">
     <div class="modhead"><i style="background:var(--brown)"></i><h2>1 · Signing in</h2></div>
-    <p>The Staff App lives at <b>/hold.html</b> and is installed on the studio phone and iPad as an app. You sign in once with the staff code and stay signed in for 30 days. Kelly will give you the real code in person; it is never written down in emails or texts.</p>
+    <p>The Staff App is installed on the studio phone, iPad, and desktop as an app. Every 30 days it will ask us to sign in with our staff code. If this happens on your shift, Kelly will give you the real code in person; it is never written down in emails or texts.</p>
     <div class="task">YOUR TASK: sign in to the practice app with the practice code <b>training</b></div>
     <div style="position:relative">
       <input type="password" id="m1pw" placeholder="Practice code" style="padding-right:64px">
@@ -130,9 +130,27 @@
     <div class="done-note" id="m2done"><span class="check">✓</span>Right. No PAID stamp means money is still owed. Always glance for the stamp.</div>
   </div>
 
-  <!-- ============ MODULE 3: FIND A CLIENT ============ -->
+  <!-- ============ MODULE 3: THE TIMELINE ============ -->
   <div class="card hidden mod" id="mod3">
-    <div class="modhead"><i style="background:var(--dream)"></i><h2>3 · Find a client</h2></div>
+    <div class="modhead"><i style="background:var(--dream)"></i><h2>3 · The timeline view</h2></div>
+    <p>The calendar's <b>Timeline</b> mode lays the day out by the hour, one column per studio. Each block is a booking (dashed blocks are holds or setup time). <b>Tap any block to open its full booking details.</b></p>
+    <div class="task">YOUR TASK: tap <b>Devon R</b>'s block on the timeline, read his details, then answer the question.</div>
+    <div id="m3tl"></div>
+    <div id="m3detail"></div>
+    <div id="m3tquiz" class="hidden" style="margin-top:12px">
+      <div style="font-size:14px;margin-bottom:8px">What add-on is on Devon's booking?</div>
+      <div class="actions" style="margin-top:0">
+        <button class="pill" style="color:var(--brown)" onclick="m3tAns(this,'pet')">Pet fee</button>
+        <button class="pill" style="color:var(--brown)" onclick="m3tAns(this,'backdrop')">Backdrop</button>
+        <button class="pill" style="color:var(--brown)" onclick="m3tAns(this,'swing')">Macramé swing</button>
+      </div>
+      <div class="msg" id="m3tmsg"></div>
+    </div>
+    <div class="done-note" id="m3done"><span class="check">✓</span>That's the habit: timeline for the shape of the day, tap through for the details.</div>
+  </div>
+
+  <div class="card hidden mod" id="mod4">
+    <div class="modhead"><i style="background:var(--gatsby)"></i><h2>4 · Find a client</h2></div>
     <p>Search any name to see a client's bookings, contact info, account credit, and the standing note about them. Notes are collapsed to keep things tidy: tap the header to open them.</p>
     <div class="task">YOUR TASK: search for <b>Sarah</b>, open her <b>note</b>, and type her account credit below.</div>
     <input type="text" id="m3search" placeholder="Search clients…" oninput="m3search()">
@@ -143,17 +161,17 @@
       <button class="btn ghost" style="margin-left:8px" onclick="m3check()">Check</button>
       <div class="msg" id="m3msg"></div>
     </div>
-    <div class="done-note" id="m3done"><span class="check">✓</span>Found it. Credit shows on every client, but only Kelly can change it. Cancellation credits are automatic.</div>
+    <div class="done-note" id="m4done"><span class="check">✓</span>Found it. Credit shows on every client, but only Kelly can change it. Cancellation credits are automatic.</div>
   </div>
 
-  <!-- ============ MODULE 4: ADD A BOOKING ============ -->
-  <div class="card hidden mod" id="mod4">
-    <div class="modhead"><i style="background:var(--gatsby)"></i><h2>4 · Creating a booking</h2></div>
+  <!-- ============ MODULE 5: CREATING A BOOKING ============ -->
+  <div class="card hidden mod" id="mod5">
+    <div class="modhead"><i style="background:var(--carnegie)"></i><h2>5 · Creating a booking</h2></div>
     <p class="muted" style="font-size:14px"><b style="color:var(--ink)">Manual bookings</b> = any booking a staff member enters, whether the client asked by phone, text, DM, email, or in person.</p>
-    <div class="keyrow"><span class="kpill" style="color:var(--gatsby);border-color:var(--gatsby);background:#fff">Step 1</span>
+    <div class="keyrow"><span class="kpill" style="color:var(--carnegie);border-color:var(--carnegie);background:#fff">Step 1</span>
       <span class="ktxt"><span class="krule">Choose the studio, time and add-ons</span>
       <span class="kres">Pick the studio, date, start and end, then tick any add-ons</span></span></div>
-    <div class="keyrow"><span class="kpill" style="color:var(--gatsby);border-color:var(--gatsby);background:#fff">Step 2</span>
+    <div class="keyrow"><span class="kpill" style="color:var(--carnegie);border-color:var(--carnegie);background:#fff">Step 2</span>
       <span class="ktxt"><span class="krule">Leave Notify client on</span>
       <span class="kres">They get one email with everything, including their payment link</span></span></div>
     <div class="keyrow"><span class="kpill" style="color:#8a8375;border-color:#d8d2c8;background:#fff">Optional</span>
@@ -176,12 +194,12 @@
     </label>
     <div class="msg" id="m4msg"></div>
     <button class="btn" style="margin-top:8px" onclick="m4go()">Add to calendar</button>
-    <div class="done-note" id="m4done"><span class="check">✓</span>Booked. The client gets one email with everything, including the payment link.</div>
+    <div class="done-note" id="m5done"><span class="check">✓</span>Booked. The client gets one email with everything, including the payment link.</div>
   </div>
 
-  <!-- ============ MODULE 5: PAYMENTS ============ -->
-  <div class="card hidden mod" id="mod5">
-    <div class="modhead"><i style="background:var(--carnegie)"></i><h2>5 · Payments</h2></div>
+  <!-- ============ MODULE 6: PAYMENTS ============ -->
+  <div class="card hidden mod" id="mod6">
+    <div class="modhead"><i style="background:var(--marilyn)"></i><h2>6 · Payments</h2></div>
     <p>Your booking for Priya N below is unpaid. We have 3 ways to record payment:</p>
     <div class="keyrow"><span class="kpill" style="color:var(--green);border-color:var(--green);background:var(--greenbg)">Mark as paid</span>
       <span class="ktxt"><span class="krule">Money received</span> · Square, PayPal, e-transfer, cash, or the Square machine
@@ -204,12 +222,12 @@
       <div class="msg" id="m5msg" style="color:var(--green)"></div>
     </div>
     <div class="task">YOUR TASK: Priya paid by e-transfer this morning. Do the right thing.</div>
-    <div class="done-note" id="m5done"><span class="check">✓</span>Marked paid. The PAID stamp now shows on the calendar, and her receipt reflects it.</div>
+    <div class="done-note" id="m6done"><span class="check">✓</span>Marked paid. The PAID stamp now shows on the calendar, and her receipt reflects it.</div>
   </div>
 
-  <!-- ============ MODULE 6: CANCELLATIONS ============ -->
-  <div class="card hidden mod" id="mod6">
-    <div class="modhead"><i style="background:var(--marilyn)"></i><h2>6 · Cancellations</h2></div>
+  <!-- ============ MODULE 7: CANCELLATIONS ============ -->
+  <div class="card hidden mod" id="mod7">
+    <div class="modhead"><i style="background:#a33"></i><h2>7 · Cancellations</h2></div>
     <p>One red <b style="color:var(--grand)">Cancel</b> button opens three choices:</p>
     <div class="keyrow"><span class="kpill" style="color:var(--red);border-color:var(--red);background:#fff">1 · With credit</span>
       <span class="ktxt"><span class="krule">Outside the window</span> · 48 hours, or 7 days on Christmas weekends
@@ -248,7 +266,7 @@
       </div>
       <div class="msg" id="m6msg2"></div>
     </div>
-    <div class="done-note" id="m6done"><span class="check">✓</span>Both right. When in doubt on a cancellation, ask Kelly before tapping.</div>
+    <div class="done-note" id="m7done"><span class="check">✓</span>Both right. When in doubt on a cancellation, ask Kelly before tapping.</div>
   </div>
 
   <!-- ============ COMPLETION ============ -->
@@ -265,11 +283,11 @@
 </div>
 <script>
 /* ================= state ================= */
-var MODS=['Sign in','Reading the schedule','Find a client','Creating a booking','Payments','Cancellations'];
-var COLORS=['#7c7268','#c0392b','#2e6f9e','#3f8a52','#8a5a2b','#7a4fa3'];
-var S={name:'',done:[false,false,false,false,false,false]};
+var MODS=['Sign in','Reading the schedule','The timeline view','Find a client','Creating a booking','Payments','Cancellations'];
+var COLORS=['#7c7268','#c0392b','#2e6f9e','#3f8a52','#8a5a2b','#7a4fa3','#a33'];
+var S={name:'',done:[false,false,false,false,false,false,false]};
 function save(){ try{ localStorage.setItem('vl_training', JSON.stringify(S)); }catch(e){} }
-function load(){ try{ var r=localStorage.getItem('vl_training'); if(r){ var p=JSON.parse(r); if(p&&p.name){ S=p; return true; } } }catch(e){} return false; }
+function load(){ try{ var r=localStorage.getItem('vl_training'); if(r){ var p=JSON.parse(r); if(p&&p.name){ S=p; while(S.done.length<7) S.done.splice(2,0,false); return true; } } }catch(e){} return false; }
 function $(id){ return document.getElementById(id); }
 
 /* ================= flow ================= */
@@ -287,12 +305,12 @@ function boot(){
 function renderTracker(){
   var t=$('tracker'); t.innerHTML='';
   var n=0;
-  for(var i=0;i<6;i++){ var d=document.createElement('div'); d.className='sw'+(S.done[i]?' done':''); if(S.done[i]){ d.style.background=COLORS[i]; n++; } t.appendChild(d); }
-  $('progLbl').textContent=n+' of 6 complete';
+  for(var i=0;i<7;i++){ var d=document.createElement('div'); d.className='sw'+(S.done[i]?' done':''); if(S.done[i]){ d.style.background=COLORS[i]; n++; } t.appendChild(d); }
+  $('progLbl').textContent=n+' of 7 complete';
 }
 function revealMods(){
   var next=S.done.indexOf(false);
-  for(var i=0;i<6;i++){
+  for(var i=0;i<7;i++){
     var el=$('mod'+(i+1));
     el.classList.toggle('hidden', !(S.done[i] || i===next));
     if(S.done[i]) markDone(i+1,true);
@@ -351,7 +369,59 @@ function m2pick(b,c){
   else $('m2msg').textContent=b.vf?'That one is Vintage Films — owner use counts as paid.':'That one has the PAID stamp. Look for the card without one.';
 }
 
-/* ================= module 3 ================= */
+/* ================= module 3: timeline ================= */
+var TL=[
+  {id:'kat', col:0, name:'Katrina J', s:10, e:11, paid:true, detail:{room:'Grand Room', time:'10:00 AM – 11:00 AM', addon:'Dress rental ×1', phone:'905-555-0107', paid:'Paid in full ✓'}},
+  {id:'setup', col:0, name:'setup', s:11.25, e:11.5, dash:true},
+  {id:'kelly', col:0, name:'Kelly LeMay', s:11.5, e:13.25, paid:true, detail:{room:'Grand Room', time:'11:30 AM – 1:15 PM', addon:'Early arrival setup · 11:15 AM – 11:30 AM', phone:'', paid:'Owner use · Vintage Films (no charge)'}},
+  {id:'devon', col:1, name:'Devon R', s:14, e:16, paid:false, detail:{room:'Dream Room', time:'2:00 PM – 4:00 PM', addon:'Backdrop ×1', phone:'905-555-0164', paid:'Balance owed $180.80'}}
+];
+var TLCOLS=[['Grand','#c0392b'],['Dream','#2e6f9e']];
+var m3sawDevon=false;
+function m3tlRender(){
+  var box=$('m3tl'); box.innerHTML='';
+  var START=10,END=16,PXH=42,HEADH=26;
+  var height=(END-START)*PXH;
+  var flex=document.createElement('div'); flex.style.cssText='display:flex;border:1px solid var(--line);border-radius:10px;background:#fff;overflow:hidden;margin-top:10px';
+  var rail=document.createElement('div'); rail.style.cssText='flex:0 0 44px;position:relative;border-right:1px solid var(--line)';
+  rail.innerHTML='<div style="height:'+HEADH+'px;border-bottom:1px solid var(--line)"></div>';
+  var rb=document.createElement('div'); rb.style.cssText='position:relative;height:'+height+'px';
+  for(var h=START;h<END;h++){ var lab=document.createElement('div'); lab.style.cssText='position:absolute;right:5px;top:'+((h-START)*PXH-6)+'px;font-size:10px;color:var(--muted)'; lab.textContent=(h>12?h-12:h)+(h>=12?' PM':' AM'); rb.appendChild(lab); }
+  rail.appendChild(rb); flex.appendChild(rail);
+  TLCOLS.forEach(function(cdef,ci){
+    var col=document.createElement('div'); col.style.cssText='flex:1;position:relative'+(ci?';border-left:1px solid var(--line)':'');
+    col.innerHTML='<div style="height:'+HEADH+'px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;padding:0 8px;background:#faf9f7;font-size:12px;font-weight:bold"><i style="width:10px;height:10px;border-radius:2px;background:'+cdef[1]+'"></i>'+cdef[0]+'</div>';
+    var cb=document.createElement('div'); cb.style.cssText='position:relative;height:'+height+'px';
+    for(var h=START;h<=END;h++){ var ln=document.createElement('div'); ln.style.cssText='position:absolute;left:0;right:0;top:'+((h-START)*PXH)+'px;border-top:1px solid #f1efea'; cb.appendChild(ln); }
+    TL.filter(function(b){return b.col===ci;}).forEach(function(b){
+      var el=document.createElement('div');
+      el.style.cssText='position:absolute;left:4px;right:4px;top:'+((b.s-START)*PXH)+'px;height:'+Math.max(20,(b.e-b.s)*PXH-2)+'px;background:'+(b.dash?'#fbfaf7':cdef[1]+'26')+';border:1px solid '+cdef[1]+'80;border-left:3px solid '+cdef[1]+';border-radius:6px;padding:2px 6px;font-size:11px;overflow:hidden;cursor:'+(b.dash?'default':'pointer')+(b.dash?';border-style:dashed':'');
+      el.innerHTML='<b>'+(b.dash?'<span style="font-weight:normal;color:#8a6a2b">· setup</span>':b.name)+'</b>';
+      if(!b.dash) el.onclick=function(){ m3tlOpen(b); };
+      cb.appendChild(el);
+    });
+    col.appendChild(cb); flex.appendChild(col);
+  });
+  box.appendChild(flex);
+}
+function m3tlOpen(b){
+  var d=$('m3detail'); d.innerHTML='';
+  var c=document.createElement('div'); c.className='daycard'; c.style.borderLeftColor=TLCOLS[b.col][1];
+  c.innerHTML='<div class="who">'+b.name+' <span class="tag tag-booking">Booking</span></div>'
+    +'<div class="meta">'+b.detail.room+' · '+b.detail.time+'</div>'
+    +(b.detail.addon?'<div class="meta">Add-on: '+b.detail.addon+'</div>':'')
+    +(b.detail.phone?'<div class="meta">'+b.detail.phone+'</div>':'')
+    +'<div style="margin-top:8px;font-size:13px;font-weight:bold;color:'+(b.paid?'var(--green)':'var(--red)')+'">'+b.detail.paid+'</div>'
+    +(b.paid?'<span class="paidstamp">PAID</span>':'');
+  d.appendChild(c);
+  if(b.id==='devon'){ m3sawDevon=true; $('m3tquiz').classList.remove('hidden'); }
+}
+function m3tAns(btn,v){
+  if(S.done[2]) return;
+  if(!m3sawDevon){ $('m3tmsg').textContent='Open Devon\'s block first.'; return; }
+  if(v==='backdrop'){ $('m3tmsg').textContent=''; complete(3); }
+  else $('m3tmsg').textContent='Check the Add-on line on his detail card.';
+}
 var SARAH={name:'Sarah Miller', phone:'905-555-0142', email:'sarah@example.com', credit:75, note:'Boss Babe! Likes caramel coffee taken black… and long walks on the beach.'};
 function m3search(){
   var q=$('m3search').value.trim().toLowerCase(); var box=$('m3result');
@@ -374,7 +444,7 @@ function m3note(){
 function m3check(){
   var v=parseFloat(($('m3amt').value||'').replace('$',''));
   if(!m3noteOpened){ $('m3msg').textContent='Open her note first — tap the "Notes about this client" header.'; return; }
-  if(v===75){ $('m3msg').textContent=''; complete(3); }
+  if(v===75){ $('m3msg').textContent=''; complete(4); }
   else $('m3msg').textContent='Check the Account credit line on her card.';
 }
 
@@ -386,11 +456,11 @@ function m4go(){
   if(hrs!=='2'){ m.textContent='Set it to 2 hours.'; return; }
   if(!pet){ m.textContent='They\'re bringing a dog — tick the Pet fee.'; return; }
   if(!notify){ m.textContent='Keep Notify client ticked so they get their payment link.'; return; }
-  m.textContent=''; complete(4);
+  m.textContent=''; complete(5);
 }
 
 /* ================= module 5 ================= */
-function m5paid(){ if(S.done[4])return; $('m5msg').textContent=''; complete(5); }
+function m5paid(){ if(S.done[5])return; $('m5msg').textContent=''; complete(6); }
 function m5link(){ $('m5msg').style.color='#a33'; $('m5msg').textContent='She already paid by e-transfer — no link needed. Record the money you received.'; }
 function m5vf(){ $('m5msg').style.color='#a33'; $('m5msg').textContent='Vintage Films is only for Kelly\'s own studio use, never for client bookings.'; }
 
@@ -407,15 +477,15 @@ function m6pick(sc,choice){
     else if(choice==='nocredit') msg.textContent='He\'s outside the cancellation window — he\'s entitled to credit.';
     else msg.textContent='He paid and was confirmed — he needs to be told, and he\'s owed credit.';
   } else {
-    if(!m6first || S.done[5]) return;
-    if(choice==='quiet'){ msg.style.color='#2e6b34'; msg.textContent='✓ Right — never paid, never emailed, so nothing to credit and no email to send.'; $('c2').style.display='none'; complete(6); }
+    if(!m6first || S.done[6]) return;
+    if(choice==='quiet'){ msg.style.color='#2e6b34'; msg.textContent='✓ Right — never paid, never emailed, so nothing to credit and no email to send.'; $('c2').style.display='none'; complete(7); }
     else if(choice==='credit') msg.textContent='They never paid, so there\'s nothing to credit.';
     else msg.textContent='"Without credit" still emails them a policy notice — but they were never told about this booking at all.';
   }
 }
 
 /* ================= boot ================= */
-m2render();
+m2render(); m3tlRender();
 if(load()) boot();
 </script>
 </body>
