@@ -5,6 +5,7 @@ const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 const crypto = require('crypto');
 const VL = require('./pricing');
+const VLS = require('./sessions');   // photography session catalog + deposit math
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data.db');
 const db = new DatabaseSync(DB_PATH);
@@ -89,6 +90,53 @@ try { db.exec("ALTER TABLE blocks ADD COLUMN booking_id INTEGER"); } catch (_) {
 try { db.exec("ALTER TABLE bookings ADD COLUMN inspo TEXT"); } catch (_) {}   // JSON array of inspiration-photo data URLs
 try { db.exec("ALTER TABLE blocks ADD COLUMN inspo TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE blocks ADD COLUMN pay_method TEXT"); } catch (_) {}   // how a manual booking was paid: card / etransfer / cash / debit
+/* ---------- photography sessions ----------
+   One row per booked session. The studio(s), the photographer's own calendar ("Vintage Films")
+   and, when hair & makeup is added, The Marilyn are each held by a row in `blocks` linked back
+   here by session_id — so every existing availability, calendar and conflict check sees them
+   without changing how rentals work.
+     deposit      = 50% of the tax-inclusive total, taken by Square at booking
+     balance_due  = what is still owed; balance_paid records when it was settled
+     balance_sent = guard so the 2-days-before balance email only goes out once */
+db.exec(`CREATE TABLE IF NOT EXISTS sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_key TEXT NOT NULL,
+  session_name TEXT,
+  date TEXT NOT NULL,
+  start REAL NOT NULL,
+  end REAL NOT NULL,
+  minutes INTEGER NOT NULL,
+  addons_json TEXT NOT NULL DEFAULT '{}',
+  rooms_json TEXT NOT NULL DEFAULT '[]',
+  hm_addon TEXT,
+  hm_arrival REAL,
+  pre REAL NOT NULL,
+  hst REAL NOT NULL,
+  total REAL NOT NULL,
+  deposit REAL NOT NULL,
+  balance_due REAL NOT NULL DEFAULT 0,
+  balance_paid REAL NOT NULL DEFAULT 0,
+  paid REAL NOT NULL DEFAULT 0,
+  payment_ref TEXT,
+  payment_mode TEXT,
+  pay_link TEXT,
+  customer_name TEXT,
+  customer_email TEXT,
+  customer_phone TEXT,
+  intake TEXT,
+  notes TEXT,
+  status TEXT NOT NULL DEFAULT 'confirmed',
+  confirmation TEXT,
+  reminder_sent INTEGER NOT NULL DEFAULT 0,
+  balance_sent INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+)`);
+// a block row can belong to a session (studio hold, photographer hold, or Marilyn prep hold)
+try { db.exec("ALTER TABLE blocks ADD COLUMN session_id INTEGER"); } catch (_) {}
+try { db.exec("ALTER TABLE blocks ADD COLUMN role TEXT"); } catch (_) {}
+// cancellation credit can come from a session as well as a rental
+try { db.exec("ALTER TABLE credit_ledger ADD COLUMN session_id INTEGER"); } catch (_) {}
+
 // Square card-on-file: link a client email to a Square customer, and remember their saved cards.
 db.exec(`CREATE TABLE IF NOT EXISTS square_customers (email TEXT PRIMARY KEY, customer_id TEXT, created_at TEXT)`);
 db.exec(`CREATE TABLE IF NOT EXISTS saved_cards (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, customer_id TEXT, card_id TEXT UNIQUE, brand TEXT, last4 TEXT, exp_month INTEGER, exp_year INTEGER, created_at TEXT)`);
@@ -542,14 +590,14 @@ function reservedEmail({ name, confirmation, bookings, amountDue, discountTotal,
   return emailShell(inner);
 }
 
-function reminderEmail({ name, confirmation, bookings }) {
+function reminderEmail({ name, confirmation, bookings, extraHtml }) {
   const resBox = (bookings && bookings.length) ? `
     <div style="background:#f6f5f3;border-radius:10px;padding:16px 18px;margin:0 0 18px">
       <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#9a938a;font-family:Arial,sans-serif;margin-bottom:10px">Your reservation${confirmation ? ' &middot; ' + confirmation : ''}</div>
       <table width="100%" cellpadding="0" cellspacing="0" style="font-size:15px">
         ${bookings.map(b => `<tr><td style="padding:6px 0"><b>${b.roomName}</b><br><span style="color:#8a8375;font-size:13px;font-family:Arial,sans-serif">${emDate(b.date)} &middot; ${emTime(b.start)}&ndash;${emTime(b.end)}</span></td></tr>`).join('')}
       </table>
-    </div>` : '';
+    </div>` + (extraHtml || '') : (extraHtml || '');
   const inner = `
     <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(name)},</p>
     <p style="margin:0 0 16px;line-height:1.6">Just a friendly reminder that you're scheduled here at The Vintage Loft <b>tomorrow</b>.</p>
@@ -779,6 +827,7 @@ const app = express();
 app.use(express.json({ limit: '15mb' }));   // large enough for the full client-list import
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/pricing.js', (_req, res) => res.sendFile(path.join(__dirname, 'pricing.js')));
+app.get('/sessions.js', (_req, res) => res.sendFile(path.join(__dirname, 'sessions.js')));
 
 /* ---------- discount / gift / reschedule codes ----------
    Codes live here on the server only (the browser never receives the full list).
@@ -2018,6 +2067,461 @@ app.post('/api/admin/clear-demo', admin, (_req, res) => {
 // (The "reset everything" endpoint was intentionally removed — no way to wipe all
 //  data from the app or the API, so a teammate can't erase the calendar by accident.)
 
+/* ==================== PHOTOGRAPHY SESSIONS ====================
+   Sessions are a separate but connected workflow from studio rentals:
+   a fixed-length, fixed-price shoot that reserves the studio(s), Kelly's own
+   photographer calendar ("Vintage Films") and — with hair & makeup — The Marilyn.
+   A 50% deposit is charged at booking; the balance is emailed 2 days before. */
+
+// The photographer's calendar is a resource, not a rentable studio, so it deliberately
+// stays out of VL.ROOMS (that list drives the public studio cards). Name it here instead.
+const RESOURCE_NAMES = { vintagefilms: VLS.CONFIG.photographerName };
+function resourceNameOf(id) { return RESOURCE_NAMES[id] || (VL.roomById(id) || {}).name || id; }
+
+// VLP-YYMMDD-N, one past the highest suffix used today. Same max-based scheme as the other two
+// generators so a cancellation can never make two sessions collide onto one number.
+function newSessionConfirmation() {
+  const prefix = 'VLP-' + torontoDateCode() + '-';
+  let max = 0;
+  try {
+    const rows = db.prepare(`SELECT confirmation FROM sessions WHERE confirmation LIKE ?`).all(prefix + '%');
+    for (const r of rows) { const m = /-(\d+)$/.exec(r.confirmation || ''); if (m) { const v = +m[1]; if (v > max) max = v; } }
+  } catch (_) {}
+  let n = max + 1;
+  const exists = db.prepare(`SELECT 1 FROM sessions WHERE confirmation=? LIMIT 1`);
+  while (exists.get(prefix + n)) n++;
+  return prefix + n;
+}
+
+/* Is this resource free for [start,end) on this date, ignoring rows that belong to `exceptSession`?
+   busyIntervals() already expands composite rooms (booking the North Wing marks Grand and Dream
+   busy, and vice versa) and an unknown id like 'vintagefilms' simply matches itself. */
+function resourceFree(resource, date, start, end, exceptSession) {
+  const rooms = VL.roomConflicts(resource);
+  const ph = rooms.map(() => '?').join(',');
+  const b = db.prepare(`SELECT start,end FROM bookings WHERE room_id IN (${ph}) AND date=? AND status!='cancelled'`).all(...rooms, date);
+  let k;
+  if (exceptSession) k = db.prepare(`SELECT start,end FROM blocks WHERE room_id IN (${ph}) AND date=? AND (session_id IS NULL OR session_id!=?)`).all(...rooms, date, exceptSession);
+  else k = db.prepare(`SELECT start,end FROM blocks WHERE room_id IN (${ph}) AND date=?`).all(...rooms, date);
+  return ![...b, ...k].some(iv => VL.overlaps(start, end, iv.start - BUFFER, iv.end + BUFFER));
+}
+
+// Every resource a session needs must be free. Returns null, or the name of the first clash.
+function sessionConflict(win, date, exceptSession) {
+  for (const b of win.blocks) if (!resourceFree(b.resource, date, b.start, b.end, exceptSession)) return resourceNameOf(b.resource);
+  return null;
+}
+
+/* Bookable start times for a session on a date, at 15-minute steps.
+   A slot is offered only if the whole padded footprint fits inside studio hours, every
+   resource is free, and (for clients) it is far enough ahead to book online. */
+function sessionSlots(sessionKey, date, sel, opts) {
+  const o = opts || {};
+  const out = [];
+  if (isClosedDay(date) && !o.staff) return out;
+  const step = VLS.CONFIG.slotStepMin / 60;
+  for (let t = VLS.CONFIG.openHour; t <= VLS.CONFIG.closeHour; t = VL.round2(t + step)) {
+    let win;
+    try { win = VLS.sessionWindow(sessionKey, t, sel); } catch (_) { break; }
+    if (VLS.fitsStudioHours(win)) continue;
+    if (!o.staff && hoursUntil(date, win.earliest) < LEAD_HOURS) continue;
+    if (sessionConflict(win, date, o.exceptSession)) continue;
+    out.push(t);
+  }
+  return out;
+}
+
+// Rebuild the hold rows for a session (studios + photographer + Marilyn), replacing any existing ones.
+function writeSessionBlocks(sessionId, s, win) {
+  db.prepare(`DELETE FROM blocks WHERE session_id=?`).run(sessionId);
+  const ins = db.prepare(`INSERT INTO blocks (room_id,date,start,end,reason,kind,session_id,role,confirmation,client,created_at)
+    VALUES (?,?,?,?,?,'session',?,?,?,?,?)`);
+  const client = JSON.stringify({ email: s.customer_email || '', phone: s.customer_phone || '' });
+  win.blocks.forEach(b => {
+    const label = b.role === 'makeup' ? (s.session_name || 'Session') + ' — hair & makeup' : (s.session_name || 'Session');
+    ins.run(b.resource, s.date, b.start, b.end, (s.customer_name || 'Session') + ' · ' + label, sessionId, b.role, s.confirmation, client, nowISO());
+  });
+}
+function removeSessionBlocks(sessionId) { db.prepare(`DELETE FROM blocks WHERE session_id=?`).run(sessionId); }
+
+// A session row plus everything the client and staff need to see about it.
+function sessionView(r) {
+  let sel = {}; try { sel = JSON.parse(r.addons_json || '{}'); } catch (_) {}
+  let q = null; try { q = VLS.sessionQuote(r.session_key, sel); } catch (_) {}
+  const cat = VLS.sessionById(r.session_key) || {};
+  return {
+    id: r.id, confirmation: r.confirmation, sessionKey: r.session_key, sessionName: r.session_name || cat.name,
+    date: r.date, start: r.start, end: r.end, minutes: r.minutes,
+    startLabel: VLS.hourLabel(r.start), endLabel: VLS.hourLabel(r.end), lengthLabel: VLS.lengthLabel(r.minutes),
+    rooms: (() => { try { return JSON.parse(r.rooms_json || '[]'); } catch (_) { return []; } })(),
+    roomNames: (() => { try { return JSON.parse(r.rooms_json || '[]').map(resourceNameOf); } catch (_) { return []; } })(),
+    addons: sel, addonItems: q ? q.addonItems : [],
+    hmAddon: r.hm_addon || null, hmArrival: r.hm_arrival, hmArrivalLabel: r.hm_arrival != null ? VLS.hourLabel(r.hm_arrival) : null,
+    pre: r.pre, hst: r.hst, total: r.total, deposit: r.deposit, paid: r.paid,
+    balanceDue: r.balance_due, balancePaid: r.balance_paid, payLink: r.pay_link || null,
+    name: r.customer_name, email: r.customer_email, phone: r.customer_phone,
+    status: r.status, notes: r.notes || '', createdAt: r.created_at,
+    hoursOut: Math.round(hoursUntil(r.date, r.start)), cancelHours: VLS.CONFIG.cancelWindowHours,
+    bed: !!cat.bed
+  };
+}
+
+/* ---------- public catalog + quote ---------- */
+app.get('/api/sessions', (_req, res) => {
+  res.json({
+    sessions: VLS.SESSIONS.map(s => ({
+      n: s.n, id: s.id, name: s.name, base: s.base, minutes: s.minutes, blurb: s.blurb,
+      rooms: s.rooms, roomNames: s.rooms.map(resourceNameOf), bed: !!s.bed, juniorHM: !!s.juniorHM, branding: !!s.branding,
+      lengthLabel: VLS.lengthLabel(s.minutes),
+      total: VLS.sessionQuote(s.id, {}).total, deposit: VLS.sessionQuote(s.id, {}).deposit,
+      options: VLS.optionsFor(s)
+    })),
+    addons: VLS.PHOTO_ADDONS,
+    config: { hstRate: VLS.CONFIG.hstRate, depositPct: VLS.CONFIG.depositPct,
+      balanceDaysBefore: VLS.CONFIG.balanceDaysBefore, cancelWindowHours: VLS.CONFIG.cancelWindowHours,
+      openHour: VLS.CONFIG.openHour, closeHour: VLS.CONFIG.closeHour, leadHours: LEAD_HOURS }
+  });
+});
+
+app.post('/api/sessions/quote', (req, res) => {
+  try {
+    const q = VLS.sessionQuote(req.body.session, req.body.addons || {});
+    res.json(Object.assign({}, q, { lengthLabel: VLS.lengthLabel(q.minutes) }));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Bookable times for one session on one date (add-ons matter: they stretch the window).
+app.get('/api/sessions/availability', (req, res) => {
+  const key = req.query.session, date = req.query.date;
+  const s = VLS.sessionById(key);
+  if (!s) return res.status(400).json({ error: 'unknown session' });
+  if (!date) return res.status(400).json({ error: 'date required' });
+  let sel = {};
+  if (req.query.addons) { try { sel = JSON.parse(req.query.addons); } catch (_) {} }
+  const closed = isClosedDay(date);
+  const slots = closed ? [] : sessionSlots(s.id, date, sel);
+  const q = VLS.sessionQuote(s.id, sel);
+  res.json({
+    session: s.id, sessionName: s.name, date, closed, minutes: q.minutes,
+    lengthLabel: VLS.lengthLabel(q.minutes),
+    slots: slots.map(t => {
+      const w = VLS.sessionWindow(s.id, t, sel);
+      return { start: t, label: VLS.hourLabel(t), endLabel: VLS.hourLabel(w.end),
+        arrival: w.hm ? w.hm.arrival : null, arrivalLabel: w.hm ? VLS.hourLabel(w.hm.arrival) : null };
+    }),
+    quote: q,
+    note: closed ? 'The studio is closed on Mondays.' : (slots.length ? null : 'No times left on this date for this session.')
+  });
+});
+
+/* ---------- book a session (charges the 50% deposit) ---------- */
+app.post('/api/sessions/book', async (req, res) => {
+  const { session, date, start, customerName, customerEmail, paymentToken } = req.body;
+  const cat = VLS.sessionById(session);
+  if (!cat) return res.status(400).json({ error: 'unknown session' });
+  if (!date) return res.status(400).json({ error: 'date required' });
+  if (!customerName || !customerEmail) return res.status(400).json({ error: 'Please give us your name and email.' });
+  const s0 = +start;
+  if (!(s0 >= 0)) return res.status(400).json({ error: 'Please choose a time.' });
+  if (Math.round(s0 * 4) !== s0 * 4) return res.status(400).json({ error: 'Times must be on the quarter hour.' });
+  if (isClosedDay(date)) return res.status(400).json({ error: 'The studio is closed on Mondays. Please choose another day.' });
+
+  // Recompute price and window on the server — the browser's numbers are display only.
+  const q = VLS.sessionQuote(cat.id, req.body.addons || {});
+  const win = VLS.sessionWindow(cat.id, s0, req.body.addons || {});
+  const hoursErr = VLS.fitsStudioHours(win);
+  if (hoursErr) return res.status(400).json({ error: hoursErr });
+  if (hoursUntil(date, win.earliest) < LEAD_HOURS) {
+    return res.status(400).json({ error: 'Sessions within ' + LEAD_HOURS + ' hours need to be arranged with us directly — please call or text 905-767-2099.' });
+  }
+
+  // 1) Hold every resource atomically (no await inside the transaction).
+  let sessionId = null, conf = null;
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    const clash = sessionConflict(win, date);
+    if (clash) { db.exec('ROLLBACK'); return res.status(409).json({ error: clash + ' was just taken for that time. Please pick another slot.' }); }
+    conf = newSessionConfirmation();
+    const intakeStr = req.body.intake ? JSON.stringify(req.body.intake).slice(0, 4000) : null;
+    const info = db.prepare(`INSERT INTO sessions
+      (session_key,session_name,date,start,end,minutes,addons_json,rooms_json,hm_addon,hm_arrival,
+       pre,hst,total,deposit,balance_due,balance_paid,paid,payment_ref,payment_mode,
+       customer_name,customer_email,customer_phone,intake,status,confirmation,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,'PENDING','pending',?,?,?,?,'pending',?,?)`)
+      .run(cat.id, cat.name, date, win.start, win.end, q.minutes,
+        JSON.stringify(q.selection), JSON.stringify(cat.rooms),
+        win.hm ? win.hm.addon : null, win.hm ? win.hm.arrival : null,
+        q.pre, q.hst, q.total, q.deposit, q.balance,
+        customerName, (customerEmail || '').trim(), (req.body.customerPhone || '').trim(), intakeStr, conf, nowISO());
+    sessionId = info.lastInsertRowid;
+    writeSessionBlocks(sessionId, { date, customer_name: customerName, customer_email: customerEmail,
+      customer_phone: req.body.customerPhone, session_name: cat.name, confirmation: conf }, win);
+    db.exec('COMMIT');
+  } catch (e) { try { db.exec('ROLLBACK'); } catch (_) {} return res.status(500).json({ error: e.message }); }
+
+  // 2) Charge the deposit only.
+  const release = () => { removeSessionBlocks(sessionId); db.prepare(`DELETE FROM sessions WHERE id=? AND status='pending'`).run(sessionId); };
+  let pay;
+  if (req.body.paymentMethod === 'paypal') {
+    pay = PP.enabled ? await ppCaptureOrder(req.body.paypalOrderId) : { ok: false, error: 'PayPal is not connected.' };
+    if (pay.ok) pay.mode = 'paypal';
+  } else {
+    pay = await payments.charge({ amountCents: Math.round(q.deposit * 100), sourceId: paymentToken,
+      idempotencyKey: 'vlp-' + conf + '-' + Math.round(q.deposit * 100) });
+  }
+  if (!pay.ok) { release(); return res.status(402).json({ error: pay.error || 'Payment failed' }); }
+
+  // 3) Confirm: deposit recorded, balance still owing.
+  db.prepare(`UPDATE sessions SET status='confirmed', paid=?, payment_ref=?, payment_mode=? WHERE id=?`)
+    .run(q.deposit, pay.ref, pay.mode || payments.mode, sessionId);
+
+  const row = db.prepare(`SELECT * FROM sessions WHERE id=?`).get(sessionId);
+  const view = sessionView(row);
+
+  // Confirmation email (fire and forget — a mail problem must never lose a booking).
+  sendEmail({ to: row.customer_email, subject: 'Your session is booked at The Vintage Loft!',
+    html: sessionConfirmationEmail(view) })
+    .catch(e => console.error('[email] session confirmation error:', e.message));
+  // Same owner/manager text as a studio booking, so a late-night session booking is never missed.
+  try {
+    notifyNewBooking({ name: customerName, confirmation: conf, source: 'session',
+      bookings: [{ roomName: cat.name, date: row.date, start: row.start, end: row.end }],
+      grandTotal: q.deposit });
+  } catch (_) {}
+
+  res.json({ ok: true, confirmation: conf, session: view, deposit: q.deposit, balanceDue: q.balance,
+    paymentMode: pay.mode || payments.mode });
+});
+
+/* ---------- client: look up / cancel a session ---------- */
+app.get('/api/sessions/lookup', (req, res) => {
+  const conf = (req.query.confirmation || '').trim();
+  const email = (req.query.email || '').trim().toLowerCase();
+  if (!conf || !email) return res.status(400).json({ error: 'confirmation and email required' });
+  const r = db.prepare(`SELECT * FROM sessions WHERE confirmation=? AND LOWER(customer_email)=?`).get(conf, email);
+  if (!r) return res.status(404).json({ error: 'We could not find that session.' });
+  res.json({ session: sessionView(r) });
+});
+
+// Cancel a session. Credit follows the same rule as rentals: full credit of what was actually
+// paid if cancelled at least 48 hours out. allowCredit=false is the staff "cancel without credit".
+function cancelSessionWithCredit(r, allowCredit) {
+  db.prepare(`UPDATE sessions SET status='cancelled' WHERE id=?`).run(r.id);
+  removeSessionBlocks(r.id);
+  const hrs = hoursUntil(r.date, r.start);
+  const win = VLS.CONFIG.cancelWindowHours;
+  let already = null;
+  try { already = db.prepare(`SELECT 1 FROM credit_ledger WHERE session_id=? AND amount>0`).get(r.id); } catch (_) {}
+  let credited = 0;
+  const paidSoFar = VL.round2((r.paid || 0) + (r.balance_paid || 0));
+  if (allowCredit !== false && hrs >= win && !already && paidSoFar > 0 && r.customer_email) {
+    credited = paidSoFar;
+    db.prepare(`INSERT INTO credit_ledger (email,amount,reason,booking_id,session_id,created_at) VALUES (?,?,?,NULL,?,?)`)
+      .run((r.customer_email || '').toLowerCase(), credited, 'Session cancellation credit ' + (r.confirmation || ''), r.id, nowISO());
+  }
+  return { credited, hoursOut: Math.round(hrs), windowHours: win,
+    newBalance: r.customer_email ? creditBalance(r.customer_email) : 0 };
+}
+
+app.post('/api/sessions/cancel', (req, res) => {
+  const conf = (req.body.confirmation || '').trim();
+  let email = (req.body.email || '').trim().toLowerCase();
+  const tokEmail = emailForToken(req.body.token);
+  if (tokEmail) email = tokEmail;
+  if (!conf || !email) return res.status(400).json({ error: 'confirmation and email required' });
+  const r = db.prepare(`SELECT * FROM sessions WHERE confirmation=? AND LOWER(customer_email)=?`).get(conf, email);
+  if (!r) return res.status(404).json({ error: 'We could not find that session.' });
+  if (r.status === 'cancelled') return res.status(409).json({ error: 'That session is already cancelled.' });
+  const out = cancelSessionWithCredit(r, true);
+  sendEmail({ to: r.customer_email, subject: 'Your session has been cancelled — The Vintage Loft',
+    html: sessionCancelledEmail(sessionView(r), out.credited) })
+    .catch(e => console.error('[email] session cancellation error:', e.message));
+  res.json(Object.assign({ ok: true }, out));
+});
+
+/* ---------- staff ---------- */
+app.get('/api/admin/sessions', admin, (req, res) => {
+  const rows = db.prepare(`SELECT * FROM sessions ORDER BY date, start`).all();
+  res.json({ sessions: rows.map(sessionView) });
+});
+
+// Bookable slots for staff (no 12-hour lead limit, Mondays allowed).
+app.get('/api/admin/session-slots', admin, (req, res) => {
+  const s = VLS.sessionById(req.query.session);
+  if (!s) return res.status(400).json({ error: 'unknown session' });
+  let sel = {}; if (req.query.addons) { try { sel = JSON.parse(req.query.addons); } catch (_) {} }
+  const slots = sessionSlots(s.id, req.query.date, sel, { staff: true });
+  res.json({ slots: slots.map(t => ({ start: t, label: VLS.hourLabel(t) })) });
+});
+
+app.post('/api/admin/session-cancel', admin, (req, res) => {
+  const r = db.prepare(`SELECT * FROM sessions WHERE id=?`).get(+req.body.id);
+  if (!r) return res.status(404).json({ error: 'not found' });
+  if (r.status === 'cancelled') return res.status(409).json({ error: 'already cancelled' });
+  const out = cancelSessionWithCredit(r, req.body.credit !== false);
+  if (r.customer_email && req.body.notify !== false) {
+    sendEmail({ to: r.customer_email, subject: 'Your session has been cancelled — The Vintage Loft',
+      html: sessionCancelledEmail(sessionView(r), out.credited) })
+      .catch(e => console.error('[email] session cancellation error:', e.message));
+  }
+  res.json(Object.assign({ ok: true }, out));
+});
+
+// Create (or refresh) the Square link for the outstanding balance, and optionally email it now.
+app.post('/api/admin/session-balance-link', admin, async (req, res) => {
+  const r = db.prepare(`SELECT * FROM sessions WHERE id=?`).get(+req.body.id);
+  if (!r) return res.status(404).json({ error: 'not found' });
+  const owing = VL.round2((r.balance_due || 0) - (r.balance_paid || 0));
+  if (owing <= 0) return res.status(400).json({ error: 'Nothing is owing on this session.' });
+  const link = await payments.createLink({ amountCents: Math.round(owing * 100),
+    name: (r.session_name || 'Session') + ' balance · ' + r.confirmation });
+  if (!link.ok) return res.status(400).json({ error: link.error });
+  db.prepare(`UPDATE sessions SET pay_link=? WHERE id=?`).run(link.url, r.id);
+  if (req.body.email !== false && r.customer_email) {
+    const v = sessionView(db.prepare(`SELECT * FROM sessions WHERE id=?`).get(r.id));
+    await sendEmail({ to: r.customer_email, subject: 'Your remaining balance — The Vintage Loft',
+      html: sessionBalanceEmail(v) });
+  }
+  res.json({ ok: true, url: link.url, test: link.test, owing });
+});
+
+app.post('/api/admin/session-mark-balance-paid', admin, (req, res) => {
+  const r = db.prepare(`SELECT * FROM sessions WHERE id=?`).get(+req.body.id);
+  if (!r) return res.status(404).json({ error: 'not found' });
+  const owing = VL.round2((r.balance_due || 0) - (r.balance_paid || 0));
+  const amt = req.body.amount != null ? VL.round2(+req.body.amount) : owing;
+  if (!(amt > 0)) return res.status(400).json({ error: 'amount must be positive' });
+  db.prepare(`UPDATE sessions SET balance_paid=?, paid=? WHERE id=?`)
+    .run(VL.round2((r.balance_paid || 0) + amt), VL.round2((r.paid || 0) + amt), r.id);
+  audit(req.body.actor || 'staff', 'session_balance_paid', r.customer_email, r.confirmation + ' +$' + amt);
+  res.json({ ok: true, paid: VL.round2((r.paid || 0) + amt) });
+});
+
+app.post('/api/admin/session-note', admin, (req, res) => {
+  db.prepare(`UPDATE sessions SET notes=? WHERE id=?`).run((req.body.notes || '').slice(0, 2000), +req.body.id);
+  res.json({ ok: true });
+});
+/* ==================== end photography sessions ==================== */
+
+/* ---------- session emails (same branded shell as the rental emails) ---------- */
+
+// The shoot summary box used by all three session emails.
+function sessionSummaryHtml(v, opts) {
+  const o = opts || {};
+  const addonRows = (v.addonItems || []).map(a => `
+    <tr><td style="padding:5px 0;color:#6b6459;font-size:14px">${a.name}${a.units > 1 ? ' &times;' + a.units : ''}${a.junior ? ' <span style="font-size:12px;color:#9a938a">(junior)</span>' : ''}</td>
+        <td align="right" style="padding:5px 0;color:#6b6459;font-size:14px">${emMoney(a.amount)}</td></tr>`).join('');
+  const money = o.hideMoney ? '' : `
+        <tr><td colspan="2" style="border-top:1px solid #e7e5e2;padding-top:8px"></td></tr>
+        <tr><td style="padding:4px 0;color:#6b6459;font-size:14px">Subtotal</td><td align="right" style="padding:4px 0;color:#6b6459;font-size:14px">${emMoney(v.pre)}</td></tr>
+        <tr><td style="padding:4px 0;color:#6b6459;font-size:14px">HST (13%)</td><td align="right" style="padding:4px 0;color:#6b6459;font-size:14px">${emMoney(v.hst)}</td></tr>
+        <tr><td style="padding:6px 0"><b>Session total</b></td><td align="right" style="padding:6px 0"><b>${emMoney(v.total)}</b></td></tr>`;
+  return `
+    <div style="background:#f6f5f3;border-radius:10px;padding:16px 18px;margin:0 0 18px">
+      <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#9a938a;font-family:Arial,sans-serif;margin-bottom:10px">Your session &middot; ${v.confirmation}</div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="font-size:15px">
+        <tr><td style="padding:6px 0">
+          <b>${v.sessionName}</b><br>
+          <span style="color:#8a8375;font-size:13px;font-family:Arial,sans-serif">${emDate(v.date)} &middot; ${v.startLabel}&ndash;${v.endLabel} (${v.lengthLabel})<br>${(v.roomNames || []).join(' + ')}</span>
+        </td><td align="right" style="padding:6px 0;vertical-align:top;white-space:nowrap">${o.hideMoney ? '' : emMoney(v.base)}</td></tr>
+        ${addonRows}
+        ${money}
+      </table>
+    </div>`;
+}
+
+// "Session 1:00 PM — arrive 11:30 AM for hair & makeup in the Marilyn."
+function hmArrivalHtml(v) {
+  if (!v.hmAddon || v.hmArrivalLabel == null) return '';
+  const what = v.hmAddon === 'makeuponly' ? 'makeup' : 'hair &amp; makeup';
+  return `
+    <div style="background:#f7f1e4;border:1px solid #e6d9bd;border-radius:10px;padding:15px 17px;margin:0 0 18px;font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#3a352f">
+      <b>Please arrive early for ${what}.</b><br>
+      Your session starts at <b>${v.startLabel}</b> &mdash; please arrive at <b>${v.hmArrivalLabel}</b> for ${what} in The Marilyn, our hair and makeup room.
+    </div>`;
+}
+
+function sessionConfirmationEmail(v) {
+  const owing = round2ForEmail((v.balanceDue || 0) - (v.balancePaid || 0));
+  const balanceBox = owing > 0 ? `
+    <div style="border:1px solid #eae8e4;border-radius:10px;padding:16px 18px;margin:0 0 20px;font-family:Arial,sans-serif;font-size:14px;line-height:1.6">
+      <table width="100%" cellpadding="0" cellspacing="0" style="font-size:14px">
+        <tr><td style="padding:4px 0;color:#2e7d32">Deposit paid today</td><td align="right" style="padding:4px 0;color:#2e7d32">${emMoney(v.paid)}</td></tr>
+        <tr><td style="padding:4px 0"><b>Balance due</b></td><td align="right" style="padding:4px 0"><b>${emMoney(owing)}</b></td></tr>
+      </table>
+      <div style="color:#6b6459;margin-top:10px">We'll email you a payment link for the balance <b>2 days before</b> your session. Nothing else is charged automatically.</div>
+    </div>` : '';
+  const inner = `
+    <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(v.name)},</p>
+    <p style="margin:0 0 14px;line-height:1.6">Your session with The Vintage Loft is booked. I can't wait to shoot with you! You'll get a reminder the day before, and a payment link for the balance a couple of days ahead.</p>
+    ${sessionSummaryHtml(v)}
+    ${balanceBox}
+    ${hmArrivalHtml(v)}
+    <div style="border:1px solid #eae8e4;border-radius:10px;padding:16px 18px;margin:0 0 20px;font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#3a352f">
+      <div style="font-weight:bold;margin-bottom:6px">Studio policies &amp; contract</div>
+      <div style="color:#6b6459;margin-bottom:12px">Please review and sign before your session if you haven't already.</div>
+      <div style="text-align:center"><a href="${PUBLIC_URL}/?sign=1&amp;e=${encodeURIComponent(v.email || '')}&amp;c=${encodeURIComponent(v.confirmation)}" style="display:inline-block;background:#7c7268;color:#fff;text-decoration:none;font-size:14px;font-weight:bold;padding:11px 24px;border-radius:8px">Review &amp; sign</a></div>
+    </div>
+    <p style="margin:0 0 10px;font-weight:bold">Arrival information</p>
+    <img src="${ARRIVAL_URL}" alt="How to find The Vintage Loft — 207 Dundas St West, Whitby." width="540" style="width:100%;max-width:540px;height:auto;border:1px solid #eae8e4;border-radius:10px;display:block;margin:0 0 14px">
+    <div style="font-size:14px;line-height:1.6;font-family:Arial,sans-serif;margin:0 0 18px;color:#3a352f">
+      <p style="margin:0 0 6px"><b>Address:</b> 207 Dundas St West, Whitby &mdash; 2nd floor of the Pizza Nova Building.</p>
+      <p style="margin:0 0 6px"><b>Parking:</b> Free parking anywhere in our lot.</p>
+      <p style="margin:0 0 6px"><b>Studio:</b> 905-767-2099<br><b>Kelly's cell:</b> 905-767-8099</p>
+    </div>
+    <p style="margin:0 0 18px;line-height:1.6">Any questions at all before the day, just call or text.<br>Kelly &amp; The Vintage Loft Team</p>
+    <div style="background:#f6f5f3;border:1px solid #eae8e4;border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.6;color:#6b6459;font-family:Arial,sans-serif">
+      <b>Cancellation policy:</b> We do not give refunds, however we give full studio credit if cancelled or rescheduled with 48 hours or more notice.
+    </div>`;
+  return emailShell(inner);
+}
+
+// Sent automatically 2 days before the session with a Square link for what's left to pay.
+function sessionBalanceEmail(v) {
+  const owing = round2ForEmail((v.balanceDue || 0) - (v.balancePaid || 0));
+  const payBtn = v.payLink
+    ? `<div style="text-align:center;margin:0 0 20px"><a href="${v.payLink}" style="display:inline-block;background:#7c7268;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;padding:13px 30px;border-radius:8px">Pay the balance &middot; ${emMoney(owing)}</a></div>`
+    : `<p style="margin:0 0 18px;line-height:1.6;font-family:Arial,sans-serif;font-size:14px;color:#6b6459">We'll be in touch with a payment link shortly, or you can settle up at the studio.</p>`;
+  const inner = `
+    <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(v.name)},</p>
+    <p style="margin:0 0 14px;line-height:1.6">Your session is coming up in a couple of days. Here's the balance still owing so everything's settled before you arrive.</p>
+    ${sessionSummaryHtml(v)}
+    <div style="border:1px solid #eae8e4;border-radius:10px;padding:16px 18px;margin:0 0 20px;font-family:Arial,sans-serif">
+      <table width="100%" cellpadding="0" cellspacing="0" style="font-size:14px">
+        <tr><td style="padding:4px 0;color:#6b6459">Deposit already paid</td><td align="right" style="padding:4px 0;color:#6b6459">&minus;${emMoney(v.paid)}</td></tr>
+        <tr><td style="padding:6px 0"><b>Balance due</b></td><td align="right" style="padding:6px 0"><b>${emMoney(owing)}</b></td></tr>
+      </table>
+    </div>
+    ${payBtn}
+    ${hmArrivalHtml(v)}
+    <p style="margin:0 0 18px;line-height:1.6">See you very soon!<br>Kelly &amp; The Vintage Loft Team</p>
+    <div style="background:#f6f5f3;border:1px solid #eae8e4;border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.6;color:#6b6459;font-family:Arial,sans-serif">
+      Questions about your balance? Call or text 905-767-2099.
+    </div>`;
+  return emailShell(inner);
+}
+
+function sessionCancelledEmail(v, credited) {
+  const outcome = (credited > 0)
+    ? `<div style="background:#eaf5ec;border:1px solid #bfe0c5;border-radius:10px;padding:15px 17px;margin:0 0 18px;line-height:1.6">
+         The full amount you paid &mdash; <b>${emMoney(credited)}</b> &mdash; is now waiting in your account as <b>studio credit</b> toward a future booking or session.
+         <div style="text-align:center;margin:16px 0 4px"><a href="${PUBLIC_URL}/?account=1" style="display:inline-block;background:#7c7268;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;padding:12px 26px;border-radius:8px">View my account &amp; credit</a></div>
+       </div>`
+    : `<div style="background:#f6f5f3;border:1px solid #eae8e4;border-radius:10px;padding:15px 17px;margin:0 0 18px;line-height:1.6">
+         Because this cancellation is inside our 48-hour window, we aren't able to issue studio credit for it. If something unexpected came up, please call or text us at 905-767-2099 &mdash; we'll always take a look.
+       </div>`;
+  const inner = `
+    <p style="font-size:18px;margin:0 0 14px">Hello ${emFirst(v.name)},</p>
+    <p style="margin:0 0 14px;line-height:1.6">Your session has been cancelled, as requested.</p>
+    ${sessionSummaryHtml(v, { hideMoney: true })}
+    ${outcome}
+    <p style="margin:0 0 18px;line-height:1.6">We'd love to get you back in the studio whenever you're ready.<br>Kelly &amp; The Vintage Loft Team</p>`;
+  return emailShell(inner);
+}
+
+function round2ForEmail(n) { return VL.round2(n); }
+
+
 // Send day-before reminders for TOMORROW's bookings (Toronto). Grouped by reservation so a
 // multi-studio order gets one email. reminder_sent guards against duplicates, so this is safe
 // to call repeatedly (the built-in scheduler and the manual endpoint both use it).
@@ -2050,14 +2554,66 @@ async function sendRemindersForTomorrow() {
     if (r.ok) { const mark = db.prepare(`UPDATE blocks SET reminder_sent=1 WHERE id=?`); g.forEach(b => mark.run(b.id)); sent++; }
     else if (!r.skipped) failed++;
   }
+  // Photography sessions dated tomorrow get the same day-before reminder, with the
+  // hair & makeup arrival time repeated if they booked it.
+  let srows = [];
+  try { srows = db.prepare(`SELECT * FROM sessions WHERE date=? AND status='confirmed' AND reminder_sent=0`).all(target); } catch (_) {}
+  for (const r of srows) {
+    if (!r.customer_email) { db.prepare(`UPDATE sessions SET reminder_sent=1 WHERE id=?`).run(r.id); continue; }
+    const v = sessionView(r);
+    const rr = await sendEmail({ to: r.customer_email, subject: 'See you tomorrow at The Vintage Loft!',
+      html: reminderEmail({ name: r.customer_name, confirmation: r.confirmation,
+        bookings: [{ roomName: v.sessionName + ' \u00b7 ' + (v.roomNames || []).join(' + '), date: r.date, start: r.start, end: r.end }],
+        extraHtml: hmArrivalHtml(v) }), bcc: null });
+    if (rr.ok) { db.prepare(`UPDATE sessions SET reminder_sent=1 WHERE id=?`).run(r.id); sent++; }
+    else if (!rr.skipped) failed++;
+  }
   if (sent) console.log('[email] sent ' + sent + ' reminder(s) for ' + target);
   return { date: target, reservations: Object.keys(groups).length + Object.keys(mgroups).length, sent, failed };
 }
 
+/* Email the outstanding balance for sessions that are N days away (default 2), with a Square
+   payment link. balance_sent guards against duplicates so this is safe to run repeatedly.
+   Runs in the same daily sweep as the day-before reminders. */
+async function sendSessionBalanceReminders() {
+  const days = VLS.CONFIG.balanceDaysBefore;
+  const target = torontoISO(days);
+  let rows = [];
+  try { rows = db.prepare(`SELECT * FROM sessions WHERE date=? AND status='confirmed' AND balance_sent=0`).all(target); } catch (_) {}
+  let sent = 0, failed = 0, skipped = 0;
+  for (const r of rows) {
+    const owing = VL.round2((r.balance_due || 0) - (r.balance_paid || 0));
+    // nothing owing (already settled, or a comped session): mark it done and move on
+    if (owing <= 0 || !r.customer_email) { db.prepare(`UPDATE sessions SET balance_sent=1 WHERE id=?`).run(r.id); skipped++; continue; }
+    let url = r.pay_link;
+    const link = await payments.createLink({ amountCents: Math.round(owing * 100),
+      name: (r.session_name || 'Session') + ' balance \u00b7 ' + r.confirmation });
+    if (link.ok) { url = link.url; db.prepare(`UPDATE sessions SET pay_link=? WHERE id=?`).run(url, r.id); }
+    else console.error('[sessions] balance link failed for ' + r.confirmation + ': ' + link.error);
+    const v = sessionView(db.prepare(`SELECT * FROM sessions WHERE id=?`).get(r.id));
+    const rr = await sendEmail({ to: r.customer_email, subject: 'Your remaining balance \u2014 The Vintage Loft',
+      html: sessionBalanceEmail(v) });
+    if (rr.ok) { db.prepare(`UPDATE sessions SET balance_sent=1 WHERE id=?`).run(r.id); sent++; }
+    else if (!rr.skipped) failed++;
+  }
+  if (sent) console.log('[email] sent ' + sent + ' session balance reminder(s) for ' + target);
+  return { date: target, daysBefore: days, sessions: rows.length, sent, failed, skipped };
+}
+
+// Sessions still owing money on the DAY of the shoot — surfaced on the staff app so Kelly can collect.
+app.get('/api/admin/session-balances-due', admin, (req, res) => {
+  const date = req.query.date || torontoISO(0);
+  let rows = [];
+  try { rows = db.prepare(`SELECT * FROM sessions WHERE date=? AND status='confirmed'`).all(date); } catch (_) {}
+  const owing = rows.map(sessionView).filter(v => VL.round2((v.balanceDue || 0) - (v.balancePaid || 0)) > 0);
+  res.json({ date, owing });
+});
+
 // Manual trigger (handy for testing, or an external cron as a backup). Same logic as the auto-run.
 app.get('/api/tasks/send-reminders', admin, async (req, res) => {
   const r = await sendRemindersForTomorrow();
-  res.json(Object.assign({ ok: true, emailEnabled }, r));
+  const b = await sendSessionBalanceReminders();
+  res.json(Object.assign({ ok: true, emailEnabled }, r, { sessionBalances: b }));
 });
 
 // Built-in daily scheduler — automatically sends the day-before reminders each morning
@@ -2075,6 +2631,7 @@ function startReminderScheduler() {
       if (hour >= REMINDER_HOUR && lastRun !== today) {
         lastRun = today;
         sendRemindersForTomorrow().catch(e => console.error('[email] reminder sweep error:', e.message));
+        sendSessionBalanceReminders().catch(e => console.error('[email] session balance sweep error:', e.message));
       }
     } catch (e) { console.error('[scheduler] error:', e.message); }
   };
