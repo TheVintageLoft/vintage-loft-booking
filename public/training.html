@@ -148,8 +148,20 @@
 
   <!-- ============ MODULE 4: ADD A BOOKING ============ -->
   <div class="card hidden mod" id="mod4">
-    <div class="modhead"><i style="background:var(--gatsby)"></i><h2>4 · Adding a booking</h2></div>
-    <p>Manual bookings (any booking a staff member enters, whether the client asked by phone, text, DM, email, or in person) go in through <b>Add to the calendar</b>. Pick the studio, date, and time, add any add-ons, and leave <b>Notify client</b> ticked so they get the email with their payment link. Use <b>+ Add another studio</b> for a second same-day studio; a different day should be its own booking.</p>
+    <div class="modhead"><i style="background:var(--gatsby)"></i><h2>4 · Creating a booking</h2></div>
+    <p class="muted" style="font-size:14px"><b style="color:var(--ink)">Manual bookings</b> = any booking a staff member enters, whether the client asked by phone, text, DM, email, or in person.</p>
+    <div class="keyrow"><span class="kpill" style="color:var(--gatsby);border-color:var(--gatsby);background:#fff">Step 1</span>
+      <span class="ktxt"><span class="krule">Choose the studio, time and add-ons</span>
+      <span class="kres">Pick the studio, date, start and end, then tick any add-ons</span></span></div>
+    <div class="keyrow"><span class="kpill" style="color:var(--gatsby);border-color:var(--gatsby);background:#fff">Step 2</span>
+      <span class="ktxt"><span class="krule">Leave Notify client on</span>
+      <span class="kres">They get one email with everything, including their payment link</span></span></div>
+    <div class="keyrow"><span class="kpill" style="color:#8a8375;border-color:#d8d2c8;background:#fff">Optional</span>
+      <span class="ktxt"><span class="krule">+ Add another studio</span>
+      <span class="kres">Same day only · a different day should be its own booking</span></span></div>
+    <div class="keyrow" style="background:#f3efe9"><span class="kpill" style="color:#fff;border-color:var(--brown);background:var(--brown)">Now</span>
+      <span class="ktxt"><span class="krule">Add to calendar</span>
+      <span class="kres">The booking lands on the schedule and the email goes out</span></span></div>
     <div class="task">YOUR TASK: book the <b>Gatsby</b> studio for <b>2 hours</b>, add the <b>Pet fee</b>, keep Notify client ticked, then Add to calendar.</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">
       <div><label class="muted">Studio</label><select id="m4room"><option value="">Choose…</option><option value="grand">Grand Room</option><option value="gatsby">Gatsby Room</option><option value="dream">Dream Room</option><option value="carnegie">Carnegie Room</option></select></div>
@@ -253,7 +265,7 @@
 </div>
 <script>
 /* ================= state ================= */
-var MODS=['Sign in','Reading the schedule','Find a client','Adding a booking','Payments','Cancellations'];
+var MODS=['Sign in','Reading the schedule','Find a client','Creating a booking','Payments','Cancellations'];
 var COLORS=['#7c7268','#c0392b','#2e6f9e','#3f8a52','#8a5a2b','#7a4fa3'];
 var S={name:'',done:[false,false,false,false,false,false]};
 function save(){ try{ localStorage.setItem('vl_training', JSON.stringify(S)); }catch(e){} }
