@@ -99,7 +99,7 @@
   <div class="card hidden mod" id="mod2">
     <div class="modhead"><i style="background:var(--grand)"></i><h2>2 · Reading the schedule</h2></div>
     <p>The calendar shows every studio's day. Learn the colours: <b style="color:var(--grand)">Grand red</b>, <b style="color:var(--dream)">Dream blue</b>, <b style="color:var(--gatsby)">Gatsby green</b>, <b style="color:var(--carnegie)">Carnegie brown</b>, <b style="color:var(--marilyn)">Marilyn purple</b>.</p>
-    <p style="margin-top:8px">Three things to spot on any entry: the <span class="tag tag-booking" style="margin-left:0">Booking</span> or <span class="tag tag-hold">Hold</span> tag, the green <b style="color:var(--green)">PAID</b> stamp in the corner (paid, Vintage Films, and comps all count as paid), and slim <b>Setup</b> cards, which are reserved early-arrival time that belongs to the booking above them and can't be edited on their own.</p>
+    <p style="margin-top:8px">Three things to spot on any entry: the <span class="tag tag-booking" style="margin-left:0">Booking</span> or <span class="tag tag-hold">Hold</span> tag, the green <b style="color:var(--green)">PAID</b> stamp in the corner (paid, Vintage Films, and comps all count as paid), and an <b style="color:#8a6a2b">Early arrival setup</b> line on some bookings: 15 reserved minutes before their start time that moves and cancels with the booking automatically.</p>
     <div id="m2cards"></div>
     <div class="task">YOUR TASK: one of these bookings has <b>not been paid</b>. Tap it.</div>
     <div class="msg" id="m2msg"></div>
@@ -125,7 +125,7 @@
   <!-- ============ MODULE 4: ADD A BOOKING ============ -->
   <div class="card hidden mod" id="mod4">
     <div class="modhead"><i style="background:var(--gatsby)"></i><h2>4 · Adding a booking</h2></div>
-    <p>Phone bookings go in through <b>Add to the calendar</b>. Pick the studio, date, and time, add any add-ons, and leave <b>Notify client</b> ticked so they get the email with their payment link. Use <b>+ Add another studio</b> for a second same-day studio; a different day should be its own booking.</p>
+    <p>Manual bookings (any booking a staff member enters, whether the client asked by phone, text, DM, email, or in person) go in through <b>Add to the calendar</b>. Pick the studio, date, and time, add any add-ons, and leave <b>Notify client</b> ticked so they get the email with their payment link. Use <b>+ Add another studio</b> for a second same-day studio; a different day should be its own booking.</p>
     <div class="task">YOUR TASK: book the <b>Gatsby</b> studio for <b>2 hours</b>, add the <b>Pet fee</b>, keep Notify client ticked, then Add to calendar.</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">
       <div><label class="muted">Studio</label><select id="m4room"><option value="">Choose…</option><option value="grand">Grand Room</option><option value="gatsby">Gatsby Room</option><option value="dream">Dream Room</option><option value="carnegie">Carnegie Room</option></select></div>
@@ -274,22 +274,19 @@ function m1go(){
 /* ================= module 2 ================= */
 var M2=[
   {name:'Katrina J', room:'Grand Room', color:'#c0392b', time:'10:00 AM – 11:00 AM', paid:true},
-  {name:'Early arrival setup', room:'Grand Room', color:'#c0392b', time:'11:15 AM – 11:30 AM', setup:true},
-  {name:'Kelly LeMay', room:'Grand Room', color:'#c0392b', time:'11:30 AM – 1:15 PM', paid:true, vf:true},
+  {name:'Kelly LeMay', room:'Grand Room', color:'#c0392b', time:'11:30 AM – 1:15 PM', paid:true, vf:true, setup:'11:15 AM – 11:30 AM'},
   {name:'Devon R', room:'Dream Room', color:'#2e6f9e', time:'2:00 PM – 4:00 PM', paid:false}
 ];
 function m2render(){
   var box=$('m2cards'); box.innerHTML='';
   M2.forEach(function(b,i){
     var c=document.createElement('div'); c.className='daycard'; c.style.borderLeftColor=b.color;
-    if(b.setup){
-      c.style.opacity='.85';
-      c.innerHTML='<div class="who">'+b.name+' <span class="tag tag-hold">Setup</span></div><div class="meta">'+b.time+' · part of the booking that follows</div>';
-    } else {
-      c.innerHTML='<div class="who">'+b.name+' <span class="tag tag-booking">Booking</span>'+(b.vf?' <span class="tag" style="background:#f3eefa;color:#7a4fa3">Owner use</span>':'')+'</div><div class="meta">'+b.room+' · '+b.time+'</div>'+(b.paid?'<span class="paidstamp">PAID</span>':'');
-      c.style.cursor='pointer';
-      c.onclick=function(){ m2pick(b,c); };
-    }
+    c.innerHTML='<div class="who">'+b.name+' <span class="tag tag-booking">Booking</span>'+(b.vf?' <span class="tag" style="background:#f3eefa;color:#7a4fa3">Owner use</span>':'')+'</div>'
+      +'<div class="meta">'+b.room+' · '+b.time+'</div>'
+      +(b.setup?'<div class="meta" style="color:#8a6a2b">Early arrival setup · '+b.setup+' (reserved, moves with this booking)</div>':'')
+      +(b.paid?'<span class="paidstamp">PAID</span>':'');
+    c.style.cursor='pointer';
+    c.onclick=function(){ m2pick(b,c); };
     box.appendChild(c);
   });
 }

@@ -744,23 +744,15 @@ function selectDay(iso){
     bar.appendChild(tlBtn); bar.appendChild(listBtn);
   })();
   ROOMS.forEach(function(r){
-    var rid=r[0]; var list=items.filter(function(x){return x.room===rid;});
+    var rid=r[0]; var list=items.filter(function(x){return x.room===rid && !(x.source==='block' && x.booking_id);});
     if(!list.length) return;
     var hdr=document.createElement('div'); hdr.className='studiohdr'; hdr.innerHTML='<i style="background:'+RCOLOR[rid]+'"></i>'+r[1]; body.appendChild(hdr);
     list.forEach(function(x){
       var card=document.createElement('div'); card.className='daycard'; card.style.borderLeftColor=RCOLOR[rid]; card.id='dc-'+x.source+'-'+x.id;
       var who=document.createElement('div'); who.className='who';
       who.appendChild(document.createTextNode(x.label+(x.sample?' (sample)':'')));
-      // A hold linked to a booking (the reserved 15-min early-arrival window) is part of that booking:
-      // it moves when the booking is edited and disappears when it's cancelled. No controls of its own.
-      if(x.source==='block' && x.booking_id){
-        card.style.opacity='0.85';
-        var stag=document.createElement('span'); stag.className='tag tag-hold'; stag.textContent='Setup'; who.appendChild(stag);
-        card.appendChild(who);
-        var smeta=document.createElement('div'); smeta.className='meta'; smeta.textContent=tLabel(x.start)+' – '+tLabel(x.end)+'  ·  part of the booking that follows'; card.appendChild(smeta);
-        var snote=document.createElement('div'); snote.className='muted'; snote.style.cssText='font-size:12px;margin-top:4px'; snote.textContent='Edits and cancellations happen on the booking itself; this reserved time moves with it.'; card.appendChild(snote);
-        body.appendChild(card); return;
-      }
+      // A hold linked to a booking (the reserved early-arrival window) is filtered out of the list
+      // above and shown as a line ON its booking card instead — one card per booking.
       var tag=document.createElement('span');
       if(x.kind==='booking'){ tag.className='tag tag-booking'; tag.textContent='Booking'; }
       else { tag.className='tag tag-hold'; tag.textContent='Hold'; }
@@ -769,6 +761,11 @@ function selectDay(iso){
       else if(x.pay_mode==='comp'){ var ct=document.createElement('span'); ct.className='tag tag-comp'; ct.textContent='Comp'; who.appendChild(ct); }
       card.appendChild(who);
       var meta=document.createElement('div'); meta.className='meta'; meta.textContent=tLabel(x.start)+' – '+tLabel(x.end); card.appendChild(meta);
+      // linked early-arrival window (from the earlysetup add-on) shows right on this booking's card
+      if(x.source==='booking'){
+        var su=items.find(function(b){ return b.source==='block' && b.booking_id===x.id; });
+        if(su){ var sl=document.createElement('div'); sl.className='meta'; sl.style.color='#8a6a2b'; sl.textContent='Early arrival setup · '+tLabel(su.start)+' – '+tLabel(su.end)+' (reserved, moves with this booking)'; card.appendChild(sl); }
+      }
       // ---- client contact (from a manually-added booking) ----
       if(x.client){
         var cc=null; try{ cc=JSON.parse(x.client); }catch(e){}
@@ -1167,7 +1164,7 @@ function renderDayTimeline(container, items, setMode){
         b.appendChild(st);
       }
       b.title=(x.label||'')+' · '+rname(x.room)+' · '+tLabel(x.start)+'–'+tLabel(x.end);
-      b.onclick=(function(entry){ return function(){ setMode('list'); var el=document.getElementById('dc-'+entry.source+'-'+entry.id); if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); var ob=el.style.background; el.style.transition='background .4s'; el.style.background='#fff6e2'; setTimeout(function(){ el.style.background=ob||''; },1300); } }; })(x);
+      b.onclick=(function(entry){ return function(){ setMode('list'); var tid=(entry.source==='block'&&entry.booking_id)?('dc-booking-'+entry.booking_id):('dc-'+entry.source+'-'+entry.id); var el=document.getElementById(tid); if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); var ob=el.style.background; el.style.transition='background .4s'; el.style.background='#fff6e2'; setTimeout(function(){ el.style.background=ob||''; },1300); } }; })(x);
       cbody.appendChild(b);
     });
     cdiv.appendChild(cbody); rowflex.appendChild(cdiv);
